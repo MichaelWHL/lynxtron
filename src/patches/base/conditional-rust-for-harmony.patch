@@ -1,0 +1,55 @@
+From a2ab7b5fd9bcd46908c624b6700e5de2d41903b1 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 15:58:02 +0800
+Subject: [PATCH] Conditional rust target for HarmonyOS (enable_rust=false)
+
+---
+ test/BUILD.gn | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/test/BUILD.gn b/test/BUILD.gn
+index 9932446..9a6ae7d 100644
+--- a/test/BUILD.gn
++++ b/test/BUILD.gn
+@@ -35,15 +35,17 @@ static_library("test_config") {
+   ]
+ }
+ 
+-rust_static_library("test_rust_logger_consumer") {
+-  allow_unsafe = true  # Unsafe needed for FFI
+-  testonly = true
+-  deps = [ "//third_party/rust/log/v0_4:lib" ]
+-  sources = [ "logging/test_rust_logger_consumer.rs" ]
++if (enable_rust) {
++  rust_static_library("test_rust_logger_consumer") {
++    allow_unsafe = true  # Unsafe needed for FFI
++    testonly = true
++    deps = [ "//third_party/rust/log/v0_4:lib" ]
++    sources = [ "logging/test_rust_logger_consumer.rs" ]
+ 
+-  crate_root = "logging/test_rust_logger_consumer.rs"
++    crate_root = "logging/test_rust_logger_consumer.rs"
+ 
+-  cxx_bindings = [ "logging/test_rust_logger_consumer.rs" ]
++    cxx_bindings = [ "logging/test_rust_logger_consumer.rs" ]
++  }
+ }
+ 
+ static_library("test_support") {
+@@ -193,9 +195,12 @@ static_library("test_support") {
+ 
+   configs += [ "//build/config:precompiled_headers" ]
+ 
++  if (enable_rust) {
++    public_deps = [ ":test_rust_logger_consumer" ]
++  }
++
+   public_deps = [
+     ":test_config",
+-    ":test_rust_logger_consumer",
+     "//base",
+     "//base:base_static",
+     "//base:i18n",
+-- 
+2.34.1
+

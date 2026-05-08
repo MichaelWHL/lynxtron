@@ -1,0 +1,678 @@
+From 32741c3ef95999a1cc44a2331c4f34e34b8794b1 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 15:57:59 +0800
+Subject: [PATCH 1/4] Add HarmonyOS build config (Group A+B): config/toolchain
+ dirs + is_harmony branches
+
+---
+ config/BUILDCONFIG.gn              |   6 +
+ config/clang/BUILD.gn              |  15 +++
+ config/compiler/BUILD.gn           |   2 +
+ config/harmony/BUILD.gn            |  26 +++++
+ config/harmony/config.gni          | 106 ++++++++++++++++++
+ config/harmony/get_sdk_ndk_path.py |  31 ++++++
+ config/rust.gni                    |  10 ++
+ config/sysroot.gni                 |   3 +
+ rust/gni_impl/rust_target.gni      |   9 +-
+ rust/known-target-triples.txt      |   1 +
+ toolchain/harmony/BUILD.gn         | 173 +++++++++++++++++++++++++++++
+ toolchain/sccache.gni              |   7 ++
+ 12 files changed, 387 insertions(+), 2 deletions(-)
+ create mode 100644 config/harmony/BUILD.gn
+ create mode 100644 config/harmony/config.gni
+ create mode 100644 config/harmony/get_sdk_ndk_path.py
+ create mode 100644 toolchain/harmony/BUILD.gn
+ create mode 100644 toolchain/sccache.gni
+
+diff --git a/config/BUILDCONFIG.gn b/config/BUILDCONFIG.gn
+index bb32ad6..2985e62 100644
+--- a/config/BUILDCONFIG.gn
++++ b/config/BUILDCONFIG.gn
+@@ -169,6 +169,10 @@ declare_args() {
+   # DON'T ADD MORE FLAGS HERE. Read the comment above.
+ }
+ 
++declare_args() {
++  use_musl = false
++}
++
+ declare_args() {
+   # Debug build. Enabling official builds automatically sets is_debug to false.
+   is_debug = !is_official_build
+@@ -309,6 +313,8 @@ if (target_os == "android") {
+   assert(
+       false,
+       "emscripten is not a supported target_os. It is available only as secondary toolchain.")
++} else if (target_os == "harmony") {
++  _default_toolchain = "//build/toolchain/harmony:$target_cpu"
+ } else {
+   assert(false, "Unsupported target_os: $target_os")
+ }
+diff --git a/config/clang/BUILD.gn b/config/clang/BUILD.gn
+index 109c340..305e066 100644
+--- a/config/clang/BUILD.gn
++++ b/config/clang/BUILD.gn
+@@ -177,6 +177,9 @@ template("clang_lib") {
+       _suffix = ""
+       _ext = "a"
+ 
++      if (is_harmony) {
++        clang_version = "19"
++      }
+       _clang_lib_dir = "$clang_base_path/lib/clang/$clang_version/lib"
+       if (is_win) {
+         _dir = "windows"
+@@ -250,6 +253,18 @@ template("clang_lib") {
+         } else {
+           assert(false)  # Unhandled cpu type
+         }
++      } else if (is_harmony) {
++        if (current_cpu == "x64") {
++          _dir = "x86_64-linux-ohos"
++        } else if (current_cpu == "arm") {
++          _dir = "arm-linux-ohos"
++        } else if (current_cpu == "arm64") {
++          _dir = "aarch64-linux-ohos"
++        } else if (current_cpu == "riscv64") {
++          _dir = "riscv64-linux-ohos"
++        } else {
++          assert(false)  # Unhandled cpu type
++        }
+       } else {
+         assert(false)  # Unhandled target platform
+       }
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index c0d9e43..bb00fea 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -397,6 +397,8 @@ config("lynx_disable_warning_config") {
+       "-Wno-unsafe-buffer-usage",
+       "-Wno-unsafe-buffer-usage-in-libc-call",
+     ]
++  } else {
++    config_flags = []
+   }
+   cflags = config_flags
+   cflags_cc = config_flags
+diff --git a/config/harmony/BUILD.gn b/config/harmony/BUILD.gn
+new file mode 100644
+index 0000000..0d5afb4
+--- /dev/null
++++ b/config/harmony/BUILD.gn
+@@ -0,0 +1,26 @@
++# Copyright 2025 The Lynx Authors
++# Licensed under the Apache License Version 2.0 that can be found in the
++# LICENSE file in the root directory of this source tree.
++# Copyright (c) 2013 The Chromium Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//build/config/features.gni")
++import("//build/config/sysroot.gni")
++import("//build/config/ui.gni")
++
++config("sdk") {
++  if (sysroot != "") {
++    cflags = [ "--sysroot=" + sysroot ]
++    ldflags = [ "--sysroot=" + sysroot ]
++
++    # Need to get some linker flags out of the sysroot.
++    sysroot_ld_path = rebase_path("//build/config/linux/sysroot_ld_path.py")
++    ldflags += [ exec_script(sysroot_ld_path,
++                             [
++                               rebase_path("//build/linux/sysroot_ld_path.sh"),
++                               sysroot,
++                             ],
++                             "value") ]
++  }
++}
+diff --git a/config/harmony/config.gni b/config/harmony/config.gni
+new file mode 100644
+index 0000000..8a65db2
+--- /dev/null
++++ b/config/harmony/config.gni
+@@ -0,0 +1,106 @@
++# Copyright 2025 The Lynx Authors. All rights reserved.
++# Licensed under the Apache License Version 2.0 that can be found in the
++# LICENSE file in the root directory of this source tree.
++# Copyright 2014 The Chromium Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# This file contains common system config stuff for the OpenHarmony build.
++
++if (is_harmony) {
++  if (!defined(default_harmony_sdk_root)) {
++    default_harmony_sdk_root =
++        exec_script("//build/config/harmony/get_sdk_ndk_path.py",
++                    [
++                      "--env-var",
++                      "HARMONY_HOME",
++                      "-bp",
++                      rebase_path("//"),
++                      "-p",
++                      "//tools/harmony_tools/sdk",
++                    ],
++                    "string")
++    default_harmony_sdk_version = "HarmonyOS-NEXT-DB1"
++  }
++
++  declare_args() {
++    harmony_sdk_root = default_harmony_sdk_root
++    harmony_sdk_version = default_harmony_sdk_version
++  }
++
++  # Host stuff -----------------------------------------------------------------
++
++  # Defines the name the OpenHarmony build gives to the current host CPU
++  # architecture, which is different than the names GN uses.
++  if (host_cpu == "x64" || host_cpu == "x86" || host_cpu == "arm64") {
++    harmony_host_arch = "x86_64"
++  } else {
++    assert(false, "Need OpenHarmony toolchain support for your build CPU arch.")
++  }
++
++  # Defines the name the OpenHarmony build gives to the current host CPU
++  # architecture, which is different than the names GN uses.
++  if (host_os == "linux") {
++    harmony_host_os = "linux"
++  } else if (host_os == "mac") {
++    harmony_host_os = "darwin"
++  } else if (host_os == "win") {
++    harmony_host_os = "win"
++  } else {
++    assert(false, "Need OpenHarmony toolchain support for your build OS.")
++  }
++
++  # Directories and files ------------------------------------------------------
++  #
++  # We define may of the dirs strings here for each output architecture (rather
++  # than just the current one) since these are needed by the OpenHarmony toolchain
++  # file to define toolchains for all possible targets in one pass.
++
++  harmony_sdk = "${harmony_sdk_root}/${harmony_sdk_version}"
++
++  # Path to the OpenHarmony NDK and SDK.
++  harmony_ndk_root = "${harmony_sdk}/openharmony/native"
++
++  harmony_toolchain_root = "$harmony_ndk_root/llvm"
++
++  # Location of libgcc. This is only needed for the current GN toolchain, so we
++  # only need to define the current one, rather than one for every platform
++  # like the toolchain roots.
++  if (current_cpu == "arm") {
++    harmony_target_triple = "arm-linux-ohos"
++  } else if (current_cpu == "x64") {
++    harmony_target_triple = "x86_64-linux-ohos"
++  } else if (current_cpu == "arm64") {
++    harmony_target_triple = "aarch64-linux-ohos"
++  } else {
++    assert(false, "Need harmony libgcc support for your target arch.")
++  }
++
++  harmony_lib = "$harmony_ndk_root/sysroot/usr/lib/$harmony_target_triple"
++  harmony_tool_prefix = "$harmony_toolchain_root/bin"
++  harmony_readelf = "${harmony_tool_prefix}/llvm-readelf"
++  harmony_objcopy = "${harmony_tool_prefix}/llvm-objcopy"
++
++  # Toolchain stuff ------------------------------------------------------------
++
++  harmony_libcpp_root = "$harmony_ndk_root/llvm/lib/$harmony_target_triple/c++"
++
++  harmony_product_extension = ".so"
++
++  # ABI ------------------------------------------------------------------------
++
++  if (current_cpu == "arm") {
++    import("//build/config/arm.gni")
++    if (arm_version < 7) {
++      harmony_app_abi = "armeabi"
++    } else {
++      harmony_app_abi = "armeabi-v7a"
++    }
++  } else if (current_cpu == "x64") {
++    harmony_app_abi = "x86_64"
++  } else if (current_cpu == "arm64") {
++    harmony_app_abi = "arm64-v8a"
++  } else {
++    assert(false, "Unknown OpenHarmony ABI: " + current_cpu)
++  }
++}
+diff --git a/config/harmony/get_sdk_ndk_path.py b/config/harmony/get_sdk_ndk_path.py
+new file mode 100644
+index 0000000..c523bb0
+--- /dev/null
++++ b/config/harmony/get_sdk_ndk_path.py
+@@ -0,0 +1,31 @@
++#!/usr/bin/env python
++# Copyright 2025 The Lynx Authors
++# Licensed under the Apache License Version 2.0 that can be found in the
++# LICENSE file in the root directory of this source tree.
++
++import argparse
++import os
++import sys
++
++def main():
++  parser = argparse.ArgumentParser()
++  parser.add_argument('--env-var', type=str, required=True, help='Retrieve the value of the environment variable')
++  parser.add_argument('-bp', '--base-path', type=str, required=True, help='Project root path')
++  parser.add_argument('-p', '--default-path', type=str, required=True, help='Default path')
++  args = parser.parse_args()
++  env_var = args.env_var
++  base_path = args.base_path
++  default_path = args.default_path
++  file_path = base_path + default_path[1:]
++
++  if(os.path.exists(file_path)):
++    print(default_path, end='')
++  else:
++    env_var_value = os.getenv(env_var)
++    env_var_value = env_var_value if env_var_value else os.getenv(env_var + "_HOME")
++    if not os.path.exists(env_var_value):
++      raise Exception("environment value `{}` is not a valid path" % env_var)
++    print(env_var_value, end='')
++
++if __name__ == '__main__':
++  sys.exit(main())
+\ No newline at end of file
+diff --git a/config/rust.gni b/config/rust.gni
+index 55bd7b7..9e4446d 100644
+--- a/config/rust.gni
++++ b/config/rust.gni
+@@ -327,6 +327,16 @@ if (is_linux || is_chromeos) {
+   } else {
+     assert(false, "Architecture not supported")
+   }
++} else if (is_harmony) {
++  if (current_cpu == "arm64") {
++    rust_abi_target = "aarch64-unknown-linux-ohos"
++    cargo_target_abi = ""
++  } else if (current_cpu == "x64") {
++    rust_abi_target = "x86_64-unknown-linux-ohos"
++    cargo_target_abi = ""
++  } else {
++    assert(false, "Architecture not supported")
++  }
+ }
+ 
+ if (toolchain_has_rust) {
+diff --git a/config/sysroot.gni b/config/sysroot.gni
+index e3a5732..8702aaf 100644
+--- a/config/sysroot.gni
++++ b/config/sysroot.gni
+@@ -34,6 +34,9 @@ if (sysroot == "") {
+ 
+     # Android uses unified headers, and thus a single compile time sysroot
+     sysroot = "$android_toolchain_root/sysroot"
++  } else if (is_harmony) {
++    import("//build/config/harmony/config.gni")
++    sysroot = rebase_path("$harmony_ndk_root/sysroot")
+   } else if ((is_linux || is_chromeos) && use_sysroot) {
+     # By default build against a sysroot image downloaded from Cloud Storage
+     # during gclient runhooks.
+diff --git a/rust/gni_impl/rust_target.gni b/rust/gni_impl/rust_target.gni
+index f400a02..3ff372a 100644
+--- a/rust/gni_impl/rust_target.gni
++++ b/rust/gni_impl/rust_target.gni
+@@ -38,8 +38,12 @@ if (enable_rust_cxx) {
+ # be provided.
+ 
+ template("rust_target") {
+-  assert(enable_rust)
+-  _target_name = target_name
++  if (!enable_rust) {
++    group(target_name) {
++      not_needed(invoker, "*")
++    }
++  } else {
++    _target_name = target_name
+ 
+   # NOTE: TargetName=>CrateName mangling algorithm should be updated
+   # simultaneously in 3 places: here, //build/rust/rust_static_library.gni,
+@@ -498,4 +502,5 @@ template("rust_target") {
+       not_needed([ "_cxx_deps" ])
+     }
+   }
++  }  # end of else (enable_rust)
+ }
+diff --git a/rust/known-target-triples.txt b/rust/known-target-triples.txt
+index fc4780b..47f3921 100644
+--- a/rust/known-target-triples.txt
++++ b/rust/known-target-triples.txt
+@@ -17,6 +17,7 @@ aarch64-linux-android
+ aarch64-pc-windows-msvc
+ aarch64-unknown-fuchsia
+ aarch64-unknown-linux-gnu
++aarch64-unknown-linux-ohos
+ arm64e-apple-ios
+ arm-unknown-linux-gnueabi
+ arm-unknown-linux-gnueabihf
+diff --git a/toolchain/harmony/BUILD.gn b/toolchain/harmony/BUILD.gn
+new file mode 100644
+index 0000000..b4fe155
+--- /dev/null
++++ b/toolchain/harmony/BUILD.gn
+@@ -0,0 +1,173 @@
++# Copyright 2025 The Lynx Authors. All rights reserved.
++# Licensed under the Apache License Version 2.0 that can be found in the
++# LICENSE file in the root directory of this source tree.
++# Copyright 2013 The Chromium Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++import("//build/config/sysroot.gni")  # Imports harmony/config.gni.
++import("//build/toolchain/sccache.gni")
++
++if(use_sccache){
++  compiler_prefix = "sccache "
++} else {
++  compiler_prefix = ""
++}
++
++template("harmony_toolchain") {
++  toolchain(target_name) {
++    toolchain_bin = "${harmony_toolchain_root}/bin"
++
++    # We can't do string interpolation ($ in strings) on things with dots in
++    # them. To allow us to use $cc below, for example, we create copies of
++    # these values in our scope.
++    cc = "${toolchain_bin}/clang"
++    cxx = "${toolchain_bin}/clang++"
++    ar = "${toolchain_bin}/llvm-ar"
++    ld = "${toolchain_bin}/clang++"
++    readelf = "${toolchain_bin}/llvm-readelf"
++    nm = "${toolchain_bin}/llvm-nm"
++    strip = "${toolchain_bin}/llvm-strip"
++
++    target_triple_flags = "--target=${harmony_target_triple}"
++    sysroot_flags = "--sysroot ${harmony_ndk_root}/sysroot"
++
++    custom_lib_flags = "-L${harmony_toolchain_root}/lib/${harmony_target_triple}"
++
++    # These library switches can apply to all tools below.
++    lib_switch = "-l"
++    lib_dir_switch = "-L"
++
++    tool("cc") {
++      depfile = "{{output}}.d"
++      command = "$compiler_prefix $cc -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
++      depsformat = "gcc"
++      description = "CC {{output}}"
++      outputs =
++          [ "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o" ]
++    }
++
++    tool("cxx") {
++      depfile = "{{output}}.d"
++      command = "$compiler_prefix $cxx -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} -c {{source}} -o {{output}}"
++      depsformat = "gcc"
++      description = "CXX {{output}}"
++      outputs =
++          [ "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o" ]
++    }
++
++    tool("asm") {
++      depfile = "{{output}}.d"
++      command = "$compiler_prefix $cc -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{asmflags}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
++      depsformat = "gcc"
++      description = "ASM {{output}}"
++      outputs =
++          [ "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o" ]
++    }
++
++    tool("alink") {
++      rspfile = "{{output}}.rsp"
++      command = "rm -f {{output}} && $ar rcs {{output}} @$rspfile"
++      description = "AR {{output}}"
++      rspfile_content = "{{inputs}}"
++      outputs =
++          [ "{{target_out_dir}}/{{target_output_name}}{{output_extension}}" ]
++      default_output_extension = ".a"
++      output_prefix = "lib"
++    }
++
++    tool("solink") {
++      soname = "{{target_output_name}}{{output_extension}}"  # e.g. "libfoo.so".
++      sofile = "{{root_out_dir}}/$soname"  # Possibly including toolchain dir.
++      unstripped_sofile =
++          "{{root_out_dir}}/so.unstripped/$soname"  # Possibly including
++                                                    # toolchain dir.
++      rspfile = sofile + ".rsp"
++
++      # These variables are not built into GN but are helpers that implement
++      # (1) linking to produce a .so, (2) extracting the symbols from that file
++      # to a temporary file, (3) if the temporary file has differences from the
++      # existing .TOC file, overwrite it, otherwise, don't change it.
++      tocfile = sofile + ".TOC"
++      temporary_tocname = sofile + ".tmp"
++      link_command = "$ld $target_triple_flags $sysroot_flags -shared {{ldflags}} -o $unstripped_sofile $custom_lib_flags -Wl,--build-id=sha1 -Wl,-soname=$soname @$rspfile"
++      toc_command = "{ $readelf -d $unstripped_sofile | grep SONAME ; $nm -gD -f posix $unstripped_sofile | cut -f1-2 -d' '; } > $temporary_tocname"
++      replace_command = "if ! cmp -s $temporary_tocname $tocfile; then mv $temporary_tocname $tocfile; fi"
++      strip_command = "$strip -o $sofile $unstripped_sofile"
++
++      command =
++          "$link_command && $toc_command && $replace_command && $strip_command"
++      rspfile_content = "-Wl,--whole-archive {{inputs}} {{solibs}} -Wl,--no-whole-archive {{libs}}"
++
++      description = "SOLINK $sofile"
++
++      default_output_extension = ".so"
++
++      output_prefix = "lib"
++
++      # Since the above commands only updates the .TOC file when it changes, ask
++      # Ninja to check if the timestamp actually changed to know if downstream
++      # dependencies should be recompiled.
++      restat = true
++
++      # Tell GN about the output files. It will link to the sofile but use the
++      # tocfile for dependency management.
++      outputs = [
++        sofile,
++        unstripped_sofile,
++        tocfile,
++      ]
++
++      link_output = sofile
++      depend_output = tocfile
++    }
++
++    tool("link") {
++      exename = "{{target_output_name}}{{output_extension}}"
++      outfile = "{{root_out_dir}}/$exename"
++      rspfile = "$outfile.rsp"
++      unstripped_outfile = "{{root_out_dir}}/exe.unstripped/$exename"
++      command = "$ld $target_triple_flags $sysroot_flags {{ldflags}} -o $unstripped_outfile $custom_lib_flags -Wl,--build-id=sha1 -Wl,--start-group @$rspfile {{solibs}} -Wl,--end-group {{libs}} && ${strip} -o $outfile $unstripped_outfile"
++      description = "LINK $outfile"
++      rspfile_content = "{{inputs}}"
++      outputs = [
++        unstripped_outfile,
++        outfile,
++      ]
++    }
++
++    tool("stamp") {
++      command = "touch {{output}}"
++      description = "STAMP {{output}}"
++    }
++
++    tool("copy") {
++      command = "ln -f {{source}} {{output}} 2>/dev/null || (rm -rf {{output}} && cp -af {{source}} {{output}})"
++      description = "COPY {{source}} {{output}}"
++    }
++
++    # When invoking this toolchain not as the default one, these args will be
++    # passed to the build. They are ignored when this is the default toolchain.
++    toolchain_args = {
++      current_cpu = invoker.toolchain_cpu
++      current_os = "harmony"
++
++      # These values need to be passed through unchanged.
++      target_os = target_os
++      target_cpu = target_cpu
++
++      is_clang = true
++    }
++  }
++}
++
++harmony_toolchain("arm") {
++  toolchain_cpu = "arm"
++}
++
++harmony_toolchain("x64") {
++  toolchain_cpu = "x86_64"
++}
++
++harmony_toolchain("arm64") {
++  toolchain_cpu = "aarch64"
++}
+diff --git a/toolchain/sccache.gni b/toolchain/sccache.gni
+new file mode 100644
+index 0000000..71c7a18
+--- /dev/null
++++ b/toolchain/sccache.gni
+@@ -0,0 +1,7 @@
++# Copyright 2025 The Lynx Authors. All rights reserved.
++# Licensed under the Apache License Version 2.0 that can be found in the
++# LICENSE file in the root directory of this source tree.
++
++declare_args() {
++  use_sccache = false
++}
+-- 
+2.34.1
+
+
+From adfe06fbe1710c10f8bc8c9ff2f43164310ebf83 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:05:07 +0800
+Subject: [PATCH 2/4] Add cxx_cppdeps stub for non-rust toolchains
+
+---
+ rust/BUILD.gn | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/rust/BUILD.gn b/rust/BUILD.gn
+index 68a9290..be94c86 100644
+--- a/rust/BUILD.gn
++++ b/rust/BUILD.gn
+@@ -110,3 +110,11 @@ config("is_gtest_unittests") {
+     "is_gtest_unittests",
+   ]
+ }
++
++if (!toolchain_has_rust || !enable_rust_cxx) {
++  # Stub for non-rust toolchains (e.g. HarmonyOS bring-up with enable_rust=false).
++  # Various C++ targets unconditionally depend on //build/rust:cxx_cppdeps;
++  # provide an empty group so dependency resolution succeeds.
++  group("cxx_cppdeps") {
++  }
++}
+-- 
+2.34.1
+
+
+From 8ab4bc98907edf12a1b663c388b6cc5bac074a88 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:25:10 +0800
+Subject: [PATCH 3/4] Wire harmony toolchain: clang_base_path / rebase_path /
+ is_harmony cflags branch
+
+---
+ config/clang/clang.gni     | 5 +++++
+ config/compiler/BUILD.gn   | 3 ++-
+ toolchain/harmony/BUILD.gn | 8 +++++---
+ 3 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/config/clang/clang.gni b/config/clang/clang.gni
+index 5fc58fc..ad55b48 100644
+--- a/config/clang/clang.gni
++++ b/config/clang/clang.gni
+@@ -9,6 +9,11 @@ import("//build/toolchain/toolchain.gni")
+ 
+ default_clang_base_path = "//third_party/llvm-build/Release+Asserts"
+ 
++if (is_harmony) {
++  import("//build/config/harmony/config.gni")
++  default_clang_base_path = harmony_toolchain_root
++}
++
+ declare_args() {
+   # Indicates if the build should use the Chrome-specific plugins for enforcing
+   # coding guidelines, etc. Only used when compiling with Chrome's Clang, not
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index bb00fea..bb275b7 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -1447,7 +1447,8 @@ config("compiler_cpu_abi") {
+         cflags += [ "-mtune=$arm_tune" ]
+       }
+     } else if (current_cpu == "arm64") {
+-      if (is_clang && !is_android && !is_fuchsia && !is_chromeos_device) {
++      if (is_clang && !is_android && !is_fuchsia && !is_chromeos_device &&
++          !is_harmony) {
+         cflags += [ "--target=aarch64-linux-gnu" ]
+         ldflags += [ "--target=aarch64-linux-gnu" ]
+       }
+diff --git a/toolchain/harmony/BUILD.gn b/toolchain/harmony/BUILD.gn
+index b4fe155..ed082d5 100644
+--- a/toolchain/harmony/BUILD.gn
++++ b/toolchain/harmony/BUILD.gn
+@@ -15,7 +15,7 @@ if(use_sccache){
+ 
+ template("harmony_toolchain") {
+   toolchain(target_name) {
+-    toolchain_bin = "${harmony_toolchain_root}/bin"
++    toolchain_bin = rebase_path("${harmony_toolchain_root}/bin", root_build_dir)
+ 
+     # We can't do string interpolation ($ in strings) on things with dots in
+     # them. To allow us to use $cc below, for example, we create copies of
+@@ -29,9 +29,11 @@ template("harmony_toolchain") {
+     strip = "${toolchain_bin}/llvm-strip"
+ 
+     target_triple_flags = "--target=${harmony_target_triple}"
+-    sysroot_flags = "--sysroot ${harmony_ndk_root}/sysroot"
++    _harmony_sysroot = rebase_path("${harmony_ndk_root}/sysroot", root_build_dir)
++    sysroot_flags = "--sysroot ${_harmony_sysroot}"
+ 
+-    custom_lib_flags = "-L${harmony_toolchain_root}/lib/${harmony_target_triple}"
++    _harmony_libdir = rebase_path("${harmony_toolchain_root}/lib/${harmony_target_triple}", root_build_dir)
++    custom_lib_flags = "-L${_harmony_libdir}"
+ 
+     # These library switches can apply to all tools below.
+     lib_switch = "-l"
+-- 
+2.34.1
+
+
+From 7cf981c9dbf932f6bbb706d3e0132b908bb56860 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:28:47 +0800
+Subject: [PATCH 4/4] Accept unknown -W flags on harmony (ohos clang 19 vs
+ chromium clang 21+)
+
+---
+ config/compiler/BUILD.gn | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index bb275b7..2c549f1 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -398,7 +398,11 @@ config("lynx_disable_warning_config") {
+       "-Wno-unsafe-buffer-usage-in-libc-call",
+     ]
+   } else {
+-    config_flags = []
++    # ohos clang 19 doesn't recognize warnings introduced in clang 21+ that
++    # mainline chromium adds (e.g. -Wno-nontrivial-memcall). Globally accept
++    # unknown -W options so chromium's warning suppression list can include
++    # newer-clang flags without breaking the build on the older NDK clang.
++    config_flags = [ "-Wno-unknown-warning-option" ]
+   }
+   cflags = config_flags
+   cflags_cc = config_flags
+-- 
+2.34.1
+

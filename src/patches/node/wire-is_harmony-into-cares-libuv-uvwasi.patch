@@ -1,0 +1,100 @@
+From f8c4e63a05d54b7b2cfaa83f0a81fd6e6a01d173 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:32:16 +0800
+Subject: [PATCH 1/2] Wire is_harmony into c-ares & libuv (use openharmony
+ ares_config + linux defines)
+
+---
+ deps/cares/unofficial.gni | 5 +++++
+ deps/uv/unofficial.gni    | 6 +++---
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/deps/cares/unofficial.gni b/deps/cares/unofficial.gni
+index e02d7f42..dd5af9db 100644
+--- a/deps/cares/unofficial.gni
++++ b/deps/cares/unofficial.gni
+@@ -44,6 +44,8 @@ template("cares_gn_build") {
+     ]
+     if (is_win) {
+       include_dirs += [ "config/win32" ]
++    } else if (is_harmony) {
++      include_dirs += [ "config/openharmony" ]
+     } else if (is_linux) {
+       include_dirs += [ "config/linux" ]
+     } else if (is_mac) {
+@@ -61,6 +63,9 @@ template("cares_gn_build") {
+     if (is_linux) {
+       sources += [ "config/linux/ares_config.h" ]
+     }
++    if (is_harmony) {
++      sources += [ "config/openharmony/ares_config.h" ]
++    }
+     if (is_mac) {
+       sources += gypi_values.cares_sources_mac
+     }
+diff --git a/deps/uv/unofficial.gni b/deps/uv/unofficial.gni
+index 0944d6dd..79aaaea1 100644
+--- a/deps/uv/unofficial.gni
++++ b/deps/uv/unofficial.gni
+@@ -27,7 +27,7 @@ template("uv_gn_build") {
+         "_FILE_OFFSET_BITS=64",
+       ]
+     }
+-    if (is_linux) {
++    if (is_linux || is_harmony) {
+       defines += [
+         "_POSIX_C_SOURCE=200112",
+         "_GNU_SOURCE",
+@@ -89,7 +89,7 @@ template("uv_gn_build") {
+     if (is_posix) {
+       ldflags = [ "-pthread" ]
+     }
+-    if (is_linux) {
++    if (is_linux || is_harmony) {
+       libs = [
+         "m",
+         "dl",
+@@ -105,7 +105,7 @@ template("uv_gn_build") {
+       sources += gypi_values.uv_sources_posix +
+                  [ "src/unix/proctitle.c" ]
+     }
+-    if (is_linux) {
++    if (is_linux || is_harmony) {
+       sources += gypi_values.uv_sources_linux
+     }
+     if (is_apple) {
+-- 
+2.34.1
+
+
+From 2a44ec776ce7aa8c1a4610ea638c02a044d4f25c Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:35:30 +0800
+Subject: [PATCH 2/2] Wire is_harmony into uvwasi (_GNU_SOURCE for POSIX
+ symbols on musl)
+
+---
+ deps/uvwasi/unofficial.gni | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/deps/uvwasi/unofficial.gni b/deps/uvwasi/unofficial.gni
+index b7f30c44..f512b12c 100644
+--- a/deps/uvwasi/unofficial.gni
++++ b/deps/uvwasi/unofficial.gni
+@@ -22,6 +22,13 @@ template("uvwasi_gn_build") {
+     include_dirs = [ "src" ]
+     deps = [ "../uv" ]
+ 
++    if (is_linux || is_harmony) {
++      defines = [
++        "_POSIX_C_SOURCE=200112",
++        "_GNU_SOURCE",
++      ]
++    }
++
+     if (is_clang || !is_win) {
+       cflags_c = [
+         "-Wno-extra-semi",
+-- 
+2.34.1
+
