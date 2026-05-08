@@ -1,0 +1,251 @@
+From a2ab7b5fd9bcd46908c624b6700e5de2d41903b1 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 15:58:02 +0800
+Subject: [PATCH 1/2] Conditional rust target for HarmonyOS (enable_rust=false)
+
+---
+ test/BUILD.gn | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/test/BUILD.gn b/test/BUILD.gn
+index 9932446..9a6ae7d 100644
+--- a/test/BUILD.gn
++++ b/test/BUILD.gn
+@@ -35,15 +35,17 @@ static_library("test_config") {
+   ]
+ }
+ 
+-rust_static_library("test_rust_logger_consumer") {
+-  allow_unsafe = true  # Unsafe needed for FFI
+-  testonly = true
+-  deps = [ "//third_party/rust/log/v0_4:lib" ]
+-  sources = [ "logging/test_rust_logger_consumer.rs" ]
++if (enable_rust) {
++  rust_static_library("test_rust_logger_consumer") {
++    allow_unsafe = true  # Unsafe needed for FFI
++    testonly = true
++    deps = [ "//third_party/rust/log/v0_4:lib" ]
++    sources = [ "logging/test_rust_logger_consumer.rs" ]
+ 
+-  crate_root = "logging/test_rust_logger_consumer.rs"
++    crate_root = "logging/test_rust_logger_consumer.rs"
+ 
+-  cxx_bindings = [ "logging/test_rust_logger_consumer.rs" ]
++    cxx_bindings = [ "logging/test_rust_logger_consumer.rs" ]
++  }
+ }
+ 
+ static_library("test_support") {
+@@ -193,9 +195,12 @@ static_library("test_support") {
+ 
+   configs += [ "//build/config:precompiled_headers" ]
+ 
++  if (enable_rust) {
++    public_deps = [ ":test_rust_logger_consumer" ]
++  }
++
+   public_deps = [
+     ":test_config",
+-    ":test_rust_logger_consumer",
+     "//base",
+     "//base:base_static",
+     "//base:i18n",
+-- 
+2.34.1
+
+
+From 485fb96c7c46675e22721220abe2a5344c73349d Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 17:57:51 +0800
+Subject: [PATCH 2/2] Wire is_harmony into base: rust gate + musl + lss bypass
+ + sem_t fallback
+
+---
+ json/json_reader.cc                | 25 +++++++++++++++++++++++++
+ logging.cc                         |  4 ++++
+ logging/rust_log_integration.cc    |  6 ++++++
+ process/set_process_title.cc       |  5 ++++-
+ rand_util_posix.cc                 |  5 ++++-
+ synchronization/cancelable_event.h |  9 +++++++--
+ 6 files changed, 50 insertions(+), 4 deletions(-)
+
+diff --git a/json/json_reader.cc b/json/json_reader.cc
+index 664b729..f390df2 100644
+--- a/json/json_reader.cc
++++ b/json/json_reader.cc
+@@ -12,9 +12,17 @@
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "build/build_config.h"
++
++#if !BUILDFLAG(IS_HARMONY)
+ #include "base/strings/string_view_rust.h"
+ #include "third_party/rust/serde_json_lenient/v0_2/wrapper/functions.h"
+ #include "third_party/rust/serde_json_lenient/v0_2/wrapper/lib.rs.h"
++#endif
++
++// HarmonyOS bring-up: skip rust serde_json_lenient (rust toolchain not yet
++// wired into harmony build); fall back to base::internal::JSONParser, same
++// strategy as chromium uses for NaCl.
++#if !BUILDFLAG(IS_HARMONY)
+ 
+ namespace {
+ const char kSecurityJsonParsingTime[] = "Security.JSONParser.ParsingTime";
+@@ -122,6 +130,8 @@ base::JSONReader::Result DecodeJSONInRust(std::string_view json,
+ }  // namespace
+ }  // namespace serde_json_lenient
+ 
++#endif  // !BUILDFLAG(IS_HARMONY)
++
+ namespace base {
+ 
+ std::string JSONReader::Error::ToString() const {
+@@ -133,6 +143,12 @@ std::string JSONReader::Error::ToString() const {
+ std::optional<Value> JSONReader::Read(std::string_view json,
+                                       int options,
+                                       size_t max_depth) {
++#if BUILDFLAG(IS_HARMONY)
++  // Bring-up stub: lynxtron's base/json/ doesn't ship base::internal::JSONParser
++  // and rust serde_json_lenient is gated off until rust is wired into harmony
++  // toolchain. Return nullopt; no production caller hits this on harmony yet.
++  return std::nullopt;
++#else   // BUILDFLAG(IS_HARMONY)
+   SCOPED_UMA_HISTOGRAM_TIMER_MICROS(kSecurityJsonParsingTime);
+ 
+   JSONReader::Result result =
+@@ -141,6 +157,7 @@ std::optional<Value> JSONReader::Read(std::string_view json,
+     return std::nullopt;
+   }
+   return std::move(*result);
++#endif
+ }
+ 
+ // static
+@@ -169,9 +186,17 @@ std::optional<Value::List> JSONReader::ReadList(std::string_view json,
+ JSONReader::Result JSONReader::ReadAndReturnValueWithError(
+     std::string_view json,
+     int options) {
++#if BUILDFLAG(IS_HARMONY)
++  Error error;
++  error.message = "JSON parser not available on HarmonyOS bring-up";
++  error.line = 0;
++  error.column = 0;
++  return base::unexpected(std::move(error));
++#else   // BUILDFLAG(IS_HARMONY)
+   SCOPED_UMA_HISTOGRAM_TIMER_MICROS(kSecurityJsonParsingTime);
+   return serde_json_lenient::DecodeJSONInRust(json, options,
+                                               internal::kAbsoluteMaxDepth);
++#endif
+ }
+ 
+ }  // namespace base
+diff --git a/logging.cc b/logging.cc
+index dd46ccc..4ca7393 100644
+--- a/logging.cc
++++ b/logging.cc
+@@ -33,7 +33,9 @@
+ #include "base/debug/task_trace.h"
+ #include "base/functional/callback.h"
+ #include "base/immediate_crash.h"
++#if !BUILDFLAG(IS_HARMONY)
+ #include "base/logging/rust_logger.rs.h"
++#endif
+ #include "base/no_destructor.h"
+ #include "base/path_service.h"
+ #include "base/pending_task.h"
+@@ -505,8 +507,10 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
+   }
+ #endif
+ 
++#if !BUILDFLAG(IS_HARMONY)
+   // Connects Rust logging with the //base logging functionality.
+   internal::init_rust_log_crate();
++#endif
+ 
+   // Ignore file options unless logging to file is set.
+   if ((g_logging_destination & LOG_TO_FILE) == 0) {
+diff --git a/logging/rust_log_integration.cc b/logging/rust_log_integration.cc
+index ba3b50b..fcf35d1 100644
+--- a/logging/rust_log_integration.cc
++++ b/logging/rust_log_integration.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "build/build_config.h"
++
++#if !BUILDFLAG(IS_HARMONY)
++
+ #include "base/logging/rust_log_integration.h"
+ 
+ #include <stdint.h>
+@@ -34,3 +38,5 @@ void print_rust_log(const RustFmtArguments& msg,
+ }
+ 
+ }  // namespace logging::internal
++
++#endif  // !BUILDFLAG(IS_HARMONY)
+diff --git a/process/set_process_title.cc b/process/set_process_title.cc
+index aacd4a8..a1f32b6 100644
+--- a/process/set_process_title.cc
++++ b/process/set_process_title.cc
+@@ -43,8 +43,11 @@
+ namespace base {
+ 
+ // TODO(jrg): Find out if setproctitle or equivalent is available on Android.
++// HarmonyOS musl libc doesn't expose program_invocation_short_name; treat as
++// stub-only platform like Android/Fuchsia.
+ #if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_SOLARIS) && \
+-    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA)
++    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA) && \
++    !BUILDFLAG(IS_HARMONY)
+ 
+ void SetProcessTitleFromCommandLine(const char** main_argv) {
+   // Build a single string which consists of all the arguments separated
+diff --git a/rand_util_posix.cc b/rand_util_posix.cc
+index 94f46d1..498e624 100644
+--- a/rand_util_posix.cc
++++ b/rand_util_posix.cc
+@@ -30,8 +30,11 @@
+ #include "build/build_config.h"
+ #include "third_party/boringssl/src/include/openssl/rand.h"
+ 
+-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
++#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && !BUILDFLAG(IS_HARMONY)
+ #include "third_party/lss/linux_syscall_support.h"
++#elif BUILDFLAG(IS_HARMONY)
++// HarmonyOS musl exposes getrandom(2) directly, so we don't need linux_syscall_support.
++#include <sys/random.h>
+ #elif BUILDFLAG(IS_MAC)
+ // TODO(crbug.com/40641285): Waiting for this header to appear in the iOS SDK.
+ // (See below.)
+diff --git a/synchronization/cancelable_event.h b/synchronization/cancelable_event.h
+index aab14da..a8fe30f 100644
+--- a/synchronization/cancelable_event.h
++++ b/synchronization/cancelable_event.h
+@@ -11,7 +11,8 @@
+ 
+ #if BUILDFLAG(IS_WIN)
+ #include <windows.h>
+-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
++#elif (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_ANDROID) || \
++       BUILDFLAG(IS_CHROMEOS)) && !BUILDFLAG(IS_HARMONY)
+ #include <semaphore.h>
+ #else
+ #include "base/synchronization/waitable_event.h"
+@@ -49,7 +50,11 @@ class BASE_EXPORT CancelableEvent {
+ 
+ #if BUILDFLAG(IS_WIN)
+   using NativeHandle = HANDLE;
+-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
++#elif (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \
++       BUILDFLAG(IS_ANDROID)) && !BUILDFLAG(IS_HARMONY)
++  // chromium internally treats sem_t as if it had Signal()/TimedWait() member
++  // functions (presumably via a glibc-specific wrapper). musl libc on
++  // HarmonyOS doesn't have that, so fall back to the WaitableEvent path.
+   using NativeHandle = sem_t;
+ #else
+   using NativeHandle = WaitableEvent;
+-- 
+2.34.1
+
