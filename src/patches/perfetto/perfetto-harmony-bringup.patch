@@ -1,0 +1,60 @@
+From 47112019ccf90487443300c0c362061be270d306 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 16:05:07 +0800
+Subject: [PATCH 1/2] Add xx_input_group target for chrome proto_library compat
+ (harmony bring-up)
+
+---
+ gn/proto_library.gni | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/gn/proto_library.gni b/gn/proto_library.gni
+index 14da599..08f0e38 100644
+--- a/gn/proto_library.gni
++++ b/gn/proto_library.gni
+@@ -333,6 +333,12 @@ template("perfetto_proto_library") {
+     }
+   }
+ 
++  # This group is necessary for Chrome proto_library build rule to work
++  # correctly.
++  group("${source_set_target_name}_input_group") {
++    public_deps = [ ":${source_set_target_name}" ]
++  }
++
+   # Generate the descriptor if the option is set.
+   if (defined(invoker.generate_descriptor)) {
+     target_name_ = string_replace(target_name, expansion_token, "descriptor")
+-- 
+2.34.1
+
+
+From 6af647f75bdcbe7a1cdb52b000d3dd76dfb74f10 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 17:21:07 +0800
+Subject: [PATCH 2/2] Skip <linux/vm_sockets.h> on OpenHarmony to avoid
+ sockaddr_storage redefinition
+
+---
+ src/base/vm_sockets.h | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/base/vm_sockets.h b/src/base/vm_sockets.h
+index ad59b5d..1f19168 100644
+--- a/src/base/vm_sockets.h
++++ b/src/base/vm_sockets.h
+@@ -27,8 +27,10 @@
+ #if PERFETTO_BUILDFLAG(PERFETTO_OS_QNX)
+ // Requires the QNX Advanced Virtualization Framework
+ #include <vm_sockets.h>
+-#elif defined(AF_VSOCK)
++#elif defined(AF_VSOCK) && !defined(__OHOS__)
+ // Use system vm_socket.h if available.
++// On OpenHarmony the kernel uapi linux/socket.h conflicts with sys/socket.h
++// (both define struct sockaddr_storage). Force the in-tree fallback below.
+ #include <linux/vm_sockets.h>
+ #else  // defined(AF_SOCK)
+ // Fallback and use the stripped copy from the UAPI vm_sockets.h.
+-- 
+2.34.1
+

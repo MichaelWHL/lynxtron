@@ -1,7 +1,7 @@
 From 32741c3ef95999a1cc44a2331c4f34e34b8794b1 Mon Sep 17 00:00:00 2001
 From: Lynxtron Scripts <scripts@lynxtron>
 Date: Fri, 8 May 2026 15:57:59 +0800
-Subject: [PATCH 1/4] Add HarmonyOS build config (Group A+B): config/toolchain
+Subject: [PATCH 1/5] Add HarmonyOS build config (Group A+B): config/toolchain
  dirs + is_harmony branches
 
 ---
@@ -547,7 +547,7 @@ index 0000000..71c7a18
 From adfe06fbe1710c10f8bc8c9ff2f43164310ebf83 Mon Sep 17 00:00:00 2001
 From: Lynxtron Scripts <scripts@lynxtron>
 Date: Fri, 8 May 2026 16:05:07 +0800
-Subject: [PATCH 2/4] Add cxx_cppdeps stub for non-rust toolchains
+Subject: [PATCH 2/5] Add cxx_cppdeps stub for non-rust toolchains
 
 ---
  rust/BUILD.gn | 8 ++++++++
@@ -576,7 +576,7 @@ index 68a9290..be94c86 100644
 From 8ab4bc98907edf12a1b663c388b6cc5bac074a88 Mon Sep 17 00:00:00 2001
 From: Lynxtron Scripts <scripts@lynxtron>
 Date: Fri, 8 May 2026 16:25:10 +0800
-Subject: [PATCH 3/4] Wire harmony toolchain: clang_base_path / rebase_path /
+Subject: [PATCH 3/5] Wire harmony toolchain: clang_base_path / rebase_path /
  is_harmony cflags branch
 
 ---
@@ -649,7 +649,7 @@ index b4fe155..ed082d5 100644
 From 7cf981c9dbf932f6bbb706d3e0132b908bb56860 Mon Sep 17 00:00:00 2001
 From: Lynxtron Scripts <scripts@lynxtron>
 Date: Fri, 8 May 2026 16:28:47 +0800
-Subject: [PATCH 4/4] Accept unknown -W flags on harmony (ohos clang 19 vs
+Subject: [PATCH 4/5] Accept unknown -W flags on harmony (ohos clang 19 vs
  chromium clang 21+)
 
 ---
@@ -673,6 +673,48 @@ index bb275b7..2c549f1 100644
    }
    cflags = config_flags
    cflags_cc = config_flags
+-- 
+2.34.1
+
+
+From 32364035af920ff614d818e75e21607808b9b8f2 Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 17:37:13 +0800
+Subject: [PATCH 5/5] Define OS_HARMONY + BUILDFLAG(IS_HARMONY) when __OHOS__
+
+---
+ build_config.h | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/build_config.h b/build_config.h
+index 38bc688..a781089 100644
+--- a/build_config.h
++++ b/build_config.h
+@@ -94,6 +94,11 @@
+ // The OS_CHROMEOS macro is defined in GN.
+ #define OS_LINUX 1
+ #endif  // !defined(OS_CHROMEOS)
++// OpenHarmony NDK clang advertises __OHOS__ as a kernel-level OS marker.
++// Treat it as a sibling of OS_LINUX (same kernel, musl libc, ohos uapi).
++#if defined(__OHOS__)
++#define OS_HARMONY 1
++#endif
+ // Include a system header to pull in features.h for glibc/uclibc macros.
+ #include <assert.h>
+ #if defined(__GLIBC__) && !defined(__UCLIBC__)
+@@ -159,6 +164,12 @@
+ #define BUILDFLAG_INTERNAL_IS_ANDROID() (0)
+ #endif
+ 
++#if defined(OS_HARMONY)
++#define BUILDFLAG_INTERNAL_IS_HARMONY() (1)
++#else
++#define BUILDFLAG_INTERNAL_IS_HARMONY() (0)
++#endif
++
+ #if defined(OS_APPLE)
+ #define BUILDFLAG_INTERNAL_IS_APPLE() (1)
+ #else
 -- 
 2.34.1
 

@@ -68,7 +68,16 @@ class NSImage;
 
 namespace gfx {
 
-#if BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_HARMONY)
+// HarmonyOS bring-up stubs. NativeWindow / NativeView are opaque to the
+// harmony port until the shell layer wires the OHOS NativeWindow / Ability /
+// XComponent surface into Lynxtron. Real types will be the OHOS NativeWindow*
+// (libnative_window.so) once shell/app/native_window_harmony.cc is added.
+using NativeCursor = void*;
+using NativeView = void*;
+using NativeWindow = void*;
+using NativeEvent = void*;
+#elif BUILDFLAG(IS_WIN)
 using NativeCursor = HCURSOR;
 using NativeView = HWND;
 using NativeWindow = HWND;

@@ -1,0 +1,28 @@
+From 2f68830813878ddb73f391a2789a3a10ca593b7d Mon Sep 17 00:00:00 2001
+From: Lynxtron Scripts <scripts@lynxtron>
+Date: Fri, 8 May 2026 17:37:13 +0800
+Subject: [PATCH] Add target_os==harmony branch for
+ V8_TARGET_OS_LINUX/V8_HAVE_TARGET_OS
+
+---
+ BUILD.gn | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 0118b106..da7fd9b1 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -1051,6 +1051,10 @@ if (target_os == "android") {
+ } else if (target_os == "linux") {
+   enabled_external_v8_defines += [ "V8_HAVE_TARGET_OS" ]
+   enabled_external_v8_defines += [ "V8_TARGET_OS_LINUX" ]
++} else if (target_os == "harmony") {
++  # OpenHarmony shares Linux kernel + uapi; treat as linux for V8 target OS.
++  enabled_external_v8_defines += [ "V8_HAVE_TARGET_OS" ]
++  enabled_external_v8_defines += [ "V8_TARGET_OS_LINUX" ]
+ } else if (target_os == "mac") {
+   enabled_external_v8_defines += [ "V8_HAVE_TARGET_OS" ]
+   enabled_external_v8_defines += [ "V8_TARGET_OS_MACOS" ]
+-- 
+2.34.1
+
