@@ -89,6 +89,11 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     # ohos clang 19 doesn't ship chromium-specific clang plugins (blink-gc-plugin,
     # find-bad-constructs, raw-ptr-plugin). Disable them on harmony.
     gn_args += 'clang_use_chrome_plugins=false '
+    # V8 Temporal API is implemented by rust temporal_rs crate; with
+    # enable_rust=false the cxx-bridge headers are still emitted but the rust
+    # symbols never get compiled, so mksnapshot link fails. Disable temporal
+    # support during bring-up.
+    gn_args += 'v8_enable_temporal_support=false '
     gn_args += 'skia_gl_standard="gles" '
     gn_args += 'skia_use_gl=true '
 

@@ -985,14 +985,23 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
-  # HarmonyOS bring-up: lynxtron_app is a minimal self-contained stub during
-  # initial bring-up. lynxtron_lib pulls in 30+ mac/win-only sources (Cocoa
-  # frameworks, Win32 toast, WebView2, ServiceManagement etc.), so we
-  # intentionally don't depend on it yet. shell/app/main_harmony.cc returns
-  # 0 — enough to validate the harmony toolchain end-to-end (compile + link
-  # + ELF .so/exe emission). Real harmony integration restores the
-  # lynxtron_lib dependency once shell/{api,app,common,ui}/*_harmony.cc
-  # platform implementations land.
+  # HarmonyOS bring-up (wave 4 frozen): lynxtron_app is a self-contained stub.
+  # Wiring `:lynxtron_lib` here triggers ~45 lynxtron_lib cross-platform .cc/.h
+  # to compile under harmony toolchain. They reference platform-specific types
+  # like HWND / NSWindow* / NSView* in the header (e.g. shell/app/native_window.h
+  # line 67 `unknown type name 'HWND'`), and the .cc bodies dispatch to platform
+  # impls that don't exist for harmony yet (no shell/app/native_window_harmony.cc,
+  # no api_clipboard_harmony.cc, no file_dialog_harmony.cc, etc).
+  #
+  # Bringing those up is tracked in WI-029.x (~4-7 person-days):
+  #   * gate platform-specific types in cross-platform .h with is_harmony
+  #     branches (NativeWindow void* stubs from gfx/native_ui_types.h already
+  #     cover one of them)
+  #   * write ~20 *_harmony.cc stubs across shell/{api,app,common,ui}
+  #
+  # For now we keep the link-validated stub to preserve the milestone of
+  # "OHOS arm64 musl PIE ELF emitted" and the rest of `gn_all` (base / v8 /
+  # libuv / icu / skia / ...) compiling cleanly.
   executable("lynxtron_app") {
     output_name = "lynxtron"
     include_dirs = [ "." ]
