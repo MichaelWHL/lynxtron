@@ -985,12 +985,17 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
+  # HarmonyOS bring-up: lynxtron_app is a minimal self-contained stub during
+  # initial bring-up. lynxtron_lib pulls in 30+ mac/win-only sources (Cocoa
+  # frameworks, Win32 toast, WebView2, ServiceManagement etc.), so we
+  # intentionally don't depend on it yet. shell/app/main_harmony.cc returns
+  # 0 — enough to validate the harmony toolchain end-to-end (compile + link
+  # + ELF .so/exe emission). Real harmony integration restores the
+  # lynxtron_lib dependency once shell/{api,app,common,ui}/*_harmony.cc
+  # platform implementations land.
   executable("lynxtron_app") {
     output_name = "lynxtron"
     include_dirs = [ "." ]
-    deps = [
-      ":lynxtron_lib",
-    ]
     sources = [ "shell/app/main_harmony.cc" ]
   }
 }
