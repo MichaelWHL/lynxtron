@@ -22,7 +22,7 @@ def get_current_os():
   else:
     return system.lower()
 
-def get_default_gn_args(is_debug, enable_enlarge_stack):
+def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
   gn_args = ''
   if is_debug:
     gn_args += 'import("//src/build/args/debug.gn") '
@@ -59,14 +59,38 @@ def get_default_gn_args(is_debug, enable_enlarge_stack):
   if enable_enlarge_stack:
     gn_args += 'enable_enlarge_stack=true '
 
-  if get_current_os() == 'mac':
+  if target_os == 'mac':
     gn_args += 'skia_gl_standard=""'
     gn_args += 'skia_use_metal=true '
     gn_args += 'shell_enable_metal=true '
     gn_args += 'use_clang_static_analyzer=false '
     gn_args += 'use_flutter_cxx=false '
-  elif get_current_os() == 'win':
+  elif target_os == 'win':
     gn_args += 'is_clang=true '
+  elif target_os == 'harmony':
+    gn_args += 'is_clang=true '
+    gn_args += 'use_musl=true '
+    gn_args += 'is_component_build=false '
+    gn_args += 'use_custom_libcxx=false '
+    gn_args += 'use_sysroot=false '
+    gn_args += 'enable_rust=false '
+    # PartitionAlloc & allocator shim are not yet musl/ohos-clean (sys/ifunc.h
+    # missing, glibc-style throw() decl mismatch). Disable for bring-up; revisit
+    # when porting partition_alloc properly.
+    gn_args += 'use_partition_alloc=false '
+    gn_args += 'use_partition_alloc_as_malloc=false '
+    gn_args += 'use_allocator_shim=false '
+    # Lynx skia patch ships skia_harmony fontmgr in a truncated form (the patch
+    # itself is incomplete, multiple .cpp/.h files miss tail). Disable the
+    # harmony font manager target during bring-up; skia will fall back to the
+    # default fontmgr. Revisit by either (a) restoring lynx skia patch from
+    # upstream or (b) writing a proper SkFontMgr_New_Harmony implementation.
+    gn_args += 'skia_enable_fontmgr_harmony=false '
+    # ohos clang 19 doesn't ship chromium-specific clang plugins (blink-gc-plugin,
+    # find-bad-constructs, raw-ptr-plugin). Disable them on harmony.
+    gn_args += 'clang_use_chrome_plugins=false '
+    gn_args += 'skia_gl_standard="gles" '
+    gn_args += 'skia_use_gl=true '
 
   return gn_args
 
@@ -87,27 +111,41 @@ def parse_args(args):
   parser.add_argument('--is-debug', dest='is_debug', action='store_true', default=False)
   parser.add_argument('--mac-cpu', type=str, choices=['x64', 'arm64'], default='arm64')
   parser.add_argument('--windows-cpu', type=str, choices=['x64', 'arm64', 'x86'], default = 'x86')
+  parser.add_argument('--target-os', type=str,
+                      choices=['mac', 'win', 'linux', 'harmony'],
+                      default=None,
+                      help='Target OS for cross compile. Defaults to host OS.')
+  parser.add_argument('--harmony-cpu', type=str,
+                      choices=['arm64', 'arm', 'x64'], default='arm64')
   parser.add_argument('--enable-enlarge-stack', dest='enable_enlarge_stack', action='store_true', default=False)
 
   return parser.parse_args(args)
 
 def main(argv):
   args = parse_args(argv)
+  target_os = args.target_os or get_current_os()
   gn_args = ''
-  gn_args += get_default_gn_args(args.is_debug, args.enable_enlarge_stack)
+  gn_args += get_default_gn_args(args.is_debug, args.enable_enlarge_stack, target_os)
   if args.gn_args:
     gn_args += args.gn_args
 
-  if get_current_os() == 'mac':
+  if target_os == 'mac':
     gn_args += f' target_cpu="{args.mac_cpu}"'
-  elif get_current_os() == 'win':
+  elif target_os == 'win':
     gn_args += f' target_cpu="{args.windows_cpu}"'
+  elif target_os == 'harmony':
+    gn_args += ' target_os="harmony"'
+    gn_args += f' target_cpu="{args.harmony_cpu}"'
 
   escaped_gn_args = gn_args.replace('"', '\\"')
 
-  out_path = os.path.join(ROOT_PATH, 'out', 'Release')
-  if args.is_debug:
-    out_path = os.path.join(ROOT_PATH, 'out', 'Debug')
+  if target_os == 'harmony':
+    sub = 'Debug' if args.is_debug else 'Release'
+    out_path = os.path.join(ROOT_PATH, 'out', f'harmony_{args.harmony_cpu}_{sub}')
+  else:
+    out_path = os.path.join(ROOT_PATH, 'out', 'Release')
+    if args.is_debug:
+      out_path = os.path.join(ROOT_PATH, 'out', 'Debug')
   return run_gn_script(gn_args, out_path)
 
 if __name__ == '__main__':

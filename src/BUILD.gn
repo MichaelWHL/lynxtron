@@ -984,6 +984,17 @@ template("dist_zip") {
   }
 }
 
+if (is_harmony) {
+  executable("lynxtron_app") {
+    output_name = "lynxtron"
+    include_dirs = [ "." ]
+    deps = [
+      ":lynxtron_lib",
+    ]
+    sources = [ "shell/app/main_harmony.cc" ]
+  }
+}
+
 dist_zip("lynxtron_dist_zip") {
   data_deps = [
     ":lynxtron_app",
