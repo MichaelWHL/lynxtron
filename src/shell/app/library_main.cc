@@ -77,7 +77,9 @@ bool IsRunAsNode() {
 
 #if BUILDFLAG(IS_WIN)
 int LynxtronMain() {
-#elif BUILDFLAG(IS_MAC)
+#else
+// Matches library_main.h:19 fallback (IS_MAC, IS_LINUX, IS_HARMONY) where
+// the entry takes argc/argv from the C runtime / OHOS Ability host.
 int LynxtronMain(int argc, char* argv[]) {
 #endif
   base::AtExitManager exit_manager;
@@ -99,7 +101,7 @@ int LynxtronMain(int argc, char* argv[]) {
     lynxtron::LynxtronCommandLine::Init(argc, argv);
     LocalFree(argv);
   }
-#elif BUILDFLAG(IS_MAC)
+#else  // IS_MAC || IS_LINUX (incl. IS_HARMONY)
   base::CommandLine::Init(argc, argv);
   lynxtron::LynxtronCommandLine::Init(argc, argv);
 #endif
