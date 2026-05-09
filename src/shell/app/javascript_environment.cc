@@ -120,9 +120,22 @@ v8::Isolate* JavascriptEnvironment::Initialize(uv_loop_t* event_loop,
   auto* tracing_agent = new node::tracing::Agent();
   auto* tracing_controller = tracing_agent->GetTracingController();
   node::tracing::TraceEventHelper::SetAgent(tracing_agent);
+  // gin::V8Platform::GetCurrentPageAllocator() is itself gated by
+  // PA_BUILDFLAG(USE_PARTITION_ALLOC) in gin/public/v8_platform.h:29-39.
+  // HarmonyOS bring-up disables use_partition_alloc (see lynxtron_tools/gn/gn.py
+  // harmony branch + wave 2 commit), so the symbol is not declared on harmony
+  // and we must pass a null PageAllocator and let v8 fall back to its default
+  // mmap-backed allocator. Win/Mac builds keep partition_alloc enabled and
+  // therefore continue to use the gin-provided allocator.
   platform_ = node::MultiIsolatePlatform::Create(
       base::RecommendedMaxNumberOfThreadsInThreadGroup(3, 8, 0.1, 0),
-      tracing_controller, gin::V8Platform::GetCurrentPageAllocator());
+      tracing_controller,
+#if PA_BUILDFLAG(USE_PARTITION_ALLOC)
+      gin::V8Platform::GetCurrentPageAllocator()
+#else
+      nullptr
+#endif
+  );
 
   v8::V8::InitializePlatform(platform_.get());
   gin::IsolateHolder::Initialize(
