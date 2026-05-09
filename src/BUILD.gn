@@ -688,6 +688,7 @@ source_set("lynxtron_lib") {
       "shell/api/api_menu_harmony.cc",
       "shell/api/api_native_image_harmony.cc",
       "shell/api/lynx_view/lynx_capi_stubs_harmony.cc",
+      "shell/api/lynx_view/lynx_fml_stubs_harmony.cc",
       "shell/api/ui/file_dialog_harmony.cc",
       "shell/api/ui/message_box_harmony.cc",
       "shell/app/application_harmony.cc",

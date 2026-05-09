@@ -141,6 +141,23 @@ void lynx_view_client_bind_on_data_updated() {}
 void lynx_view_client_bind_on_destroy() {}
 void lynx_view_client_bind_on_runtime_ready() {}
 void lynx_view_client_bind_on_received_error() {}
+void lynx_view_client_bind_on_enter_background() {}
+void lynx_view_client_bind_on_enter_foreground() {}
+void lynx_view_client_bind_on_frame_timing() {}
+void lynx_view_client_bind_on_timing_setup() {}
+void lynx_view_client_bind_on_timing_update() {}
+
+// Wave D second batch of lynx capi (surfaced when wave C closed the
+// first batch and ld.lld no longer hit --error-limit=20).
+void lynx_view_release() {}
+void lynx_view_builder_release() {}
+void lynx_resource_request_release() {}
+void lynx_resource_response_release() {}
+void lynx_resource_response_set_code() {}
+void lynx_resource_response_set_error_message() {}
+void* lynx_generic_resource_fetcher_create_with_finalizer() {
+  return nullptr;
+}
 
 // lynx_extension_module_* family
 void* lynx_extension_module_create() { return nullptr; }

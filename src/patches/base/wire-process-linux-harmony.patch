@@ -1,25 +1,29 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: wenhua.liu <wenhua.liu@haitaichina.com>
 Date: Fri, 9 May 2026 11:30:00 +0800
-Subject: [PATCH] Add process_*_linux.cc to base on target_os=harmony
+Subject: [PATCH] Add linux platform .cc to base on target_os=harmony
 
 OpenHarmony shares the Linux kernel + procfs + uapi (target triple
-aarch64-linux-ohos), so the chromium base process / process_metrics
-linux platform .cc files apply without modification. Without this
-branch, harmony hits three undefined symbols at link time:
+aarch64-linux-ohos), so the chromium base linux platform .cc files
+apply without modification. Without these branches, harmony hits
+several undefined symbols at link time, including:
   - base::Process::CreationTime() const
   - base::ProcessMetrics::GetCumulativeCPUUsage()
   - base::ProcessMetrics::GetIdleWakeupsPerSecond()
+  - base::nix::GetXDGDirectory(...)
+  - base::debug::ElfReader::* / stack_canary_linux symbols
+  - base::dwarf_helpers source_set referenced by base.
 
 The same `if (is_linux || is_chromeos)` -> `|| is_harmony` extension
 was applied to v8/BUILD.gn for v8::base::OS::* symbols (see
-src/patches/v8/wire-platform-linux-harmony.patch).
+src/patches/v8/wire-platform-linux-harmony.patch). Four base/BUILD.gn
+sites carry the same conditional and all need the harmony branch.
 ---
- BUILD.gn | 6 +++++-
- 1 file changed, 5 insertions(+), 1 deletion(-)
+ BUILD.gn | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
 
 diff --git a/BUILD.gn b/BUILD.gn
-index 31a263b..8b7b4dc 100644
+index 31a263b..3af5bc9 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
 @@ -999,7 +999,11 @@ component("base") {
@@ -35,5 +39,37 @@ index 31a263b..8b7b4dc 100644
      sources += [
        "debug/proc_maps_linux.cc",
        "debug/proc_maps_linux.h",
+@@ -1715,7 +1719,7 @@ component("base") {
+     }
+   }
+
+-  if (is_linux || is_chromeos) {
++  if (is_linux || is_chromeos || is_harmony) {
+     sources += [
+       "base_paths_posix.cc",
+       "debug/elf_reader.cc",
+@@ -2282,8 +2286,11 @@ component("base") {
+     ]
+   }
+
+-  # Linux.
+-  if (is_linux || is_chromeos) {
++  # Linux (incl. HarmonyOS, which shares the Linux kernel + uapi).
++  # Provides nix/xdg_util.cc (base::nix::GetXDGDirectory used by
++  # path_provider.cc IS_LINUX branch) and the linux process title /
++  # sys_info wiring on harmony.
++  if (is_linux || is_chromeos || is_harmony) {
+     # TODO(brettw) this will need to be parameterized at some point.
+     linux_configs = []
+     if (use_glib) {
+@@ -2590,7 +2597,7 @@ rust_static_library("rust_logger") {
+   cxx_bindings = [ "logging/rust_logger.rs" ]
+ }
+
+-if (is_linux || is_chromeos) {
++if (is_linux || is_chromeos || is_harmony) {
+   # Split out as a separate target for two reasons:
+   # - the line number reader is 2x slower in debug builds if not optimized,
+   #   leading to a worse dev experience and test timeouts.
 --
 2.34.1

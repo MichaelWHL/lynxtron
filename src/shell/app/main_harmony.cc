@@ -6,40 +6,38 @@
 //
 // Currently a noop main() so the executable links cleanly during bring-up.
 // `-fdata-sections / -ffunction-sections / -Wl,--gc-sections` then strips
-// the (still-large) transitive set of references that LynxtronMain would
-// pull in. WI-034 wave C audit (briefly delegating to LynxtronMain)
-// confirmed the wave B audit was undercounting due to ld.lld's default
-// --error-limit=20 truncation. The full undefined set on harmony, once
-// wave A/B/C stubs are in place, is approximately:
+// the still-large transitive set of references that LynxtronMain would
+// pull in.
 //
-//   - lynx capi second batch (15+ symbols): lynx_view_release,
-//     lynx_view_builder_release, lynx_view_client_bind_on_enter_*,
-//     lynx_resource_{request,response}_*,
-//     lynx_generic_resource_fetcher_create_with_finalizer, ...
-//   - lynx C++ class refs:
-//     lynx::fml::MessageLoop::GetCurrent / GetLoopImpl
-//   - NAPI weak refs (4): napi_add_finalizer_weak,
-//     napi_create_function_weak, napi_fatal_error_weak,
-//     napi_set_named_property_weak
-//   - base/nix: base::nix::GetXDGDirectory
-//     (xdg_util.cc not in is_harmony block of base/BUILD.gn)
-//   - partition_alloc: partition_alloc::internal::OnNoMemory
+// Resolved across waves A-D:
+//   wave A: lynxtron_lib re-attached as :lynxtron_lib dep, v8 platform-
+//           linux.cc on harmony, lynx_capi_stubs first cut.
+//   wave B: file_dialog / message_box / process_singleton stubs +
+//           POSIX wiring for process_singleton_posix.cc.
+//   wave C: chromium base process_linux.cc / process_metrics_linux.cc
+//           on harmony (ProcessMetrics + Process::CreationTime), 50+
+//           lynx capi mass stubs, Menu::New, NativeImage stub.
+//   wave D: chromium base nix/xdg_util.cc + dwarf_helpers + base_paths
+//           on harmony, lynx_view_*/builder_release/client_bind_on_*
+//           second batch, lynx::fml::MessageLoop stub TU.
 //
-// All of these need an additional wave (WI-034 wave D / WI-034 wave E).
-// Wave C closes:
-//   - chromium base ProcessMetrics (Process::CreationTime,
-//     ProcessMetrics::GetCumulativeCPUUsage / GetIdleWakeupsPerSecond) —
-//     resolved by extending base/BUILD.gn `if (is_linux || is_chromeos)`
-//     block with `|| is_harmony`, persisted as a new base patch.
-//   - 50+ lynx capi stubs across lynx_load_meta_/template_data_/
-//     update_meta_/view_/view_builder_/view_client_/extension_module_/
-//     log_/generic_resource_fetcher_/strdup/vsync_observer_/
-//     env_set_node_platform.
-//   - lynxtron::api::Menu::New, NativeImage::CreateThumbnailFromPath.
+// Remaining (deferred to WI-034 wave E or WI-035):
+//   - lynx_extension_module_bind_{enter_background,enter_foreground,
+//     on_destroy,runtime_detach,runtime_ready} (5)
+//   - NAPI weak + v8 bridge:
+//       napi_add_finalizer_weak / napi_call_function_weak /
+//       napi_create_function_weak / napi_create_reference_weak /
+//       napi_create_threadsafe_function_weak / napi_delete_reference_weak /
+//       napi_fatal_error_weak / napi_get_cb_info_weak /
+//       napi_get_reference_value_weak / napi_set_named_property_weak /
+//       napi_typeof_weak (11 weak); napi_get_env_context_v8 /
+//       napi_js_value_to_v8_value / napi_v8_value_to_js_value (3 v8 bridge)
+//   - partition_alloc::internal::OnNoMemory(unsigned long)
 //
-// To preserve the wave A 33 MB ELF link milestone, this file remains
-// a noop. Wave D will add the second-batch stubs and finally flip the
-// entry to `return LynxtronMain(argc, argv);`.
+// Wave E will likely fix napi via wiring lynx/third_party/napi target
+// dependencies into src/shell/lynx:lynx_lib group, mirroring the WI-034
+// wave A lynx_capi_stubs trade-off but for the napi side. Once those
+// land this file flips to `return LynxtronMain(argc, argv);`.
 
 int main(int argc, char* argv[]) {
   return 0;
