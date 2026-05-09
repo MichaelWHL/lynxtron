@@ -168,6 +168,12 @@ void lynx_extension_module_bind_lynx_view_create() {}
 void lynx_extension_module_bind_lynx_view_destroy() {}
 void lynx_extension_module_bind_runtime_init() {}
 void lynx_extension_module_bind_runtime_attach() {}
+// Wave E second batch of lynx_extension_module_bind_* (lifecycle hooks).
+void lynx_extension_module_bind_runtime_detach() {}
+void lynx_extension_module_bind_runtime_ready() {}
+void lynx_extension_module_bind_enter_background() {}
+void lynx_extension_module_bind_enter_foreground() {}
+void lynx_extension_module_bind_on_destroy() {}
 
 // lynx_log_* family
 void lynx_log_init() {}
@@ -210,4 +216,136 @@ char* lynx_strdup(const char* s) {
 void lynx_vsync_observer_request_animation_frame() {}
 void lynx_vsync_observer_request_before_animation_frame() {}
 
+// Wave E: NAPI weak-symbol bridge stubs.
+//
+// lynx/third_party/weak-node-api/headers/weak_napi_defines.h rewrites
+// every `napi_xxx` token to `napi_xxx_weak` (via #define +
+// WEAK_NAPI_SYMBOL macro) when USE_WEAK_SUFFIX_NAPI=1 (which lynxtron
+// sets in its harmony cflags). The actual `_weak` symbol bodies are
+// supplied by lynx's prebuilt libnapi (mac/win) or generated
+// weak_node_api.cpp; harmony has neither yet, so each call to
+// e.g. `napi_create_function(...)` becomes a missing
+// `napi_create_function_weak` reference at link time.
+//
+// Bring-up workaround: provide noop stubs here. linker resolves by
+// symbol name only; main_harmony.cc is noop so these are unreachable
+// at runtime. Real wiring (dep //lynx/third_party/weak-node-api on
+// harmony) is tracked under WI-035.
+void napi_add_finalizer_weak() {}
+void napi_call_function_weak() {}
+void napi_create_function_weak() {}
+void napi_create_reference_weak() {}
+void napi_create_threadsafe_function_weak() {}
+void napi_delete_reference_weak() {}
+void napi_fatal_error_weak() {}
+void napi_get_cb_info_weak() {}
+void napi_get_reference_value_weak() {}
+void napi_set_named_property_weak() {}
+void napi_typeof_weak() {}
+// Wave E second batch (revealed after first 11 stubs satisfied
+// ld.lld --error-limit=20):
+void napi_call_threadsafe_function_weak() {}
+void napi_close_handle_scope_weak() {}
+void napi_create_error_weak() {}
+void napi_create_object_weak() {}
+void napi_create_string_utf8_weak() {}
+void napi_create_type_error_weak() {}
+void napi_define_properties_weak() {}
+void napi_get_and_clear_last_exception_weak() {}
+void napi_get_last_error_info_weak() {}
+void napi_get_property_weak() {}
+void napi_has_property_weak() {}
+void napi_is_exception_pending_weak() {}
+void napi_open_handle_scope_weak() {}
+void napi_release_threadsafe_function_weak() {}
+void napi_throw_weak() {}
+
+// Wave E: lynx_view_* third batch (enter background/foreground hooks +
+// set_frame, also revealed after the first ld.lld pass).
+void lynx_view_enter_background() {}
+void lynx_view_enter_foreground() {}
+void lynx_view_set_frame() {}
+
 }  // extern "C"
+
+// Wave E: NAPI v8 bridge functions (C++ name-mangled, primjs napi flavor).
+//
+// Declared in lynx/third_party/napi/include/napi_env_v8.h:
+//   v8::Local<v8::Context> napi_get_env_context_v8(napi_env env);
+//   v8::Local<v8::Value>   napi_js_value_to_v8_value(napi_env env, napi_value value);
+//   napi_value             napi_v8_value_to_js_value(napi_env env, v8::Local<v8::Value> value);
+//
+// `napi_env` / `napi_value` are typedef pointer to opaque struct
+// `napi_env__` / `napi_value__`, which the primjs napi defines remap
+// to `napi_env_primjs__` / `napi_value_primjs__` (see
+// lynx/third_party/napi/include/primjs_napi_defines.h). The mangled
+// name therefore embeds `napi_env_primjs__*`. We forward-declare the
+// opaque struct here so the stub TU does not pull napi_env_v8.h (which
+// would also drag in the weak_napi_defines macro chain).
+struct napi_env_primjs__;
+struct napi_value_primjs__;
+#include "v8.h"  // NOLINT(build/include_subdir)
+
+v8::Local<v8::Context> napi_get_env_context_v8(napi_env_primjs__*) {
+  return v8::Local<v8::Context>();
+}
+v8::Local<v8::Value> napi_js_value_to_v8_value(napi_env_primjs__*,
+                                               napi_value_primjs__*) {
+  return v8::Local<v8::Value>();
+}
+napi_value_primjs__* napi_v8_value_to_js_value(napi_env_primjs__*,
+                                               v8::Local<v8::Value>) {
+  return nullptr;
+}
+
+// Wave E: partition_alloc::internal::OnNoMemory.
+//
+// lynxtron sets use_partition_alloc=false on harmony bring-up, so the
+// partition_alloc component (incl. oom.cc which defines OnNoMemory) is
+// not compiled. Some chromium base headers still expand the
+// OOM_CRASH(size) macro to `partition_alloc::internal::OnNoMemory(size)`
+// which then surfaces as an undefined link reference. Provide a stub
+// that aborts (matching the [[noreturn]] contract of the real impl)
+// to satisfy link without changing the use_partition_alloc gate.
+//
+// Real impl returns by [[noreturn]] crashing with PA-side bookkeeping;
+// stub uses abort() so the OS still gets a clean SIGABRT and the
+// crashpad-style upper layers can capture a core. Promotion via
+// partition_alloc dep wiring is tracked under WI-035.
+
+#include <cstdlib>  // for abort
+
+namespace partition_alloc::internal {
+[[noreturn]] void OnNoMemory(size_t size) {
+  std::abort();
+}
+}  // namespace partition_alloc::internal
+
+// Wave E: v8 trap_handler stubs.
+//
+// v8/BUILD.gn:6133 selects trap-handler-posix.cc only for
+// `is_linux || is_chromeos || is_mac || is_ios || target_os == "freebsd"`,
+// so harmony falls through and the trap handler symbols go undefined.
+// They're called from v8 wasm and signal-handling paths that are not
+// exercised on bring-up; safe to stub. Real wiring (extending v8
+// BUILD.gn 6133 to include is_harmony) is tracked under WI-035 alongside
+// the broader v8 platform-linux family already done in
+// wire-platform-linux-harmony.patch.
+
+#include <signal.h>  // for siginfo_t
+
+namespace v8 {
+namespace internal {
+namespace trap_handler {
+
+bool RegisterDefaultTrapHandler() {
+  return false;
+}
+
+bool TryHandleSignal(int signum, siginfo_t* info, void* context) {
+  return false;
+}
+
+}  // namespace trap_handler
+}  // namespace internal
+}  // namespace v8
