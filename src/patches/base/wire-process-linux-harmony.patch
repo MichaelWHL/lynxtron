@@ -13,19 +13,34 @@ several undefined symbols at link time, including:
   - base::nix::GetXDGDirectory(...)
   - base::debug::ElfReader::* / stack_canary_linux symbols
   - base::dwarf_helpers source_set referenced by base.
+  - base::MessagePumpEpoll::* (added in WI-035 wave A via use_epoll)
 
 The same `if (is_linux || is_chromeos)` -> `|| is_harmony` extension
 was applied to v8/BUILD.gn for v8::base::OS::* symbols (see
-src/patches/v8/wire-platform-linux-harmony.patch). Four base/BUILD.gn
-sites carry the same conditional and all need the harmony branch.
+src/patches/v8/wire-platform-linux-harmony.patch). Five base/BUILD.gn
+sites carry the same conditional and all need the harmony branch:
+  - L162 use_epoll (controls message_pump_epoll.cc inclusion)
+  - L999 process / process_metrics linux .cc
+  - L1715 base_paths_posix + elf_reader + stack_canary_linux
+  - L2282 linux_configs + nix/{mime_util_xdg,xdg_util}.cc + symbolize
+  - L2590 source_set("dwarf_helpers")
 ---
- BUILD.gn | 17 ++++++++++++-----
- 1 file changed, 12 insertions(+), 5 deletions(-)
+ BUILD.gn | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
 
 diff --git a/BUILD.gn b/BUILD.gn
-index 31a263b..3af5bc9 100644
+index 31a263b..682a6f2 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
+@@ -159,7 +159,7 @@ buildflag_header("ios_cronet_buildflags") {
+   flags = [ "CRONET_BUILD=$is_cronet_build" ]
+ }
+
+-use_epoll = is_linux || is_chromeos || is_android
++use_epoll = is_linux || is_chromeos || is_android || is_harmony
+
+ # Base and everything it depends on should be a static library rather than
+ # a source set. Base is more of a "library" in the classic sense in that many
 @@ -999,7 +999,11 @@ component("base") {
      ]
    }

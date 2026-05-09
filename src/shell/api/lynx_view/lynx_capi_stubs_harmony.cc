@@ -216,55 +216,29 @@ char* lynx_strdup(const char* s) {
 void lynx_vsync_observer_request_animation_frame() {}
 void lynx_vsync_observer_request_before_animation_frame() {}
 
-// Wave E: NAPI weak-symbol bridge stubs.
-//
-// lynx/third_party/weak-node-api/headers/weak_napi_defines.h rewrites
-// every `napi_xxx` token to `napi_xxx_weak` (via #define +
-// WEAK_NAPI_SYMBOL macro) when USE_WEAK_SUFFIX_NAPI=1 (which lynxtron
-// sets in its harmony cflags). The actual `_weak` symbol bodies are
-// supplied by lynx's prebuilt libnapi (mac/win) or generated
-// weak_node_api.cpp; harmony has neither yet, so each call to
-// e.g. `napi_create_function(...)` becomes a missing
-// `napi_create_function_weak` reference at link time.
-//
-// Bring-up workaround: provide noop stubs here. linker resolves by
-// symbol name only; main_harmony.cc is noop so these are unreachable
-// at runtime. Real wiring (dep //lynx/third_party/weak-node-api on
-// harmony) is tracked under WI-035.
-void napi_add_finalizer_weak() {}
-void napi_call_function_weak() {}
-void napi_create_function_weak() {}
-void napi_create_reference_weak() {}
-void napi_create_threadsafe_function_weak() {}
-void napi_delete_reference_weak() {}
-void napi_fatal_error_weak() {}
-void napi_get_cb_info_weak() {}
-void napi_get_reference_value_weak() {}
-void napi_set_named_property_weak() {}
-void napi_typeof_weak() {}
-// Wave E second batch (revealed after first 11 stubs satisfied
-// ld.lld --error-limit=20):
-void napi_call_threadsafe_function_weak() {}
-void napi_close_handle_scope_weak() {}
-void napi_create_error_weak() {}
-void napi_create_object_weak() {}
-void napi_create_string_utf8_weak() {}
-void napi_create_type_error_weak() {}
-void napi_define_properties_weak() {}
-void napi_get_and_clear_last_exception_weak() {}
-void napi_get_last_error_info_weak() {}
-void napi_get_property_weak() {}
-void napi_has_property_weak() {}
-void napi_is_exception_pending_weak() {}
-void napi_open_handle_scope_weak() {}
-void napi_release_threadsafe_function_weak() {}
-void napi_throw_weak() {}
+// WI-035 wave A: napi_*_weak symbols are now provided by
+// //lynx/third_party/weak-node-api:weak_node_api_source (wired into
+// src/shell/lynx:lynx_lib group on harmony). The wave D/E hand-written
+// stub set (napi_add_finalizer_weak / call_function_weak /
+// create_function_weak / create_reference_weak / create_threadsafe_*_weak
+// / delete_reference_weak / fatal_error_weak / get_cb_info_weak /
+// get_reference_value_weak / set_named_property_weak / typeof_weak +
+// the second batch of 15) was removed to avoid linker
+// "duplicate symbol" errors against the real weak_node_api.cpp defs.
 
 // Wave E: lynx_view_* third batch (enter background/foreground hooks +
 // set_frame, also revealed after the first ld.lld pass).
 void lynx_view_enter_background() {}
 void lynx_view_enter_foreground() {}
 void lynx_view_set_frame() {}
+
+// WI-035 wave A: lynx_resource_request / lynx_resource_response third
+// batch (revealed once weak_node_api wiring removed the napi_*_weak noise
+// from ld.lld).
+void* lynx_resource_request_get_type() { return nullptr; }
+const char* lynx_resource_request_get_url() { return ""; }
+void lynx_resource_response_callback() {}
+void lynx_resource_response_set_data() {}
 
 }  // extern "C"
 
@@ -349,3 +323,43 @@ bool TryHandleSignal(int signum, siginfo_t* info, void* context) {
 }  // namespace trap_handler
 }  // namespace internal
 }  // namespace v8
+
+// WI-035 wave A: base::debug::StackTrace::OutputToStreamWithPrefixImpl.
+//
+// stack_trace_posix.cc only defines this method behind
+// `#if defined(HAVE_BACKTRACE)`, where HAVE_BACKTRACE is set only for
+// IS_APPLE or glibc (see stack_trace_posix.cc:53-58). HarmonyOS uses
+// musl libc, which doesn't ship execinfo.h / backtrace(3), so the
+// method body is excluded but base/debug/stack_trace.cc:324 still
+// calls it from cross-platform OutputToStreamWithPrefix - link error.
+//
+// Stub prints a minimal "[stack trace unavailable]" line so consumers
+// (logging) get faithful output rather than crashing. Real impl would
+// either patch stack_trace_posix.cc to add a non-backtrace fallback, or
+// link a libc-extra (e.g. libunwind) on harmony; tracked under
+// WI-036 alongside the rest of harmony platform integration.
+
+#include <ostream>
+#include "base/strings/cstring_view.h"
+#include "base/debug/stack_trace.h"
+
+namespace base {
+namespace debug {
+
+void StackTrace::OutputToStreamWithPrefixImpl(
+    std::ostream* os, base::cstring_view prefix_string) const {
+  if (os) {
+    *os << prefix_string << "[stack trace unavailable on harmony bring-up]\n";
+  }
+}
+
+}  // namespace debug
+}  // namespace base
+
+// partition_alloc internal stubs were attempted in WI-035 wave A but
+// reverted: each ABI-shaped stub revealed a deeper PA internal (e.g.
+// PartitionRoot::MaybeInitThreadCache pulled in PartitionAddressSpace,
+// PartitionBucket::SlowPathAlloc, SpinningMutex, SlotSpanMetadata) so
+// the symbol set kept growing. The principled fix is to flip
+// use_partition_alloc=true on harmony (let partition_alloc's own .cc
+// supply all definitions) - tracked as WI-035 wave B / WI-036.

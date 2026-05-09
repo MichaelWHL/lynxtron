@@ -56,7 +56,19 @@ group("lynx_lib") {
     # in lynx/core/runtime/lepus/ir/* (~50 .cc) which require -fexceptions
     # and clash with lynxtron's -fno-exceptions cflag.
     # Real lynx integration (full embedder dep + lynx/platform/harmony group)
-    # is tracked under WI-035 / WI-036.
+    # is tracked under WI-036.
+    #
+    # WI-035 wave A: wire the weak-node-api source build to provide the
+    # ~30+ napi_*_weak symbol definitions (weak_napi_defines.h rewrites
+    # napi_xxx -> napi_xxx_weak under USE_WEAK_SUFFIX_NAPI=1). The
+    # weak_node_api_source source_set is platform-agnostic (only compiles
+    # generated/weak_node_api.cpp) and its config already sets
+    # NAPI_DISABLE_CPP_EXCEPTIONS so it composes with lynxtron's
+    # -fno-exceptions cflag. This replaces the wave-D/E hand-written
+    # napi_*_weak stubs with the real lynx-supplied definitions.
+    deps += [
+      "//lynx/third_party/weak-node-api:weak_node_api_source",
+    ]
   }
   public_configs = [ "//lynx/platform/embedder:public_api" ]
 }
