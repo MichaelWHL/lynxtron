@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Fri, 9 May 2026 12:00:00 +0800
+Subject: [PATCH] Skip glibc <sys/ifunc.h> on harmony in PA aarch64 support
+
+partition_alloc/aarch64_support.h:18 enables HAS_HW_CAPS (and thereby
+includes <sys/ifunc.h>) whenever PA detects IS_ANDROID or IS_LINUX.
+HarmonyOS uses musl libc which advertises __linux__ (so PA's
+build_config.h sets PA_IS_LINUX) but doesn't ship <sys/ifunc.h> -
+that header is glibc-specific.
+
+Exclude OHOS with a `!defined(__OHOS__)` guard so PA falls through
+to the #else branch (forward-declares struct __ifunc_arg_t and
+returns false from IsBtiEnabled / IsMteEnabled). This is the only
+PA source that needed an IS_HARMONY-aware adjustment to compile
+under target_os=harmony with use_partition_alloc=true.
+
+Required by WI-035 wave B, which flips use_partition_alloc=true on
+harmony so that PA's own .cc files supply PartitionAllocHooks /
+PartitionRoot / ThreadCache / FreelistCorruptionDetected /
+OnNoMemory / Alias etc. - replacing the wave-E hand-stub attempt
+that revealed deeper PA internals (PartitionAddressSpace,
+PartitionBucket::SlowPathAlloc, SpinningMutex, SlotSpanMetadata)
+without converging.
+---
+ .../src/partition_alloc/aarch64_support.h         | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/allocator/partition_allocator/src/partition_alloc/aarch64_support.h b/allocator/partition_allocator/src/partition_alloc/aarch64_support.h
+index ffd93db..5274ad6 100644
+--- a/allocator/partition_allocator/src/partition_alloc/aarch64_support.h
++++ b/allocator/partition_allocator/src/partition_alloc/aarch64_support.h
+@@ -15,7 +15,13 @@
+ #include "partition_alloc/build_config.h"
+ #include "partition_alloc/buildflags.h"
+
+-#if PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)
++// HarmonyOS uses musl libc, which doesn't ship <sys/ifunc.h> even though
++// it advertises __linux__ (and therefore PA_BUILDFLAG(IS_LINUX)=1). The
++// AArch64 IFUNC machinery here is glibc-specific, so exclude OHOS with a
++// `__OHOS__` guard so PA's #else fallback (forward-declared
++// struct __ifunc_arg_t) takes over and the IsBtiEnabled / IsMteEnabled
++// helpers compile to "return false".
++#if (PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)) && !defined(__OHOS__)
+ #define HAS_HW_CAPS
+ #endif
+
+--
+2.34.1

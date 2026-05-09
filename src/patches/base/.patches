@@ -5,3 +5,4 @@ use-lynx-perfetto-dependency.patch
 adapt-modp-with-lynx-prefix.patch
 wire-harmony-into-base.patch
 wire-process-linux-harmony.patch
+wire-pa-aarch64-harmony.patch

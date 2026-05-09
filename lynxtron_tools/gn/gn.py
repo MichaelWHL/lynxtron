@@ -74,12 +74,27 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     gn_args += 'use_custom_libcxx=false '
     gn_args += 'use_sysroot=false '
     gn_args += 'enable_rust=false '
-    # PartitionAlloc & allocator shim are not yet musl/ohos-clean (sys/ifunc.h
-    # missing, glibc-style throw() decl mismatch). Disable for bring-up; revisit
-    # when porting partition_alloc properly.
-    gn_args += 'use_partition_alloc=false '
+    # WI-035 wave B: enable PartitionAlloc compilation so its component
+    # provides definitions for PartitionAllocHooks / PartitionRoot /
+    # ThreadCache / FreelistCorruptionDetected / Alias / etc. - chromium
+    # base allocator/dispatcher inline call sites reference these even
+    # with use_partition_alloc=false at the lynxtron_app link, and stubbing
+    # them ad-hoc kept revealing deeper PA internals (PartitionAddressSpace,
+    # PartitionBucket, SpinningMutex, SlotSpanMetadata).
+    #
+    # Keep `_as_malloc=false` and `use_allocator_shim=false` so the global
+    # malloc remains the OHOS musl one (PA only compiles, doesn't intercept
+    # malloc). Wave 2's musl-side compile errors (sys/ifunc.h missing,
+    # glibc-style throw() decl mismatch) are revisited under wave B once
+    # ninja surfaces them.
+    gn_args += 'use_partition_alloc=true '
     gn_args += 'use_partition_alloc_as_malloc=false '
     gn_args += 'use_allocator_shim=false '
+    # chromium asserts (base/allocator/allocator.gni:14, 22) that without
+    # PA-Everywhere, BackupRefPtr / PointerCompression must be disabled
+    # because their scope is then limited to explicit PA partitions only.
+    gn_args += 'enable_backup_ref_ptr_support=false '
+    gn_args += 'enable_pointer_compression_support=false '
     # Lynx skia patch ships skia_harmony fontmgr in a truncated form (the patch
     # itself is incomplete, multiple .cpp/.h files miss tail). Disable the
     # harmony font manager target during bring-up; skia will fall back to the

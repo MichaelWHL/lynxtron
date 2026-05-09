@@ -272,28 +272,10 @@ napi_value_primjs__* napi_v8_value_to_js_value(napi_env_primjs__*,
   return nullptr;
 }
 
-// Wave E: partition_alloc::internal::OnNoMemory.
-//
-// lynxtron sets use_partition_alloc=false on harmony bring-up, so the
-// partition_alloc component (incl. oom.cc which defines OnNoMemory) is
-// not compiled. Some chromium base headers still expand the
-// OOM_CRASH(size) macro to `partition_alloc::internal::OnNoMemory(size)`
-// which then surfaces as an undefined link reference. Provide a stub
-// that aborts (matching the [[noreturn]] contract of the real impl)
-// to satisfy link without changing the use_partition_alloc gate.
-//
-// Real impl returns by [[noreturn]] crashing with PA-side bookkeeping;
-// stub uses abort() so the OS still gets a clean SIGABRT and the
-// crashpad-style upper layers can capture a core. Promotion via
-// partition_alloc dep wiring is tracked under WI-035.
-
-#include <cstdlib>  // for abort
-
-namespace partition_alloc::internal {
-[[noreturn]] void OnNoMemory(size_t size) {
-  std::abort();
-}
-}  // namespace partition_alloc::internal
+// WI-035 wave B replaced the OnNoMemory stub with the real
+// partition_alloc oom.cc impl by flipping use_partition_alloc=true on
+// harmony. The wave-E stub that lived here is removed to deconflict
+// the linker's "duplicate symbol" against the real PA def.
 
 // Wave E: v8 trap_handler stubs.
 //
