@@ -9,6 +9,10 @@
 #ifndef LYNXTRON_SHELL_UI_GFX_ICON_UTIL_H_
 #define LYNXTRON_SHELL_UI_GFX_ICON_UTIL_H_
 
+#include "build/build_config.h"
+
+#if BUILDFLAG(IS_WIN)
+
 #include <windows.h>
 
 #include <stddef.h>
@@ -270,5 +274,7 @@ class GFX_EXPORT IconUtil {
   // A helper function of CreateSkBitmapFromHICON.
   static SkBitmap CreateSkBitmapFromHICONHelper(HICON icon, const gfx::Size& s);
 };
+
+#endif  // BUILDFLAG(IS_WIN)
 
 #endif  // LYNXTRON_SHELL_UI_GFX_ICON_UTIL_H_

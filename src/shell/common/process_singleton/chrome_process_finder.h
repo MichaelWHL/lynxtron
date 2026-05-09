@@ -9,6 +9,10 @@
 #ifndef LYNXTRON_SHELL_COMMON_PROCESS_SINGLETON_CHROME_PROCESS_FINDER_H_
 #define LYNXTRON_SHELL_COMMON_PROCESS_SINGLETON_CHROME_PROCESS_FINDER_H_
 
+#include "build/build_config.h"
+
+#if BUILDFLAG(IS_WIN)
+
 #include <windows.h>
 
 #include "base/time/time.h"
@@ -33,5 +37,7 @@ NotifyChromeResult AttemptToNotifyRunningChrome(HWND remote_window);
 
 // Changes the notification timeout to |new_timeout|, returns the old timeout.
 base::TimeDelta SetNotificationTimeoutForTesting(base::TimeDelta new_timeout);
+
+#endif  // BUILDFLAG(IS_WIN)
 
 #endif  // LYNXTRON_SHELL_COMMON_PROCESS_SINGLETON_CHROME_PROCESS_FINDER_H_
