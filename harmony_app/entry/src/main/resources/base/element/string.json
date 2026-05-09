@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Lynxtron entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Lynxtron main UIAbility"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Lynxtron"
+    }
+  ]
+}

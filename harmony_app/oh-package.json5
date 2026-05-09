@@ -1,0 +1,12 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "lynxtron_app",
+  "version": "1.0.0",
+  "description": "Lynxtron HarmonyOS HAP wrapper - loads liblynxtron.so via NAPI",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.21",
+    "@ohos/hvigor-ohos-plugin": "5.0.1",
+    "@ohos/hvigor": "5.0.1"
+  }
+}
