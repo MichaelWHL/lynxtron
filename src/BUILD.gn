@@ -663,13 +663,23 @@ source_set("lynxtron_lib") {
 
   if (is_harmony) {
     # HarmonyOS bring-up: minimum *_harmony.cc set that resolves declared-only
-    # link-blockers in cross-platform .h. Each stub returns nullptr / noop
-    # because main_harmony.cc does not invoke any of them at bring-up; the
-    # purpose is purely to let lynxtron_lib link cleanly under target_os=harmony
-    # once WI-033 unblocks base/fml compile errors. Real impl is tracked in
-    # WI-034 (OHOS NativeWindow + libuv polling on OHOS musl).
+    # link-blockers in cross-platform .h. Each stub returns nullptr / empty /
+    # noop because main_harmony.cc does not invoke any of them at bring-up;
+    # the purpose is purely to let lynxtron_lib link cleanly under
+    # target_os=harmony once WI-033 unblocks base/fml compile errors. Real
+    # impl is tracked in WI-034 (OHOS NativeWindow + libuv polling on OHOS
+    # musl + Application platform integration).
+    #
+    # Wave A (2026-05-09): native_window + node_bindings factories.
+    # Wave B (2026-05-09): application + relauncher (main_parts not needed -
+    #                      HandleSIGCHLD/InstallShutdownSignalHandlers are
+    #                      already covered by main_parts_posix.cc via the
+    #                      is_posix block above, since harmony is OS_LINUX
+    #                      and therefore OS_POSIX per build_config.h).
     sources += [
+      "shell/app/application_harmony.cc",
       "shell/app/native_window_harmony.cc",
+      "shell/app/relauncher_harmony.cc",
       "shell/common/node_bindings_harmony.cc",
     ]
   }
