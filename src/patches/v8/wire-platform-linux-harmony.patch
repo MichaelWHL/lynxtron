@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Fri, 9 May 2026 10:50:00 +0800
+Subject: [PATCH] Wire platform-linux.cc into v8_libbase on target_os=harmony
+
+OpenHarmony shares the Linux kernel and uapi (target triple
+aarch64-linux-ohos) so the v8 base platform layer that already targets
+Linux can be reused as-is on harmony. Without this branch, v8/BUILD.gn
+selects no platform-*.cc on harmony, leaving six v8::base::OS::* methods
+undefined at link time:
+  - SignalCodeMovingGC
+  - RemapShared
+  - RemapPages
+  - AdjustSchedulingParams
+  - CreateTimezoneCache
+  - GetSharedLibraryAddresses
+
+musl libc on OHOS provides the POSIX surface platform-linux.cc relies
+on (mmap/munmap/sched_*), so reusing the same .cc is safe.
+---
+ BUILD.gn | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/BUILD.gn b/BUILD.gn
+index da7fd9b1..93014dc5 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -6784,7 +6784,12 @@ v8_component("v8_libbase") {
+     }
+   }
+
+-  if (is_linux || is_chromeos) {
++  if (is_linux || is_chromeos || is_harmony) {
++    # HarmonyOS shares Linux kernel + uapi (target triple aarch64-linux-ohos);
++    # platform-linux.cc covers all v8::base::OS::* it needs (RemapShared,
++    # SignalCodeMovingGC, AdjustSchedulingParams, CreateTimezoneCache,
++    # GetSharedLibraryAddresses, RemapPages). musl libc on OHOS provides the
++    # POSIX surface platform-linux.cc relies on (mmap/munmap/sched_*).
+     sources += [
+       "src/base/debug/stack_trace_posix.cc",
+       "src/base/platform/platform-linux.cc",
+--
+2.34.1

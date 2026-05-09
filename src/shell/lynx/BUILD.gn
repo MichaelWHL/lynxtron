@@ -49,6 +49,14 @@ group("lynx_lib") {
       ":lynx_core",
       "//lynx/platform/windows:lynx_windows_group",
     ]
+  } else if (is_harmony) {
+    # HarmonyOS bring-up: lynx capi entries are stubbed inside the lynxtron
+    # tree (see shell/api/lynx_view/lynx_capi_stubs_harmony.cc) instead of
+    # pulling //lynx/platform/embedder:embedder, because the latter brings
+    # in lynx/core/runtime/lepus/ir/* (~50 .cc) which require -fexceptions
+    # and clash with lynxtron's -fno-exceptions cflag.
+    # Real lynx integration (full embedder dep + lynx/platform/harmony group)
+    # is tracked under WI-035 / WI-036.
   }
   public_configs = [ "//lynx/platform/embedder:public_api" ]
 }

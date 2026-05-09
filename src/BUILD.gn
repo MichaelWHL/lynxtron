@@ -683,6 +683,7 @@ source_set("lynxtron_lib") {
     #                      has `#if !IS_MAC && !IS_WIN` fallback that returns
     #                      std::nullopt for HeaderIntegrity / RelativePath.
     sources += [
+      "shell/api/lynx_view/lynx_capi_stubs_harmony.cc",
       "shell/app/application_harmony.cc",
       "shell/app/icon_manager_harmony.cc",
       "shell/app/native_window_harmony.cc",
@@ -1018,27 +1019,29 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
-  # HarmonyOS bring-up (wave 4 frozen): lynxtron_app is a self-contained stub.
-  # Wiring `:lynxtron_lib` here triggers ~45 lynxtron_lib cross-platform .cc/.h
-  # to compile under harmony toolchain. They reference platform-specific types
-  # like HWND / NSWindow* / NSView* in the header (e.g. shell/app/native_window.h
-  # line 67 `unknown type name 'HWND'`), and the .cc bodies dispatch to platform
-  # impls that don't exist for harmony yet (no shell/app/native_window_harmony.cc,
-  # no api_clipboard_harmony.cc, no file_dialog_harmony.cc, etc).
+  # HarmonyOS lynxtron_app (WI-034 phase): now actually deps :lynxtron_lib
+  # to drive the full link path under target_os=harmony.
   #
-  # Bringing those up is tracked in WI-029.x (~4-7 person-days):
-  #   * gate platform-specific types in cross-platform .h with is_harmony
-  #     branches (NativeWindow void* stubs from gfx/native_ui_types.h already
-  #     cover one of them)
-  #   * write ~20 *_harmony.cc stubs across shell/{api,app,common,ui}
+  # Status:
+  #   - WI-030 gated cross-platform .h that referenced HWND/NSWindow*/NSView*
+  #     so they parse cleanly on harmony toolchain.
+  #   - WI-031 added 7 *_harmony.cc stubs (native_window, node_bindings,
+  #     application[16], relauncher[2], platform_util[5], application_info[3],
+  #     icon_manager[1]) - 25+ symbols providing return-default link
+  #     resolution for the cross-platform dispatcher entry points.
+  #   - WI-033 took the lynxtron_lib source_set from 45 -> 0 compile FAILED
+  #     (gin Converter ODR, lynxtron_paths DIR_APP_DATA, GetMemoryInfo /
+  #     PageAllocator gate, library_main signature, lynx submodule patches).
   #
-  # For now we keep the link-validated stub to preserve the milestone of
-  # "OHOS arm64 musl PIE ELF emitted" and the rest of `gn_all` (base / v8 /
-  # libuv / icu / skia / ...) compiling cleanly.
+  # Wiring :lynxtron_lib here flips the audit signal from "compile-only" to
+  # "compile + link", surfacing whatever undefined-symbol set the WI-031
+  # nullptr/empty stubs left behind together with any base/v8/node/lynx
+  # link-side gaps. WI-034 is the bring-up of that set.
   executable("lynxtron_app") {
     output_name = "lynxtron"
     include_dirs = [ "." ]
     sources = [ "shell/app/main_harmony.cc" ]
+    deps = [ ":lynxtron_lib" ]
   }
 }
 
