@@ -21,11 +21,22 @@ component("skia_ext") {
     "ext/skcolorspace_primaries.h",
   ]
   sources = [
-    "ext/SkMemory_new_handler.cpp",
     "ext/convolver.cc",
     "ext/image_operations.cc",
     "ext/skcolorspace_primaries.cc",
   ]
+  if (!is_harmony) {
+    # SkMemory_new_handler.cpp provides sk_malloc / sk_free / sk_realloc /
+    # sk_abort_no_print etc. as a chromium-flavored override of skia's
+    # default SkMemory_malloc.cpp. On harmony we use shared_library link
+    # mode (so the napi-init lib can be dlopen-ed by the OHOS HAP loader),
+    # which keeps both .a's symbols alive instead of letting
+    # -Wl,--gc-sections strip the loser. Drop the override on harmony so
+    # skia's SkMemory_malloc.cpp wins cleanly. Real-impl can route skia
+    # allocations through PartitionAlloc later (WI-037+) once harmony
+    # has its own memory adapter strategy.
+    sources += [ "ext/SkMemory_new_handler.cpp" ]
+  }
 
   if (is_mac) {
     public += [ "ext/skia_utils_mac.h" ]

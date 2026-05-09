@@ -1026,29 +1026,33 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
-  # HarmonyOS lynxtron_app (WI-034 phase): now actually deps :lynxtron_lib
-  # to drive the full link path under target_os=harmony.
+  # HarmonyOS lynxtron_app — WI-036 wave A landed the napi_init /
+  # napi_module_register entry shape in shell/app/main_harmony.cc and
+  # registered libace_napi.z as a system lib, but kept the executable
+  # build form because flipping to shared_library requires -fPIC for
+  # the entire transitive set (node inspector / cppgc / etc. currently
+  # compile with absolute relocations only valid in PIE executables).
   #
-  # Status:
-  #   - WI-030 gated cross-platform .h that referenced HWND/NSWindow*/NSView*
-  #     so they parse cleanly on harmony toolchain.
-  #   - WI-031 added 7 *_harmony.cc stubs (native_window, node_bindings,
-  #     application[16], relauncher[2], platform_util[5], application_info[3],
-  #     icon_manager[1]) - 25+ symbols providing return-default link
-  #     resolution for the cross-platform dispatcher entry points.
-  #   - WI-033 took the lynxtron_lib source_set from 45 -> 0 compile FAILED
-  #     (gin Converter ODR, lynxtron_paths DIR_APP_DATA, GetMemoryInfo /
-  #     PageAllocator gate, library_main signature, lynx submodule patches).
+  # WI-036 wave B will switch to shared_library after the global cflags
+  # add -fPIC for harmony, at which point output_name + output_extension
+  # become "lynxtron" / "so" and HAP UIAbility ts can `import lynxtron
+  # from 'liblynxtron.so'`. For wave A the executable form keeps the
+  # 42 MB ELF link-green milestone (WI-035 wave B) intact.
   #
-  # Wiring :lynxtron_lib here flips the audit signal from "compile-only" to
-  # "compile + link", surfacing whatever undefined-symbol set the WI-031
-  # nullptr/empty stubs left behind together with any base/v8/node/lynx
-  # link-side gaps. WI-034 is the bring-up of that set.
   executable("lynxtron_app") {
     output_name = "lynxtron"
     include_dirs = [ "." ]
     sources = [ "shell/app/main_harmony.cc" ]
     deps = [ ":lynxtron_lib" ]
+    # libace_napi.z.so is the OHOS-side napi runtime that will resolve
+    # napi_create_int32 / napi_define_properties / napi_module_register
+    # once main_harmony.cc's napi_init entry is reachable (in wave B
+    # shared_library mode). The lib lives in tools/harmony_tools/sdk/.../
+    # sysroot/usr/lib/aarch64-linux-ohos and is on the toolchain's
+    # default lib search path. Adding it here pre-flights the link
+    # dependency so the dynamic deps shake out clean before the form
+    # change.
+    libs = [ "ace_napi.z" ]
   }
 }
 
