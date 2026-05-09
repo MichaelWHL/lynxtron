@@ -520,6 +520,15 @@ bool ReplaceOldSingletonLock(const base::FilePath& symlink_content,
   return SymlinkPath(symlink_content, lock_path);
 }
 
+#endif  // BUILDFLAG(IS_MAC)
+
+// Host name lookup is plain POSIX (gethostname(3)) and is needed by callers
+// outside the IS_MAC block (NotifyOtherProcessWithTimeoutOrCreate's
+// hostname mismatch path at L899/L1108/L1242), so keep this function
+// visible to all POSIX platforms including HarmonyOS. The previous file
+// structure embedded it inside `#if BUILDFLAG(IS_MAC)` together with
+// macOS-only ReplaceOldSingletonLock (which uses O_SYMLINK, not portable),
+// causing "use of undeclared identifier 'GetHostName'" on harmony.
 std::string GetHostName() {
   // Host names are limited to 255 bytes.
   char buffer[256];
@@ -530,8 +539,6 @@ std::string GetHostName() {
   }
   return std::string(buffer);
 }
-
-#endif  // BUILDFLAG(IS_MAC)
 
 }  // namespace
 

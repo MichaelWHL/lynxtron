@@ -34,4 +34,36 @@ void lynx_env_register_extension_module(const char* name,
                                         bool is_lazy_create,
                                         void* opaque) {}
 
+// Returns "" (immutable static) so callers that expect a non-null pointer
+// keep working. Real version reads the lynx git revision.
+const char* lynx_env_get_sdk_version(void) {
+  return "";
+}
+
+// Match: void lynx_env_set_devtool_app_info(const char* name, const char* value)
+void lynx_env_set_devtool_app_info(const char* name, const char* value) {}
+
+// lynx_template_bundle_* family. Each operates on an opaque pointer
+// to lynx::pub::LynxTemplateBundle (declared in
+// lynx/platform/embedder/public/capi/lynx_template_bundle_capi.h).
+//
+// Stubs return "invalid bundle" in the caller's eyes so any consumer that
+// checks lynx_template_bundle_is_valid() before use exits gracefully.
+
+void* lynx_template_bundle_create(const char* data, size_t data_size) {
+  return nullptr;
+}
+
+void lynx_template_bundle_release(void* bundle) {}
+
+bool lynx_template_bundle_is_valid(void* bundle) {
+  return false;
+}
+
+const char* lynx_template_bundle_get_error_message(void* bundle) {
+  return
+      "lynx_template_bundle is not implemented on HarmonyOS bring-up "
+      "(WI-034 wave C / WI-035)";
+}
+
 }  // extern "C"

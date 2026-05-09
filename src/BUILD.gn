@@ -541,7 +541,12 @@ source_set("lynxtron_lib") {
   sources += gin_converters_sources
 
   if (is_posix) {
-    sources += [ "shell/app/main_parts_posix.cc" ]
+    sources += [
+      "shell/app/main_parts_posix.cc",
+      "shell/common/process_singleton/process_singleton_lock_posix.cc",
+      "shell/common/process_singleton/process_singleton_lock_posix.h",
+      "shell/common/process_singleton/process_singleton_posix.cc",
+    ]
   }
 
   if (is_mac) {
@@ -583,10 +588,7 @@ source_set("lynxtron_lib") {
       "shell/common/node_bindings_mac.cc",
       "shell/common/node_bindings_mac.h",
       "shell/common/platform_util_mac.mm",
-      "shell/common/process_singleton/process_singleton_lock_posix.cc",
-      "shell/common/process_singleton/process_singleton_lock_posix.h",
       "shell/common/process_singleton/process_singleton_mac.mm",
-      "shell/common/process_singleton/process_singleton_posix.cc",
       "shell/ui/cocoa/electron_bundle_mover.h",
       "shell/ui/cocoa/electron_bundle_mover.mm",
       "shell/ui/cocoa/lynxtron_menu_controller.h",
@@ -684,6 +686,8 @@ source_set("lynxtron_lib") {
     #                      std::nullopt for HeaderIntegrity / RelativePath.
     sources += [
       "shell/api/lynx_view/lynx_capi_stubs_harmony.cc",
+      "shell/api/ui/file_dialog_harmony.cc",
+      "shell/api/ui/message_box_harmony.cc",
       "shell/app/application_harmony.cc",
       "shell/app/icon_manager_harmony.cc",
       "shell/app/native_window_harmony.cc",
