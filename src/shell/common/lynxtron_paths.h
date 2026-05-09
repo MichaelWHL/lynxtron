@@ -47,6 +47,17 @@ enum {
   DIR_USER_DATA,
   DIR_APP_DICTIONARIES,
 
+#if BUILDFLAG(IS_LINUX)
+  // POSIX (Linux / HarmonyOS): no base::DIR_* counterpart with full XDG
+  // semantics. Declare DIR_APP_DATA inside the PATH_START..PATH_END range
+  // so that PathService::RegisterProvider in main_parts.cc:140 routes
+  // it to lynxtron::PathProvider, where the IS_LINUX branch resolves it
+  // via base::nix::GetXDGDirectory($XDG_CONFIG_HOME, .config).
+  // On Win/Mac the corresponding lookup is delegated to base directly
+  // via the alias below (DIR_APP_DATA = base::DIR_ROAMING_APP_DATA / base::DIR_APP_DATA).
+  DIR_APP_DATA,
+#endif
+
   // TODO(Guo Xi) : review PATH_END
   PATH_END,  // End of new paths. Those that follow redirect to base::DIR_*
 

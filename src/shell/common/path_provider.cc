@@ -25,6 +25,9 @@
 #include "base/win/scoped_co_mem.h"
 #elif BUILDFLAG(IS_MAC)
 #include "base/base_paths_mac.h"
+#elif BUILDFLAG(IS_LINUX)
+#include "base/environment.h"
+#include "base/nix/xdg_util.h"
 #endif
 
 namespace lynxtron {
