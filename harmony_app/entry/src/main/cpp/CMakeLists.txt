@@ -22,24 +22,32 @@ set(LYNXTRON_GN_OUT_DIR
 set(LYNXTRON_PREBUILT
   "${LYNXTRON_GN_OUT_DIR}/liblynxtron.so")
 
-if(NOT EXISTS "${LYNXTRON_PREBUILT}")
-  message(WARNING
-    "liblynxtron.so not found at ${LYNXTRON_PREBUILT}. "
-    "Run `ninja -C out/harmony_arm64_Release lynxtron_app` from the "
-    "repo root after WI-036 wave-pic flips the GN target to "
-    "shared_library. The HAP build will fail to find the symbol "
-    "until then.")
+if(EXISTS "${LYNXTRON_PREBUILT}")
+  add_library(lynxtron SHARED IMPORTED)
+  set_target_properties(lynxtron
+    PROPERTIES IMPORTED_LOCATION "${LYNXTRON_PREBUILT}")
+
+  # Re-export liblynxtron.so into the HAP libs/arm64-v8a/ directory so
+  # the OHOS app loader picks it up. CMake does the copy via a custom
+  # target that depends on the prebuilt path.
+  add_custom_target(copy_lynxtron_so ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${LYNXTRON_PREBUILT}"
+      "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/liblynxtron.so"
+    DEPENDS "${LYNXTRON_PREBUILT}")
+  message(STATUS "lynxtron native lib staged from ${LYNXTRON_PREBUILT}")
+else()
+  # Missing prebuilt is the WI-036 wave-pic blocker: liblynxtron.so will
+  # only exist once src/BUILD.gn flips lynxtron_app from `executable` to
+  # `shared_library` (which in turn requires a -fPIC global cflag rollout).
+  # For wave C/D's "shell HAP" smoke test we still want hvigorw assembleHap
+  # to succeed end-to-end, so just print a STATUS line and skip target
+  # creation. The resulting .hap will load without lynxtron - the ts side
+  # `import lynxtron from 'liblynxtron.so'` will throw at runtime, but the
+  # build pipeline itself is verified.
+  message(STATUS
+    "liblynxtron.so not staged (${LYNXTRON_PREBUILT} missing). "
+    "Building shell HAP without native lib. Run `ninja -C "
+    "out/harmony_arm64_Release lynxtron_app` after WI-036 wave-pic to "
+    "produce the prebuilt and re-run hvigorw assembleHap.")
 endif()
-
-add_library(lynxtron SHARED IMPORTED)
-set_target_properties(lynxtron
-  PROPERTIES IMPORTED_LOCATION "${LYNXTRON_PREBUILT}")
-
-# Re-export liblynxtron.so into the HAP libs/arm64-v8a/ directory so the
-# OHOS app loader picks it up. CMake does the copy via a custom target
-# that depends on the prebuilt path.
-add_custom_target(copy_lynxtron_so ALL
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${LYNXTRON_PREBUILT}"
-    "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/liblynxtron.so"
-  DEPENDS "${LYNXTRON_PREBUILT}")

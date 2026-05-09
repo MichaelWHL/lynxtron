@@ -1,0 +1,14 @@
+# hvigor / hvigorw build artifacts and caches
+.hvigor/
+oh_modules/
+**/oh_modules/
+**/build/
+**/.cxx/
+**/local.properties
+**/.preview/
+*.tsbuildinfo
+
+# Workspace / IDE state
+.deveco/
+.idea/
+.vscode/
