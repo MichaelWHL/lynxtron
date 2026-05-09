@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "shell/common/platform_util_internal.h"
 #include "url/gurl.h"
 

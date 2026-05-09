@@ -63,6 +63,13 @@ struct Converter<std::array<T, N>> {
   }
 };
 
+// On LP64 Linux (incl. HarmonyOS, ChromeOS, Android with glibc/musl) the
+// 64-bit `unsigned long` is the underlying type for `uint64_t`, so an explicit
+// specialization here would collide with gin's `Converter<uint64_t>`
+// (gin/converter.h:95) and produce an ODR redefinition error. macOS LP64 and
+// Win64 LLP64 use `unsigned long long` for `uint64_t`, where the two are
+// distinct types and the specialization is needed.
+#if !BUILDFLAG(IS_LINUX)
 template <>
 struct Converter<unsigned long> {  // NOLINT(runtime/int)
   static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
@@ -80,6 +87,7 @@ struct Converter<unsigned long> {  // NOLINT(runtime/int)
     return true;
   }
 };
+#endif  // !BUILDFLAG(IS_LINUX)
 
 template <>
 struct Converter<std::nullptr_t> {
