@@ -676,11 +676,20 @@ source_set("lynxtron_lib") {
     #                      already covered by main_parts_posix.cc via the
     #                      is_posix block above, since harmony is OS_LINUX
     #                      and therefore OS_POSIX per build_config.h).
+    # Wave C (2026-05-09): platform_util (5 syms inc. internal::PlatformTrashItem)
+    #                      + application_info (3 GetApplication* syms)
+    #                      + icon_manager (LoadPlatformIcon free fn).
+    #                      asar/archive not needed - archive.cc:280-287 already
+    #                      has `#if !IS_MAC && !IS_WIN` fallback that returns
+    #                      std::nullopt for HeaderIntegrity / RelativePath.
     sources += [
       "shell/app/application_harmony.cc",
+      "shell/app/icon_manager_harmony.cc",
       "shell/app/native_window_harmony.cc",
       "shell/app/relauncher_harmony.cc",
+      "shell/common/application_info_harmony.cc",
       "shell/common/node_bindings_harmony.cc",
+      "shell/common/platform_util_harmony.cc",
     ]
   }
 
