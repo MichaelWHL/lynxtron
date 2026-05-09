@@ -1,6 +1,14 @@
 {
   "app": {
-    "bundleName": "com.haitaichina.lynxtron",
+    // bundleName matches the profile under
+    //   /opt/sda2/liuwh/OpenSoure_gitcode_OpenHarmany/132_chromium/
+    //     scripts/002_htbrowserToC/213-web-native-profile-debugDebug.p7b
+    // so b_sign_hap_release.sh can sign + the device install passes the
+    // bundle whitelist check. Installing this hap will replace any
+    // existing com.haitai.htbrowser app on the device. A separate
+    // bundleName (e.g. com.haitaichina.lynxtron) will require its own
+    // signed profile from the OHOS developer console.
+    "bundleName": "com.haitai.htbrowser",
     "vendor": "haitaichina",
     "versionCode": 1000000,
     "versionName": "1.0.0",

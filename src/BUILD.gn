@@ -1039,19 +1039,17 @@ if (is_harmony) {
   # from 'liblynxtron.so'`. For wave A the executable form keeps the
   # 42 MB ELF link-green milestone (WI-035 wave B) intact.
   #
-  executable("lynxtron_app") {
+  shared_library("lynxtron_app") {
+    # WI-036 wave-pic: now a shared_library (liblynxtron.so) so the OHOS
+    # HAP loader can dlopen it from a UIAbility's ts code:
+    #   import lynxtron from 'liblynxtron.so'; lynxtron.start();
+    # -fPIC is enabled globally via build/config/compiler:default_compiler_flags
+    # for is_harmony (see wire-build-fpic-harmony.patch).
     output_name = "lynxtron"
+    output_extension = "so"
     include_dirs = [ "." ]
     sources = [ "shell/app/main_harmony.cc" ]
     deps = [ ":lynxtron_lib" ]
-    # libace_napi.z.so is the OHOS-side napi runtime that will resolve
-    # napi_create_int32 / napi_define_properties / napi_module_register
-    # once main_harmony.cc's napi_init entry is reachable (in wave B
-    # shared_library mode). The lib lives in tools/harmony_tools/sdk/.../
-    # sysroot/usr/lib/aarch64-linux-ohos and is on the toolchain's
-    # default lib search path. Adding it here pre-flights the link
-    # dependency so the dynamic deps shake out clean before the form
-    # change.
     libs = [ "ace_napi.z" ]
   }
 }

@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Fri, 9 May 2026 13:15:00 +0800
+Subject: [PATCH] Apply -fPIC global cflag on target_os=harmony
+
+build/config/compiler/BUILD.gn:682 sets `-fPIC` (asmflags / cflags /
+ldflags / rustflags `-Crelocation-model=pic`) for the entire chromium
+transitive set on Linux/ChromeOS/Android/Fuchsia. HarmonyOS shares the
+Linux kernel + uapi (target triple aarch64-linux-ohos) and lynxtron_app
+is built as a shared_library under target_os=harmony so the OHOS HAP
+loader can dlopen liblynxtron.so. Without -fPIC the link fails with
+R_AARCH64_ADD_ABS_LO12_NC / R_AARCH64_ADR_PREL_PG_HI21 reloc errors
+across node inspector / cppgc / partition_alloc / libcxx-ohos
+(absolute relocs only valid in PIE executables, not shared libraries).
+
+Mirrors the same `is_linux || is_chromeos -> || is_harmony` extension
+already applied to v8/BUILD.gn (wire-platform-linux-harmony.patch) and
+base/BUILD.gn (wire-process-linux-harmony.patch).
+---
+ config/compiler/BUILD.gn | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index 2c549f1..d332d64 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -677,9 +677,15 @@ config("compiler") {
+     rustflags += [ "-Csplit-debuginfo=unpacked" ]
+   }
+
+-  # Linux/Android/Fuchsia common flags setup.
++  # Linux/Android/Fuchsia/HarmonyOS common flags setup.
+   # ---------------------------------
+-  if (is_linux || is_chromeos || is_android || is_fuchsia) {
++  # HarmonyOS shares the Linux kernel + uapi (target triple
++  # aarch64-linux-ohos), and lynxtron_app is built as a shared_library
++  # under target_os=harmony so the OHOS HAP loader can dlopen
++  # liblynxtron.so. -fPIC must therefore be on for the entire chromium
++  # transitive set (otherwise ld.lld rejects R_AARCH64_ADD_ABS_LO12_NC /
++  # R_AARCH64_ADR_PREL_PG_HI21 against external symbols).
++  if (is_linux || is_chromeos || is_android || is_fuchsia || is_harmony) {
+     asmflags += [ "-fPIC" ]
+     cflags += [ "-fPIC" ]
+     ldflags += [ "-fPIC" ]
+--
+2.34.1
