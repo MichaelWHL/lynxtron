@@ -8,11 +8,24 @@
 npm create lynxtron [project-name] [options]
 ```
 
+当提供项目名称或任意选项时，`create-lynxtron` 会进入非交互模式，并使用默认值补齐缺省选项。
+
 ## 选项
 
 - `[project-name]`: 要创建的项目名称或路径。
-- `--web`: 默认包含 Web 支持 (Symmetric Host)。
-- `--no-web`: 默认禁用 Web 支持 (Symmetric Host)。
+- `--web`: 包含 Web 支持 (Symmetric Host)，非交互模式下默认开启。
+- `--no-web`: 禁用 Web 支持 (Symmetric Host)。
+- `-f, --force`: 目标目录非空时覆盖目录。
+- `-y, --yes`: 对缺省选项使用默认答案。
+- `-h, --help`: 显示帮助信息。
+
+## 示例
+
+```bash
+npm create lynxtron my-app
+npm create lynxtron my-app -- --no-web
+npm create lynxtron my-app -- --web --force
+```
 
 ## 特性
 

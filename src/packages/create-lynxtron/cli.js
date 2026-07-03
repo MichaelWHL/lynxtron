@@ -7,6 +7,84 @@ import process from 'process';
 import prompts from 'prompts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_PROJECT_NAME = 'lynxtron-app';
+const DEFAULT_WEB_SUPPORT = true;
+
+function printHelp() {
+  console.log(`create-lynxtron
+
+Create a new Lynxtron app from the official template.
+
+Usage:
+  create-lynxtron [project-name] [options]
+  npm create lynxtron [project-name] -- [options]
+
+Options:
+  --web                 Include Web support (Symmetric Host). Default in non-interactive mode.
+  --no-web              Disable Web support (Symmetric Host).
+  -f, --force           Overwrite the target directory when it is not empty.
+  -y, --yes             Use default answers for missing options.
+  -h, --help            Show this help message.
+
+Examples:
+  create-lynxtron my-app
+  create-lynxtron my-app --no-web
+  create-lynxtron my-app --web --force
+`);
+}
+
+function parseArgs(args) {
+  const options = {
+    targetArg: undefined,
+    webSupport: undefined,
+    force: false,
+    yes: false,
+    help: false,
+  };
+
+  for (const arg of args) {
+    if (arg === '--') continue;
+
+    switch (arg) {
+      case '--web':
+        if (options.webSupport === false) {
+          throw new Error('Cannot use --web and --no-web together.');
+        }
+        options.webSupport = true;
+        break;
+      case '--no-web':
+        if (options.webSupport === true) {
+          throw new Error('Cannot use --web and --no-web together.');
+        }
+        options.webSupport = false;
+        break;
+      case '-f':
+      case '--force':
+      case '--overwrite':
+        options.force = true;
+        break;
+      case '-y':
+      case '--yes':
+        options.yes = true;
+        break;
+      case '-h':
+      case '--help':
+        options.help = true;
+        break;
+      default:
+        if (arg.startsWith('-')) {
+          throw new Error(`Unknown option: ${arg}`);
+        }
+        if (options.targetArg) {
+          throw new Error(`Unexpected argument: ${arg}`);
+        }
+        options.targetArg = arg;
+        break;
+    }
+  }
+
+  return options;
+}
 
 async function ensureDir(p) {
   await fsp.mkdir(p, { recursive: true });
@@ -15,7 +93,12 @@ async function ensureDir(p) {
 async function copyDir(src, dest) {
   const entries = await fsp.readdir(src, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') continue;
+    if (
+      entry.name === 'node_modules' ||
+      entry.name === 'dist' ||
+      entry.name === '.git'
+    )
+      continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -69,7 +152,10 @@ async function updateProjectBranding(targetDir, appName) {
     const p = path.join(targetDir, f);
     if (!fs.existsSync(p)) continue;
     const content = await fsp.readFile(p, 'utf8');
-    const next = content.replace(/^# Lynxtron Shell Demo$/m, `# ${displayName}`);
+    const next = content.replace(
+      /^# Lynxtron Shell Demo$/m,
+      `# ${displayName}`
+    );
     await fsp.writeFile(p, next, 'utf8');
   }
 
@@ -77,7 +163,10 @@ async function updateProjectBranding(targetDir, appName) {
   if (fs.existsSync(builderPath)) {
     const content = await fsp.readFile(builderPath, 'utf8');
     const next = content
-      .replace(/^productName: Lynxtron shell demo$/m, `productName: ${JSON.stringify(displayName)}`)
+      .replace(
+        /^productName: Lynxtron shell demo$/m,
+        `productName: ${JSON.stringify(displayName)}`
+      )
       .replace(/^appId: com\.lynxtron\.shelldemo$/m, `appId: ${appId}`)
       .replace(/\bLynxtronShellDemo\b/g, pascalName);
     await fsp.writeFile(builderPath, next, 'utf8');
@@ -87,9 +176,7 @@ async function updateProjectBranding(targetDir, appName) {
 async function processTemplate(targetDir, webSupport, appName) {
   // 1. Files to delete if no web support
   if (!webSupport) {
-    const toDelete = [
-      'src/main/web',
-    ];
+    const toDelete = ['src/main/web'];
     for (const f of toDelete) {
       const p = path.join(targetDir, f);
       if (fs.existsSync(p)) {
@@ -114,8 +201,14 @@ async function processTemplate(targetDir, webSupport, appName) {
 
     if (webSupport) {
       // Keep web support: remove web markers (comments) and remove no-web block
-      content = content.replace(/^[ \t]*\/\* WEB_SUPPORT_START \*\/[ \t]*\n/gm, '');
-      content = content.replace(/^[ \t]*\/\* WEB_SUPPORT_END \*\/[ \t]*\n/gm, '');
+      content = content.replace(
+        /^[ \t]*\/\* WEB_SUPPORT_START \*\/[ \t]*\n/gm,
+        ''
+      );
+      content = content.replace(
+        /^[ \t]*\/\* WEB_SUPPORT_END \*\/[ \t]*\n/gm,
+        ''
+      );
       content = content.replace(
         /^[ \t]*\/\* NO_WEB_SUPPORT_START \*\/[\s\S]*?\/\* NO_WEB_SUPPORT_END \*\/[ \t]*\n?/gm,
         ''
@@ -126,8 +219,14 @@ async function processTemplate(targetDir, webSupport, appName) {
         /^[ \t]*\/\* WEB_SUPPORT_START \*\/[\s\S]*?\/\* WEB_SUPPORT_END \*\/[ \t]*\n?/gm,
         ''
       );
-      content = content.replace(/^[ \t]*\/\* NO_WEB_SUPPORT_START \*\/[ \t]*\n/gm, '');
-      content = content.replace(/^[ \t]*\/\* NO_WEB_SUPPORT_END \*\/[ \t]*\n/gm, '');
+      content = content.replace(
+        /^[ \t]*\/\* NO_WEB_SUPPORT_START \*\/[ \t]*\n/gm,
+        ''
+      );
+      content = content.replace(
+        /^[ \t]*\/\* NO_WEB_SUPPORT_END \*\/[ \t]*\n/gm,
+        ''
+      );
     }
     await fsp.writeFile(p, content);
   }
@@ -163,21 +262,34 @@ async function processTemplate(targetDir, webSupport, appName) {
 
 async function main() {
   const args = process.argv.slice(2);
-  let targetArg = args.find((a) => !a.startsWith('-'));
-  let webSupport = args.includes('--web')
-    ? true
-    : args.includes('--no-web')
-    ? false
-    : undefined;
+  let options;
+  try {
+    options = parseArgs(args);
+  } catch (e) {
+    console.error(e.message);
+    console.error('Run create-lynxtron --help for usage.');
+    process.exit(1);
+  }
 
-  if (!targetArg || webSupport === undefined) {
+  if (options.help) {
+    printHelp();
+    return;
+  }
+
+  let { targetArg, webSupport } = options;
+  const useDefaults = options.yes || args.length > 0 || !process.stdin.isTTY;
+
+  if (useDefaults) {
+    targetArg = targetArg || DEFAULT_PROJECT_NAME;
+    if (webSupport === undefined) webSupport = DEFAULT_WEB_SUPPORT;
+  } else if (!targetArg || webSupport === undefined) {
     const questions = [];
     if (!targetArg) {
       questions.push({
         type: 'text',
         name: 'project',
         message: 'Project name or path',
-        initial: 'lynxtron-app',
+        initial: DEFAULT_PROJECT_NAME,
       });
     }
     if (webSupport === undefined) {
@@ -185,7 +297,7 @@ async function main() {
         type: 'confirm',
         name: 'web',
         message: 'Include Web support (Symmetric Host)?',
-        initial: true,
+        initial: DEFAULT_WEB_SUPPORT,
       });
     }
 
@@ -195,19 +307,28 @@ async function main() {
       },
     });
 
-    if (!targetArg) targetArg = answers.project || 'lynxtron-app';
+    if (!targetArg) targetArg = answers.project || DEFAULT_PROJECT_NAME;
     if (webSupport === undefined) webSupport = !!answers.web;
   }
   const targetDir = path.resolve(process.cwd(), targetArg);
   const appName = path.basename(targetDir);
   let templateDir = path.resolve(__dirname, 'dist', 'lynxtron-shell-demo');
   if (!fs.existsSync(templateDir)) {
-    const siblingDist = path.resolve(__dirname, '..', 'dist', 'lynxtron-shell-demo');
+    const siblingDist = path.resolve(
+      __dirname,
+      '..',
+      'dist',
+      'lynxtron-shell-demo'
+    );
     if (fs.existsSync(siblingDist)) {
       templateDir = siblingDist;
     } else {
       const rootTemplate = path.resolve(__dirname, 'lynxtron-shell-demo');
-      const siblingRootTemplate = path.resolve(__dirname, '..', 'lynxtron-shell-demo');
+      const siblingRootTemplate = path.resolve(
+        __dirname,
+        '..',
+        'lynxtron-shell-demo'
+      );
       if (fs.existsSync(rootTemplate)) {
         templateDir = rootTemplate;
       } else if (fs.existsSync(siblingRootTemplate)) {
@@ -221,26 +342,36 @@ async function main() {
   if (fs.existsSync(targetDir)) {
     const hasFiles = (await fsp.readdir(targetDir)).length > 0;
     if (hasFiles) {
-      const ans = await prompts(
-        [
+      if (options.force) {
+        await fsp.rm(targetDir, { recursive: true, force: true });
+      } else if (useDefaults) {
+        console.error(
+          `Directory already exists and is not empty: ${targetDir}`
+        );
+        console.error('Use --force to overwrite it.');
+        process.exit(1);
+      } else {
+        const ans = await prompts(
+          [
+            {
+              type: 'confirm',
+              name: 'overwrite',
+              message: `Directory already exists: ${targetDir}. Overwrite?`,
+              initial: false,
+            },
+          ],
           {
-            type: 'confirm',
-            name: 'overwrite',
-            message: `Directory already exists: ${targetDir}. Overwrite?`,
-            initial: false
+            onCancel: () => {
+              process.exit(0);
+            },
           }
-        ],
-        {
-          onCancel: () => {
-            process.exit(0);
-          }
+        );
+        if (!ans.overwrite) {
+          console.log('Cancelled');
+          process.exit(0);
         }
-      );
-      if (!ans.overwrite) {
-        console.log('Cancelled');
-        process.exit(0);
+        await fsp.rm(targetDir, { recursive: true, force: true });
       }
-      await fsp.rm(targetDir, { recursive: true, force: true });
     }
   }
   await ensureDir(targetDir);
@@ -251,10 +382,17 @@ async function main() {
     const pkg = JSON.parse(await fsp.readFile(pkgPath, 'utf8'));
     let versions = {};
     try {
-      versions = JSON.parse(await fsp.readFile(path.resolve(__dirname, 'dist', 'versions.json'), 'utf8'));
+      versions = JSON.parse(
+        await fsp.readFile(
+          path.resolve(__dirname, 'dist', 'versions.json'),
+          'utf8'
+        )
+      );
     } catch {
       try {
-        versions = JSON.parse(await fsp.readFile(path.resolve(__dirname, 'versions.json'), 'utf8'));
+        versions = JSON.parse(
+          await fsp.readFile(path.resolve(__dirname, 'versions.json'), 'utf8')
+        );
       } catch {}
     }
     const replaceWorkspace = (deps) => {
