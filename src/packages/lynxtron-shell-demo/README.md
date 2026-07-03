@@ -47,6 +47,7 @@ npm install
 ### Build & Start
 
 - **Build Desktop**
+
   ```bash
   npm run build
   ```
@@ -70,22 +71,8 @@ npm install
 
 ### Application Packaging
 
-- **Package for macOS (x64)**
-  ```bash
-  npm run pack:mac:x64
-  ```
+- **Package Desktop Application**
 
-- **Package for macOS (arm64)**
   ```bash
-  npm run pack:mac:arm64
-  ```
-
-- **Package for macOS (Universal)**
-  ```bash
-  npm run pack:mac:universal
-  ```
-
-- **Package for Windows (ia32)**
-  ```bash
-  npm run pack:win
+  npm run pack
   ```

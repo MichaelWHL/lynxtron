@@ -49,6 +49,7 @@ npm install
 ### 构建与启动
 
 - **构建桌面端**
+
   ```bash
   npm run build
   ```
@@ -72,30 +73,8 @@ npm install
 
 ### 应用打包
 
-使用以下命令为不同平台打包应用。
-
-- **打包 macOS (x64) 架构**
+- **打包桌面应用**
 
   ```bash
-  npm run pack:mac:x64
-  ```
-
-- **打包 macOS (arm64) 架构**
-
-  ```bash
-  npm run pack:mac:arm64
-  ```
-
-- **打包 macOS (Universal) 通用版本**
-
-  此命令会构建一个同时支持 x64 和 arm64 架构的 macOS 通用应用。
-
-  ```bash
-  npm run pack:mac:universal
-  ```
-
-- **打包 Windows (ia32) 架构**
-
-  ```bash
-  npm run pack:win
+  npm run pack
   ```
