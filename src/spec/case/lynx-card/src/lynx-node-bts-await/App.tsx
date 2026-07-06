@@ -30,9 +30,13 @@ export default function App() {
       // test bts v8 microtask_queue_
       // await test(JSON.stringify(params));
       // test bts node env microtask
-      const result = api.get(JSON.stringify(params));
       const bridge = (NativeModules as any).bridge as any;
-      bridge.send('nodejs_event', result);
+      api.fileExists().then((exists: boolean) => {
+        api.fileApi.fileExists().then((nestedExists: boolean) => {
+          const result = api.get(JSON.stringify(params));
+          bridge.send('nodejs_event', { ...result, exists, nestedExists });
+        });
+      });
     };
 
     const subscription = emitter.addListener('node_event', handler, lynx);

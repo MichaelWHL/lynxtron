@@ -59,6 +59,8 @@ describe('lynx BTS await with contextBridge', () => {
     expect(messageParams.message).to.equal(
       JSON.stringify({ msg: 'test-await' })
     );
+    expect(messageParams.exists).to.equal(false);
+    expect(messageParams.nestedExists).to.equal(false);
     expect(w.isDestroyed()).to.equal(false);
   });
 });

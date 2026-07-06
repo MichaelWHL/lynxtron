@@ -122,6 +122,8 @@ class LynxNodeModule : public lynx::pub::LynxExtensionModule {
   v8::Local<v8::Context> CreateNewNodeContext(v8::Isolate* v8_isolate);
   bool CheckModuleData();
 
+  static void FlushMicrotasks(const v8::FunctionCallbackInfo<v8::Value>& args);
+
   // module data
   NodeModuleData* module_data_ = nullptr;
 
@@ -132,6 +134,10 @@ class LynxNodeModule : public lynx::pub::LynxExtensionModule {
   // node exports and context
   v8::Global<v8::Value> node_exports_;
   v8::Global<v8::Context> node_context_;
+  // Node preload Promises settle from the Node context, but callers observe
+  // them from Lynx. Keep the Lynx context so the Node-side callback can drain
+  // the right microtask queue after forwarding resolution.
+  v8::Global<v8::Context> lynx_context_;
 };
 
 LynxNodeModule::LynxNodeModule(void* data) {
@@ -173,6 +179,8 @@ lynx_extension_module_t* LynxNodeModule::CreateLynxNodeModule(void* opaque) {
       napi_env_primjs primjs_env = reinterpret_cast<napi_env_primjs>(c_env);
       auto v8_context = napi_get_env_context_v8(primjs_env);
       auto v8_isolate = v8_context->GetIsolate();
+      module.lynx_context_.Reset(v8_isolate, v8_context);
+
       napi_value napi_api =
           reinterpret_cast<napi_value>(napi_v8_value_to_js_value(
               primjs_env, module.node_exports_.Get(v8_isolate)));
@@ -224,6 +232,28 @@ v8::Local<v8::Context> LynxNodeModule::CreateNewNodeContext(
   return new_context;
 }
 
+// static
+void LynxNodeModule::FlushMicrotasks(
+    const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if (args.Data().IsEmpty() || !args.Data()->IsExternal()) {
+    return;
+  }
+
+  auto* module =
+      static_cast<LynxNodeModule*>(args.Data().As<v8::External>()->Value());
+  if (!module || module->lynx_context_.IsEmpty()) {
+    return;
+  }
+
+  v8::Isolate* v8_isolate = args.GetIsolate();
+  // uv_run only drives Node's work queue. The wrapper Promise returned to Lynx
+  // uses Lynx's microtask queue, so drain that queue explicitly after the Node
+  // thenable settles.
+  module->lynx_context_.Get(v8_isolate)
+      ->GetMicrotaskQueue()
+      ->PerformCheckpoint(v8_isolate);
+}
+
 bool LynxNodeModule::CheckModuleData() {
   if (!module_data_) {
     return false;
@@ -241,6 +271,7 @@ void LynxNodeModule::OnRuntimeAttach(
   auto v8_context =
       napi_get_env_context_v8(reinterpret_cast<napi_env_primjs>(c_env));
   auto v8_isolate = v8_context->GetIsolate();
+  lynx_context_.Reset(v8_isolate, v8_context);
 
   v8::Locker locker(v8_isolate);
   v8::Isolate::Scope isolate_scope(v8_isolate);
@@ -268,21 +299,48 @@ void LynxNodeModule::OnRuntimeAttach(
     }
   }
 
+  // This callback is created in the Lynx context so Node can trigger a Lynx
+  // microtask checkpoint without knowing about the target context.
+  v8::Local<v8::Function> flush_microtasks;
+  if (!v8::Function::New(v8_context, &LynxNodeModule::FlushMicrotasks,
+                         v8::External::New(v8_isolate, this), 1,
+                         v8::ConstructorBehavior::kThrow)
+           .ToLocal(&flush_microtasks)) {
+    flush_microtasks =
+        v8::Function::New(v8_context,
+                          [](const v8::FunctionCallbackInfo<v8::Value>&) {})
+            .ToLocalChecked();
+  }
+
+  v8::Local<v8::Value> bridge_runtime_argv[1] = {flush_microtasks};
+  // Return a Promise allocated in the Lynx context so caller-side await/.then
+  // uses the same realm as the consuming Lynx code.
+  v8::Local<v8::Value> bridge_runtime =
+      RunFunctionInNodeContext(v8_isolate, v8_context, R"((flushMicrotasks)=>{
+    return Object.freeze({
+      createPromise(executor) {
+        return new Promise(executor);
+      },
+      flushMicrotasks,
+    });
+  })",
+                               1, bridge_runtime_argv);
+
   // init context bridge
   const char* const kContextBridgeInitScriptSource = R"(
-    (console, preload_paths)=>{
+    (console, preload_paths, bridge_runtime)=>{
       const bts = globalThis.__lynxtronBTS;
       if (!bts || typeof bts !== 'object') {
         throw new Error('__lynxtronBTS is not found');
       }
-      bts.setupLynxtronBTS(console, preload_paths);
+      bts.setupLynxtronBTS(console, preload_paths, bridge_runtime);
       return bts.getLynxtronBTSBridgeData();
     }
   )";
-  v8::Local<v8::Value> v8_argv[2] = {console, preload_paths};
+  v8::Local<v8::Value> v8_argv[3] = {console, preload_paths, bridge_runtime};
 
   v8::Local<v8::Value> exportsData = RunFunctionInNodeContext(
-      v8_isolate, node_ctx, kContextBridgeInitScriptSource, 2, v8_argv);
+      v8_isolate, node_ctx, kContextBridgeInitScriptSource, 3, v8_argv);
   node_exports_.Reset(v8_isolate, exportsData);
 }
 
@@ -291,6 +349,7 @@ void LynxNodeModule::OnRuntimeReady(Napi::Env env,
                                     const char* url) {}
 
 void LynxNodeModule::OnRuntimeDetach() {
+  lynx_context_.Reset();
   if (env_) {
     node::FreeEnvironment(env_);
     env_ = nullptr;
