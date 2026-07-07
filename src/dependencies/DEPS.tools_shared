@@ -86,6 +86,20 @@ deps = {
         "condition": system in ['linux', 'darwin', 'windows'],
         "require": ["../buildtools"]
     },
+    "../buildtools/sccache": {
+        "type": "http",
+        "url": {
+            "darwin-x86_64": "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-apple-darwin.tar.gz",
+            "darwin-arm64": "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-aarch64-apple-darwin.tar.gz",
+        }.get(f"{system}-{machine}", None),
+        "sha256": {
+            "darwin-x86_64": "f7dbd055db75a938ab1539f5316c5d08e73a1b94c40ab170ddcc617f5bf18343",
+            "darwin-arm64": "ded590cae2c72042c61178632906bef62d635fa20d45f8b22110a2241f430960",
+        }.get(f"{system}-{machine}", None),
+        "ignore_in_git": True,
+        "condition": system in ["darwin"],
+        "require": ["../buildtools"]
+    },
     "../buildtools/node": {
         "type": "http",
         "url": {
