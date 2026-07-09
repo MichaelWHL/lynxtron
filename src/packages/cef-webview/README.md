@@ -1,10 +1,10 @@
 # @lynx-js/cef-webview
 
-A x-webview element implementation based on Chromium Embedded Framework (CEF) for Lynxtron.
+A `<webview>` element implementation based on Chromium Embedded Framework (CEF) for Lynxtron.
 
 ## Overview
 
-This library provides a CEF-based implementation of the x-webview element for Lynxtron applications. It allows you to embed Chromium-based web content within your Lynxtron app, providing a full-featured web browsing experience.
+This library provides a CEF-based implementation of the `<webview>` element for Lynxtron applications. It allows you to embed Chromium-based web content within your Lynxtron app, providing a full-featured web browsing experience.
 
 ## Installation
 
@@ -25,10 +25,10 @@ import cefWebview from '@lynx-js/cef-webview/lynxtron';
 cefWebview.initialize();
 ```
 
-Once initialized, you can use the x-webview element in your Lynx templates:
+Once initialized, you can use the `<webview>` element in your Lynx templates:
 
 ```xml
-<x-webview src="https://www.example.com" width="100%" height="500px"></x-webview>
+<webview src="https://www.example.com" width="100%" height="500px"></webview>
 ```
 
 ## Building
