@@ -2,7 +2,8 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-import { LynxWindow } from 'lynxtron';
+import { LynxWindow, lynxBridge } from 'lynxtron';
+import type { LynxBridgeInvokeEvent } from 'lynxtron';
 
 import { expect } from 'chai';
 import { once } from 'node:events';
@@ -12,10 +13,13 @@ import { setTimeout } from 'node:timers/promises';
 
 import { closeAllWindows } from './lib/window-helpers';
 
-type EventCallback = { sendReply: (...args: any[]) => void };
+type EventCallback = LynxBridgeInvokeEvent;
 
 describe('communication between node and lynx', () => {
-  afterEach(closeAllWindows);
+  afterEach(async () => {
+    lynxBridge.removeHandler('onRender-test-event');
+    await closeAllWindows();
+  });
 
   it('jsb from lynx', async function () {
     this.timeout(30000);
@@ -38,7 +42,7 @@ describe('communication between node and lynx', () => {
       './case/lynx-card/dist/bridging-lynx-node.lynx.bundle'
     );
     expect(fs.existsSync(bundlePath)).to.equal(true);
-    const started = (w as any).loadURL('file://' + bundlePath);
+    const started = await (w as any).loadFile(bundlePath);
 
     expect(started).to.equal(true);
 
@@ -88,7 +92,7 @@ describe('communication between node and lynx', () => {
       './case/lynx-card/dist/contextbridge-lynx-node.lynx.bundle'
     );
     expect(fs.existsSync(bundlePath)).to.equal(true);
-    const started = await (w as any).loadURL('file://' + bundlePath);
+    const started = await (w as any).loadFile(bundlePath);
 
     expect(started).to.equal(true);
 
@@ -104,5 +108,74 @@ describe('communication between node and lynx', () => {
     expect(messageMethod).to.equal('nodejs_event');
     expect(messageParams.from).to.deep.equal('contextBridge');
     expect(w.isDestroyed()).to.equal(false);
+  });
+
+  it('lynxBridge.handle receives invoke from lynx', async function () {
+    this.timeout(15000);
+
+    const resultPromise = new Promise<{ method: string; args: unknown }>(
+      (resolve) => {
+        lynxBridge.handle('onRender-test-event', (_event, args) => {
+          resolve({ method: 'onRender-test-event', args });
+          return { success: true };
+        });
+      }
+    );
+
+    const w = new LynxWindow({
+      width: 800,
+      height: 600,
+      title: 'Lynxtron LynxBridge Test',
+    });
+
+    const bundlePath = path.resolve(
+      __dirname,
+      './case/lynx-card/dist/bridging-lynx-node.lynx.bundle'
+    );
+    expect(fs.existsSync(bundlePath)).to.equal(true);
+    w.loadFile(bundlePath);
+
+    const result = await Promise.race([
+      resultPromise,
+      setTimeout(5000).then(() => {
+        throw new Error('Timed out waiting for lynxBridge.handle');
+      }),
+    ]);
+
+    expect(result.method).to.equal('onRender-test-event');
+    expect((result.args as any).msg).to.equal('test-test');
+  });
+
+  it('lynxBridge.on receives message from lynx', async function () {
+    this.timeout(15000);
+
+    const w = new LynxWindow({
+      width: 800,
+      height: 600,
+      title: 'Lynxtron LynxBridge Message Test',
+    });
+
+    // First handle the invoke so the Lynx side can proceed to send message
+    lynxBridge.handle('onRender-test-event', (event, _args) => {
+      event.sendReply({ success: true });
+    });
+
+    const messagePromise = once(lynxBridge, 'callback') as Promise<[any]>;
+
+    const bundlePath = path.resolve(
+      __dirname,
+      './case/lynx-card/dist/bridging-lynx-node.lynx.bundle'
+    );
+    expect(fs.existsSync(bundlePath)).to.equal(true);
+    w.loadFile(bundlePath);
+
+    const [params] = await Promise.race([
+      messagePromise,
+      setTimeout(5000).then(() => {
+        throw new Error('Timed out waiting for lynxBridge message');
+      }),
+    ]);
+
+    expect(params.from).to.equal('-lynx-invoke-callback');
   });
 });

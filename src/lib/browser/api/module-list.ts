@@ -12,6 +12,7 @@ export const lynxtronModuleList: LynxtronInternal.ModuleEntry[] = [
   { name: 'dialog', loader: () => require('./dialog') },
   { name: 'devtool', loader: () => require('./devtool') },
   { name: 'LynxWindow', loader: () => require('./lynx-window') },
+  { name: 'lynxBridge', loader: () => require('./lynx-bridge') },
   {
     name: 'LynxTemplateBundle',
     loader: () => require('./lynx-template-bundle'),

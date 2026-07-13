@@ -19,6 +19,7 @@ export * from './api/base-window';
 export * from './api/clipboard';
 export * from './api/event';
 export * from './api/lynx-window';
+export * from './api/lynx-bridge';
 export * from './api/lynx-library';
 export * from './api/touch-bar';
 export * from './api/screen';

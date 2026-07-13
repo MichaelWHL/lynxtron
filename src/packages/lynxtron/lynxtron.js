@@ -39,5 +39,6 @@ export const Tray = lynxtron.Tray;
 export const LynxTemplateData = lynxtron.LynxTemplateData;
 export const LynxUpdateMeta = lynxtron.LynxUpdateMeta;
 export const powerMonitor = lynxtron.powerMonitor;
+export const lynxBridge = lynxtron.lynxBridge;
 
 export const lynx = Object.freeze({});

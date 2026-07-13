@@ -22,6 +22,11 @@ import { Tray as LynxtronTray } from '../packages/lynxtron/apis/api/tray';
 import { utilityProcess as LynxtronUtilityProcess } from '../packages/lynxtron/apis/api/utility-process';
 import { LynxUpdateMeta as LynxtronLynxUpdateMeta } from '../packages/lynxtron/apis/api/lynx-update-meta';
 import { LynxTemplateData as LynxtronLynxTemplateData } from '../packages/lynxtron/apis/api/lynx-template-data';
+import {
+  LynxBridge as LynxtronLynxBridge,
+  LynxBridgeHandler as LynxtronLynxBridgeHandler,
+} from '../packages/lynxtron/apis/api/lynx-bridge';
+import { LynxBridgeInvokeEvent as LynxtronLynxBridgeInvokeEvent } from '../packages/lynxtron/apis/api/lynx-window';
 
 import {
   TouchBar as LynxtronTouchBar,
@@ -119,6 +124,11 @@ declare module 'lynxtron' {
   export const LynxTemplateData: typeof LynxtronLynxTemplateData;
   export const Tray: typeof LynxtronTray;
   export const utilityProcess: typeof LynxtronUtilityProcess;
+  export const lynxBridge: LynxtronLynxBridge;
+
+  export type LynxBridge = LynxtronLynxBridge;
+  export type LynxBridgeHandler = LynxtronLynxBridgeHandler;
+  export type LynxBridgeInvokeEvent = LynxtronLynxBridgeInvokeEvent;
 
   export type BaseWindow = BaseWindowInternal;
   export type LynxWindow = LynxWindowInternal;

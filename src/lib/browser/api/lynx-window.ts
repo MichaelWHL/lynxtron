@@ -2,13 +2,17 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-import { BaseWindow, Event } from 'lynxtron';
-import type { LynxWindow as LWT } from 'lynxtron';
-import { onResourceFetcher, LynxFetchEvent } from './lynx-resource-fetcher';
+import type { Event, LynxWindow as LWT } from 'lynxtron';
+import type { LynxFetchEvent } from './lynx-resource-fetcher';
+import { onResourceFetcher } from './lynx-resource-fetcher';
 
 const { LynxWindow } = process._linkedBinding('lynxtron_lynx_window') as {
   LynxWindow: typeof LWT;
 };
+
+const BaseWindow = require('./base-window');
+const lynxBridgeModule = require('./lynx-bridge');
+const lynxBridge = lynxBridgeModule.default ?? lynxBridgeModule;
 
 Object.setPrototypeOf(LynxWindow.prototype, BaseWindow.prototype);
 
@@ -89,7 +93,8 @@ LynxWindow.prototype._init = function (this: LWT) {
   BaseWindow.prototype._init.call(this);
 
   // Avoid recursive require.
-  const { app } = require('lynxtron');
+  const appModule = require('./app');
+  const app = appModule.default ?? appModule;
 
   // Set ID at constructon time so it's accessible after
   // underlying window destruction.
@@ -108,19 +113,14 @@ LynxWindow.prototype._init = function (this: LWT) {
     nativeSetBounds.call(this, bounds, ...opts);
   };
 
-  // Dispatch messages from lynx window to the LynxBridgeMain module.
-  // this.on('-lynx-message', function (this: LWT, event, channel, args) {
-  //   lynxBridgeMain.emit(channel, event, args);
-  // });
+  // Dispatch messages from lynx window to the LynxBridge module.
+  this.on('-lynx-message', function (this: LWT, channel, args) {
+    lynxBridge.emit(channel, args);
+  });
 
-  // this.on('-lynx-invoke', function (this: LWT, event, channel, args) {
-  //   // event.sender = event.sender || this;
-  //   lynxBridgeMain.emit('-internal-lynx-invoke', event, channel, args);
-  // });
-
-  // this.on('lynx-file-load', function (this: LWT, event, args) {
-  //   lynxBridgeMain.emit('lynx-file-load', event, args);
-  // });
+  this.on('-lynx-invoke', function (this: LWT, event, channel, args) {
+    lynxBridge.emit('-internal-lynx-invoke', event, channel, args);
+  });
 
   // Redirect focus/blur event to app instance too.
   this.on('blur', (event: Event) => {
