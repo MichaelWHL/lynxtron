@@ -58,7 +58,7 @@ index 8dda88f8..031798e2 100644
 +        "//lynx/base/src:base_group",
 +        "//third_party/node/deps/uv:uv",
 +      ]
-+    } else if (is_win) {
++    } else if (is_win || is_linux) {
 +      deps = [
 +        "//lynx/base/trace/native:trace",
 +        "//lynx/base/src:base_group",
@@ -69,12 +69,15 @@ index 8dda88f8..031798e2 100644
    v8_executable("mksnapshot") {
      sources = [
        "src/snapshot/builtins-effects-dummy.cc",
-@@ -7474,6 +7500,9 @@ if (current_toolchain == v8_snapshot_toolchain) {
+@@ -7474,6 +7500,12 @@ if (current_toolchain == v8_snapshot_toolchain) {
        ":v8_tracing",
        "//build/win:default_exe_manifest",
      ]
 +    if (enable_trace == "perfetto") {
 +      deps += [ ":lynx_trace_for_v8_snapshot" ]
++      if (is_linux) {
++        configs += [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
++      }
 +    }
    }
  
@@ -378,4 +381,3 @@ index a043b4dd..fdd11be0 100644
  #endif  // V8_USE_PERFETTO
 -- 
 2.39.3 (Apple Git-145)
-
