@@ -42,6 +42,6 @@
     "@lynx-js/lynxtron": "*"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   }
 }

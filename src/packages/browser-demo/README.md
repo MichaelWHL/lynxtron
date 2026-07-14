@@ -17,7 +17,7 @@
 
 ## Prerequisites
 
-- NodeJS >= 22
+- NodeJS >= 22.18.0
 - TypeScript
 - [LynxDevTool](https://github.com/lynx-family/lynx-devtool/releases/) >= 0.1.1
 

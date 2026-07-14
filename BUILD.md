@@ -4,7 +4,7 @@ Currently supports macOS and Windows.
 
 Dependencies:
 
-- Node.js >= 22
+- Node.js >= 22.18.0
 - Python 3
 - Xcode >= 15.2 (macOS)
 - Visual Studio 2022 (Windows)
