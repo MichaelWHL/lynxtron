@@ -737,21 +737,6 @@ if (is_mac) {
   lynxtron_mac_bundle_id = "com.lynxjs.Lynxtron"
   lynxtron_framework_name = "$lynxtron_product_name Framework"
 
-  # mac_framework_bundle only relinks declared contents on incremental builds.
-  # Remove entries left behind by dependencies that are no longer packaged in
-  # the framework before generating the bundle targets.
-  exec_script("build/mac/prune_framework_contents.py",
-              [
-                "--framework",
-                rebase_path("$root_out_dir/$lynxtron_framework_name.framework"),
-                "--version",
-                "1.0",
-                "--contents",
-                lynxtron_framework_name,
-                "Resources",
-                "Libraries",
-              ])
-
   action("lynxtron_app_lproj_dirs") {
     outputs = []
     foreach(locale, lynxtron_mac_locales_as_apple_outputs) {
