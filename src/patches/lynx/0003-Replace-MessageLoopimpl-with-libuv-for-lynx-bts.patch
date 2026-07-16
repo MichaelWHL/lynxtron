@@ -1,6 +1,6 @@
-From eaddb026c4ef4065a12c475cb366def84e9eec50 Mon Sep 17 00:00:00 2001
+From 7ae7070d8c228af2abf06528a65e0a568ba51a0c Mon Sep 17 00:00:00 2001
 From: tangyongjie <80395553+yongjieTang@users.noreply.github.com>
-Date: Mon, 8 Dec 2025 15:49:17 +0800
+Date: Fri, 17 Jul 2026 12:11:36 +0800
 Subject: [PATCH 3/5] Replace MessageLoopimpl with libuv for lynx bts
 
 Delegate the MessageLoopimpl of LynxJS threads to libuv.
@@ -8,22 +8,22 @@ On PC, run both NodeJS and Lynx BTS message loops within the same libuv event lo
 
 issue: m-6796469046
 ---
- .../fml/platform/node/message_loop_node.h     | 43 ++++++++++
- base/src/BUILD.gn                             |  5 ++
- .../fml/platform/node/message_loop_node.cc    | 83 +++++++++++++++++++
- core/base/BUILD.gn                            |  5 ++
- .../base/node/js_thread_config_getter_node.cc | 33 ++++++++
- 5 files changed, 169 insertions(+)
+ .../fml/platform/node/message_loop_node.h     | 44 +++++++++
+ base/src/BUILD.gn                             |  5 +
+ .../fml/platform/node/message_loop_node.cc    | 92 +++++++++++++++++++
+ core/base/BUILD.gn                            |  5 +
+ .../base/node/js_thread_config_getter_node.cc | 33 +++++++
+ 5 files changed, 179 insertions(+)
  create mode 100644 base/include/fml/platform/node/message_loop_node.h
  create mode 100644 base/src/fml/platform/node/message_loop_node.cc
  create mode 100644 core/base/node/js_thread_config_getter_node.cc
 
 diff --git a/base/include/fml/platform/node/message_loop_node.h b/base/include/fml/platform/node/message_loop_node.h
 new file mode 100644
-index 00000000..fbb52133
+index 00000000..8e39412b
 --- /dev/null
 +++ b/base/include/fml/platform/node/message_loop_node.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,44 @@
 +// Copyright 2023 The Lynx Authors. All rights reserved.
 +// Licensed under the Apache License Version 2.0 that can be found in the
 +// LICENSE file in the root directory of this source tree.
@@ -59,6 +59,7 @@ index 00000000..fbb52133
 +  uv_async_t async_{};
 +
 +  bool running_{false};
++  bool event_fired_{false};
 +
 +  void OnEventFired();
 +};
@@ -68,7 +69,7 @@ index 00000000..fbb52133
 +
 +#endif  // LYNX_BASE_INCLUDE_FML_PLATFORM_NODE_MESSAGE_LOOP_NODE_H_
 diff --git a/base/src/BUILD.gn b/base/src/BUILD.gn
-index 99ff9133..85b9fcc5 100644
+index 0d6ef021..d86d54d0 100644
 --- a/base/src/BUILD.gn
 +++ b/base/src/BUILD.gn
 @@ -306,6 +306,11 @@ lynx_base_source_set("base_core") {
@@ -85,10 +86,10 @@ index 99ff9133..85b9fcc5 100644
    libs = []
 diff --git a/base/src/fml/platform/node/message_loop_node.cc b/base/src/fml/platform/node/message_loop_node.cc
 new file mode 100644
-index 00000000..da6279ad
+index 00000000..abf267c7
 --- /dev/null
 +++ b/base/src/fml/platform/node/message_loop_node.cc
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,92 @@
 +// Copyright 2025 The Lynx Authors. All rights reserved.
 +// Licensed under the Apache License Version 2.0 that can be found in the
 +// LICENSE file in the root directory of this source tree.
@@ -136,7 +137,16 @@ index 00000000..da6279ad
 +
 +void MessageLoopNode::Run() {
 +  running_ = true;
-+  uv_run(&uv_loop_, UV_RUN_DEFAULT);
++  while (running_) {
++    // Node environment cleanup may run this uv loop. Keep Lynx tasks outside
++    // the uv_run callback stack so cleanup cannot re-enter another Lynx task.
++    if (event_fired_) {
++      event_fired_ = false;
++      RunExpiredTasksNow();
++      continue;
++    }
++    uv_run(&uv_loop_, UV_RUN_ONCE);
++  }
 +  running_ = false;
 +}
 +
@@ -168,15 +178,15 @@ index 00000000..da6279ad
 +  LYNX_BASE_CHECK(start_res == 0);
 +}
 +
-+void MessageLoopNode::OnEventFired() { RunExpiredTasksNow(); }
++void MessageLoopNode::OnEventFired() { event_fired_ = true; }
 +
 +}  // namespace fml
 +}  // namespace lynx
 diff --git a/core/base/BUILD.gn b/core/base/BUILD.gn
-index 21729947..3bcfc969 100644
+index 9d63d810..5b985083 100644
 --- a/core/base/BUILD.gn
 +++ b/core/base/BUILD.gn
-@@ -136,6 +136,11 @@ lynx_core_source_set("base") {
+@@ -145,6 +145,11 @@ lynx_core_source_set("base") {
        ":observer",
      ]
    } else {
@@ -228,5 +238,4 @@ index 00000000..dac117c0
 +}  // namespace base
 +}  // namespace lynx
 -- 
-2.50.1 (Apple Git-155)
-
+2.54.0
