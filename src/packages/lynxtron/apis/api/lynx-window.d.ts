@@ -256,18 +256,18 @@ export interface LynxWindowConstructorOptions {
 }
 
 export interface LynxBridgeInvokeEvent {
-  sendReply(result?: unknown): boolean;
+  sendReply(result?: any): boolean;
 }
 
 export type LynxBridgeInvokeListener = (
   event: LynxBridgeInvokeEvent,
   methodName: string,
-  params: unknown
+  params: any
 ) => void | Promise<void>;
 
 export type LynxBridgeMessageListener = (
   methodName: string,
-  params: unknown
+  params: any
 ) => void;
 
 export declare class LynxWindow extends BaseWindow {
