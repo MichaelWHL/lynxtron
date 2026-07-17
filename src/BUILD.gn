@@ -173,9 +173,22 @@ webpack_build("lynxtron_browser_bundle") {
 
   inputs = browser_bundle_deps + lynxtron_lib_browser_module_list_path
 
+  if (!is_mas_build) {
+    foreach(p, lynxtron_lib_browser_module_list_path) {
+      if (get_path_info(p, "name") == "module-list" &&
+          get_path_info(p, "extension") == "ts") {
+        non_mas_module_list_path =
+            get_path_info(p, "dir") + "/module-list-non-mas.ts"
+        inputs -= [ p ]
+        inputs += [ non_mas_module_list_path ]
+        module_list_path = rebase_path(non_mas_module_list_path)
+      }
+    }
+  }
+
   foreach(p, lynxtron_lib_browser_module_list_path) {
     if (get_path_info(p, "name") == "module-list" &&
-        get_path_info(p, "extension") == "ts") {
+        get_path_info(p, "extension") == "ts" && !defined(module_list_path)) {
       module_list_path = rebase_path(p)
     }
   }
