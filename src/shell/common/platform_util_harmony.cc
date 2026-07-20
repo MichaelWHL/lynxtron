@@ -14,7 +14,7 @@
 
 namespace platform_util {
 
-// HarmonyOS bring-up stubs for cross-platform free functions declared in
+// HarmonyOS fallbacks for cross-platform free functions declared in
 // platform_util.h without an #if guard but defined only in
 // platform_util_mac.mm and platform_util_win.cc:
 //
@@ -33,40 +33,33 @@ namespace platform_util {
 //     `#if IS_MAC`
 //   Those declarations are absent on harmony, so no link entry is emitted.
 //
-// Promotion path: OHOS provides the @ohos.app.ability.want and
-// @ohos.app.ability.common APIs to launch external apps / open URLs / show
-// in file manager. Real impl is tracked in WI-034.
+// OHOS Want APIs can provide the external application integration in a future
+// implementation.
 
 void ShowItemInFolder(const base::FilePath& full_path) {
-  // Bring-up stub: file-manager integration on harmony requires NAPI host
-  // bridge to OHOS Want APIs; not exercised at bring-up.
+  // File-manager integration requires a NAPI bridge to OHOS Want APIs.
 }
 
 void OpenPath(const base::FilePath& full_path, OpenCallback callback) {
   std::move(callback).Run(
-      "platform_util::OpenPath is not implemented on HarmonyOS bring-up "
-      "(WI-034)");
+      "platform_util::OpenPath is not implemented on HarmonyOS");
 }
 
 void OpenExternal(const GURL& url,
                   const OpenExternalOptions& options,
                   OpenCallback callback) {
   std::move(callback).Run(
-      "platform_util::OpenExternal is not implemented on HarmonyOS bring-up "
-      "(WI-034)");
+      "platform_util::OpenExternal is not implemented on HarmonyOS");
 }
 
 void Beep() {
-  // No console bell on HarmonyOS bring-up; OHOS audio/system feedback APIs
-  // wired in WI-034.
+  // No console bell is currently exposed by this integration.
 }
 
 namespace internal {
 
 bool PlatformTrashItem(const base::FilePath& path, std::string* error) {
-  *error =
-      "platform_util::internal::PlatformTrashItem is not implemented on "
-      "HarmonyOS bring-up (WI-034)";
+  *error = "PlatformTrashItem is not implemented on HarmonyOS";
   return false;
 }
 

@@ -9,7 +9,7 @@
 
 namespace lynxtron {
 
-// HarmonyOS bring-up stub for the LoadPlatformIcon free function
+// HarmonyOS fallback for the LoadPlatformIcon free function
 // forward-declared in icon_manager.cc:16 and defined only in
 // icon_manager_mac.mm:14 and icon_manager_win.cc:61. The cross-platform
 // IconManager::LoadIcon (icon_manager.cc:91/96/104) takes its address and
@@ -21,8 +21,8 @@ namespace lynxtron {
 // receives an empty image - the same observable behaviour callers already
 // handle when the file path doesn't exist on the supported platforms.
 //
-// Real impl needs OHOS @ohos.bundle.bundleManager / @ohos.app.ability.common
-// resource manager to extract module-bundled icons; tracked in WI-034.
+// A native implementation can use the OHOS bundle resource manager to extract
+// module-bundled icons.
 gfx::Image LoadPlatformIcon(const base::FilePath& path,
                             IconManager::IconSize size,
                             float scale_factor) {

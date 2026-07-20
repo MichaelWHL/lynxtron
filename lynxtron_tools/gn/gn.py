@@ -71,43 +71,51 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     gn_args += 'is_clang=true '
     gn_args += 'use_musl=true '
     gn_args += 'is_component_build=false '
+    # Do not build the lepus template compiler on device. Like mobile
+    # (android/ios) and win, HarmonyOS runs precompiled lepus bytecode. The
+    # compiler subtree (lepus/ir/*, bytecode_*) relies on C++ exceptions,
+    # which are disabled here (-fno-exceptions), so it cannot compile.
+    gn_args += 'build_lepus_compile=false '
     gn_args += 'use_custom_libcxx=false '
     gn_args += 'use_sysroot=false '
     gn_args += 'enable_rust=false '
-    # WI-035 wave B: enable PartitionAlloc compilation so its component
-    # provides definitions for PartitionAllocHooks / PartitionRoot /
-    # ThreadCache / FreelistCorruptionDetected / Alias / etc. - chromium
-    # base allocator/dispatcher inline call sites reference these even
-    # with use_partition_alloc=false at the lynxtron_app link, and stubbing
-    # them ad-hoc kept revealing deeper PA internals (PartitionAddressSpace,
-    # PartitionBucket, SpinningMutex, SlotSpanMetadata).
-    #
-    # Keep `_as_malloc=false` and `use_allocator_shim=false` so the global
-    # malloc remains the OHOS musl one (PA only compiles, doesn't intercept
-    # malloc). Wave 2's musl-side compile errors (sys/ifunc.h missing,
-    # glibc-style throw() decl mismatch) are revisited under wave B once
-    # ninja surfaces them.
+    # PA-E for partition_alloc page allocation + chromium114 V8 config.
     gn_args += 'use_partition_alloc=true '
-    gn_args += 'use_partition_alloc_as_malloc=false '
-    gn_args += 'use_allocator_shim=false '
-    # chromium asserts (base/allocator/allocator.gni:14, 22) that without
-    # PA-Everywhere, BackupRefPtr / PointerCompression must be disabled
-    # because their scope is then limited to explicit PA partitions only.
+    gn_args += 'use_partition_alloc_as_malloc=true '
+    gn_args += 'use_allocator_shim=true '
     gn_args += 'enable_backup_ref_ptr_support=false '
     gn_args += 'enable_pointer_compression_support=false '
+    gn_args += 'v8_enable_sandbox=false '
+    gn_args += 'v8_use_external_startup_data=true '
+    # HarmonyOS kernel W^X policy rejects mprotect(RWX) with EINVAL.
+    # WasmCodeManager::Commit needs 256MB RWX at isolate init — disable
+    # WebAssembly entirely on HarmonyOS (cjs-module-lexer falls back to JS).
+    gn_args += 'v8_enable_webassembly=false '
+    # chromium114 build.sh: ARM64 PAC/BTI. Without this V8's stack unwinder
+    # does not strip PAC bits from return addresses, so
+    # GcSafeFindCodeForInnerPointer fails to match embedded builtin PCs.
+    # (v8_control_flow_integrity auto-derives from this on arm64 toolchains
+    # only — setting it explicitly breaks the host x64 toolchain assert.)
+    gn_args += 'arm_control_flow_integrity="standard" '
     # Lynx skia patch ships skia_harmony fontmgr in a truncated form (the patch
     # itself is incomplete, multiple .cpp/.h files miss tail). Disable the
-    # harmony font manager target during bring-up; skia will fall back to the
+    # HarmonyOS font manager target; Skia will fall back to the
     # default fontmgr. Revisit by either (a) restoring lynx skia patch from
     # upstream or (b) writing a proper SkFontMgr_New_Harmony implementation.
     gn_args += 'skia_enable_fontmgr_harmony=false '
+    # Instead, use skia's custom-directory font manager to load the OHOS system
+    # fonts under /system/fonts/ (FZHeiT / DejaVu / etc.). Without any fontmgr,
+    # SkFontMgr::RefDefault() is the empty manager and all Lynx <text> renders
+    # blank. platform_harmony.cc points SkFontMgr_New_Custom_Directory at
+    # /system/fonts/. freetype is already on for harmony.
+    gn_args += 'skia_enable_fontmgr_custom_directory=true '
     # ohos clang 19 doesn't ship chromium-specific clang plugins (blink-gc-plugin,
     # find-bad-constructs, raw-ptr-plugin). Disable them on harmony.
     gn_args += 'clang_use_chrome_plugins=false '
     # V8 Temporal API is implemented by rust temporal_rs crate; with
     # enable_rust=false the cxx-bridge headers are still emitted but the rust
     # symbols never get compiled, so mksnapshot link fails. Disable temporal
-    # support during bring-up.
+    # support for this configuration.
     gn_args += 'v8_enable_temporal_support=false '
     gn_args += 'skia_gl_standard="gles" '
     gn_args += 'skia_use_gl=true '

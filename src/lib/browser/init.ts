@@ -144,6 +144,22 @@ const searchPathsOnlyLoadASAR: boolean = v8Util.getHiddenValue(
 const getOrCreateArchive = process._getOrCreateArchive;
 delete process._getOrCreateArchive;
 
+console.error(`[init] resourcesPath=${process.resourcesPath}`);
+try {
+  const rawFs = require('fs');
+  const asarPath = path.join(process.resourcesPath, 'default_app.asar');
+  // Read raw bytes with an fd (bypasses asar hook for non-.asar-suffixed ops)
+  const fd = rawFs.openSync(asarPath, 'r');
+  const buf = Buffer.alloc(32);
+  rawFs.readSync(fd, buf, 0, 32, 0);
+  rawFs.closeSync(fd);
+  console.error(`[init] asar head hex=${buf.toString('hex')}`);
+  console.error(`[init] asar head ascii=${buf.toString('latin1').replace(/[^\x20-\x7e]/g, '.')}`);
+  const st = rawFs.statSync(asarPath);
+  console.error(`[init] asar size=${st.size}`);
+} catch (e) {
+  console.error(`[init] probe failed: ${e}`);
+}
 if (process.resourcesPath) {
   for (packagePath of searchPaths) {
     try {
@@ -155,7 +171,8 @@ if (process.resourcesPath) {
       }
       packageJson = Module._load(path.join(packagePath, 'package.json'));
       break;
-    } catch {
+    } catch (e) {
+      console.error(`[init] load ${packagePath} failed: ${e}`);
       continue;
     }
   }

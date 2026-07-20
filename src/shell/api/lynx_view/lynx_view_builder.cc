@@ -13,6 +13,9 @@
 #include "base/path_service.h"
 #include "build/build_config.h"
 #include "lynx/platform/embedder/public/lynx_view.h"
+#if BUILDFLAG(IS_HARMONY)
+#include "shell/app/lynx_windowless_renderer_harmony.h"
+#endif
 #include "shell/api/lynx_view/lynx_view.h"
 #include "shell/api/lynx_view/lynx_view_impl.h"
 #include "shell/api/lynx_view/module/lynx_bridge_module.h"
@@ -110,6 +113,20 @@ std::unique_ptr<LynxView> LynxViewBuilder::Build() {
 
   RegisterLynxHybridMonitorModuleToLynxView(impl_->builder.Impl(),
                                             lynx_window_);
+
+#if BUILDFLAG(IS_HARMONY)
+  // HarmonyOS has no desktop windowing (glfw). Render into the XComponent
+  // surface via the GLDirect windowless renderer bound to our EGL context.
+  // The surface arrives asynchronously (ETS onLoad -> LynxtronSetNativeSurface),
+  // so it may not be ready yet when a view is built headlessly; in that case
+  // the view is created without a renderer and can be attached later.
+  if (auto renderer = GetCurrentHarmonyWindowlessRenderer()) {
+    impl_->builder.SetWindowlessRenderer(renderer);
+    LOG(INFO) << "LynxView: using HarmonyOS EGL GLDirect windowless renderer";
+  } else {
+    LOG(WARNING) << "LynxView: no XComponent surface yet; built without renderer";
+  }
+#endif
 
   auto view_impl = std::make_unique<LynxViewImpl>();
   view_impl->Initialize(impl_->builder.Build());

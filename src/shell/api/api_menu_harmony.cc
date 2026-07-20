@@ -6,12 +6,11 @@
 
 namespace lynxtron::api {
 
-// HarmonyOS bring-up stub for Menu::New, which is declared in api_menu.h:37
+// HarmonyOS fallback for Menu::New, which is declared in api_menu.h:37
 // without a #if guard but defined only in api_menu.cc:402 inside an
 // `#if BUILDFLAG(IS_WIN)` block, plus api_menu_mac.mm. Returns nullptr so
 // any JS caller that constructs a Menu sees a creation failure rather
-// than a crash; real Menu integration on harmony depends on OHOS UI
-// container APIs and is tracked under WI-034 wave D / WI-035.
+// than a crash. Native menu integration depends on OHOS UI container APIs.
 Menu* Menu::New(gin::Arguments* args) {
   return nullptr;
 }

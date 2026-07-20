@@ -6,13 +6,13 @@
 
 namespace lynxtron::api {
 
-// HarmonyOS bring-up stub for NativeImage::CreateThumbnailFromPath, which
+// HarmonyOS fallback for NativeImage::CreateThumbnailFromPath, which
 // is declared in api_native_image.h:89 with no #if guard but defined only
 // in api_native_image_mac.mm:67 (uses QuickLookThumbnailing) and
 // api_native_image_win.cc:27 (uses IShellItemImageFactory). Returns an
 // empty v8::Local<v8::Promise> so callers see "thumbnail not available"
-// in the JS layer; real impl will dispatch through OHOS @ohos.bundle
-// resource thumbnail APIs once HAP packaging (WI-035) lands.
+// in the JS layer. A native implementation can use OHOS resource thumbnail
+// APIs.
 v8::Local<v8::Promise> NativeImage::CreateThumbnailFromPath(
     v8::Isolate* isolate,
     const base::FilePath& path,

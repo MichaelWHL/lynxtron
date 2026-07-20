@@ -12,10 +12,13 @@
 #include "base/memory/raw_ptr.h"
 #include "v8/include/v8-forward.h"
 
+// lynxtron: full include because on chromium 138 gin DeprecatedWrapperInfo
+// is a `using` alias of WrapperInfo (not a forward-declarable struct).
+#include "gin/public/wrapper_info.h"
+
 namespace gin {
 class Arguments;
 class ObjectTemplateBuilder;
-struct DeprecatedWrapperInfo;
 }  // namespace gin
 
 namespace gin_helper {

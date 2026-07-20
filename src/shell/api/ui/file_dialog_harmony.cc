@@ -11,15 +11,14 @@
 
 namespace file_dialog {
 
-// HarmonyOS bring-up stubs for file_dialog free functions and the
+// HarmonyOS fallbacks for file_dialog free functions and the
 // DialogSettings struct ctor/dtor. Declared in shell/api/ui/file_dialog.h
 // (cross-platform, no #if guard) but defined only in
 // file_dialog_mac.mm / file_dialog_win.cc.
 //
 // User-facing entry points reject the dialog request - on macOS/Windows the
-// callers reject promises with an error string, so harmony does the same.
-// Real impl will use OHOS @ohos.file.picker NAPI once HAP packaging
-// (WI-035) lands the host bridge.
+// callers reject promises with an error string, so HarmonyOS does the same.
+// A native implementation can use the OHOS file picker APIs.
 
 DialogSettings::DialogSettings() = default;
 DialogSettings::DialogSettings(const DialogSettings&) = default;
@@ -33,8 +32,7 @@ bool ShowOpenDialogSync(const DialogSettings& settings,
 void ShowOpenDialog(const DialogSettings& settings,
                     gin_helper::Promise<gin_helper::Dictionary> promise) {
   promise.RejectWithErrorMessage(
-      "file_dialog::ShowOpenDialog is not implemented on HarmonyOS bring-up "
-      "(WI-034 wave C / WI-035)");
+      "file_dialog::ShowOpenDialog is not implemented on HarmonyOS");
 }
 
 std::optional<base::FilePath> ShowSaveDialogSync(
@@ -45,8 +43,7 @@ std::optional<base::FilePath> ShowSaveDialogSync(
 void ShowSaveDialog(const DialogSettings& settings,
                     gin_helper::Promise<gin_helper::Dictionary> promise) {
   promise.RejectWithErrorMessage(
-      "file_dialog::ShowSaveDialog is not implemented on HarmonyOS bring-up "
-      "(WI-034 wave C / WI-035)");
+      "file_dialog::ShowSaveDialog is not implemented on HarmonyOS");
 }
 
 }  // namespace file_dialog

@@ -32,9 +32,8 @@ component("skia_ext") {
     # mode (so the napi-init lib can be dlopen-ed by the OHOS HAP loader),
     # which keeps both .a's symbols alive instead of letting
     # -Wl,--gc-sections strip the loser. Drop the override on harmony so
-    # skia's SkMemory_malloc.cpp wins cleanly. Real-impl can route skia
-    # allocations through PartitionAlloc later (WI-037+) once harmony
-    # has its own memory adapter strategy.
+    # skia's SkMemory_malloc.cpp wins cleanly. A HarmonyOS memory adapter can
+    # route these allocations through PartitionAlloc in the future.
     sources += [ "ext/SkMemory_new_handler.cpp" ]
   }
 

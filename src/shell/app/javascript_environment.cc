@@ -17,13 +17,43 @@
 #include "base/command_line.h"
 #include "base/task/current_thread.h"
 #include "base/task/thread_pool/initialization_util.h"
+#include "build/build_config.h"
 #include "gin/array_buffer.h"
 #include "gin/v8_initializer.h"
+#include "v8/include/v8-callbacks.h"
 #include "shell/app/microtasks_runner.h"
 #include "shell/common/gin_helper/cleaned_up_at_exit.h"
 #include "shell/common/node_includes.h"
 #include "shell/common/options_switches.h"
 #include "third_party/node/src/node_wasm_web_api.h"
+
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0000
+#define LOG_TAG "LynxtronJSEnv"
+#define JS_LOG(fmt, ...) \
+  OH_LOG_INFO(LOG_APP, "[JSEnv] " fmt, ##__VA_ARGS__)
+#define JS_ERR(fmt, ...) \
+  OH_LOG_ERROR(LOG_APP, "[JSEnv] " fmt, ##__VA_ARGS__)
+#else
+#define JS_LOG(fmt, ...) (void)0
+#define JS_ERR(fmt, ...) (void)0
+#endif
+
+#if BUILDFLAG(IS_HARMONY)
+static void OnV8FatalError(const char* location, const char* message) {
+  JS_ERR("V8 FATAL @ %{public}s: %{public}s",
+         location ? location : "(null)", message ? message : "(null)");
+}
+static void OnV8OOMError(const char* location, const v8::OOMDetails& details) {
+  JS_ERR("V8 OOM @ %{public}s: heap=%{public}d msg=%{public}s",
+         location ? location : "(null)",
+         details.is_heap_oom ? 1 : 0,
+         details.detail ? details.detail : "(null)");
+}
+#endif
 
 #if ENABLE_TRACE_PERFETTO
 #include "shell/lynx/trace/runtime_profile_helper.h"
@@ -69,13 +99,19 @@ JavascriptEnvironment::JavascriptEnvironment(uv_loop_t* event_loop,
           &max_young_generation_size_)},
       isolate_{isolate_holder_->isolate()},
       locker_{std::make_unique<v8::Locker>(isolate_)} {
+  JS_LOG("step 9m: IsolateHolder created, isolate=%{public}p",
+         static_cast<void*>(isolate_.get()));
   isolate_->Enter();
+  JS_LOG("step 9n: isolate->Enter() done");
 
   v8::HandleScope scope(isolate_);
   auto context = node::NewContext(isolate_);
+  JS_LOG("step 9o: node::NewContext done, empty=%{public}d",
+         context.IsEmpty() ? 1 : 0);
   CHECK(!context.IsEmpty());
 
   context->Enter();
+  JS_LOG("step 9p: context->Enter() done, JSEnv ctor finished");
 
 #if ENABLE_TRACE_PERFETTO
   lynxtron::trace::RuntimeProfileHelper::GetInstance().SetV8RuntimeProfiler(
@@ -108,46 +144,63 @@ JavascriptEnvironment::~JavascriptEnvironment() {
 
 v8::Isolate* JavascriptEnvironment::Initialize(uv_loop_t* event_loop,
                                                bool setup_wasm_streaming) {
+  JS_LOG("step 9a: Initialize entered");
   auto* cmd = base::CommandLine::ForCurrentProcess();
   // --js-flags.
   std::string js_flags = "--no-freeze-flags-after-init ";
+#if BUILDFLAG(IS_HARMONY)
+  // HarmonyOS kernel W^X rejects mprotect(RWX) with EINVAL. V8 14 pre-commits
+  // the whole CodeRange as RWX in non-jitless mode (code-range.cc
+  // kRecommitOnly), which always fails without an XPM/JIT whitelist entry.
+  // Run jitless (Ignition interpreter only) on HarmonyOS.
+  js_flags.append("--jitless ");
+#endif
   js_flags.append(
       cmd->GetSwitchValueASCII(lynxtron::switches::kJavaScriptFlags));
+  JS_LOG("step 9b: js_flags='%{public}s'", js_flags.c_str());
   v8::V8::SetFlagsFromString(js_flags.c_str(), js_flags.size());
+  JS_LOG("step 9c: SetFlagsFromString done");
 
   // The V8Platform of gin relies on Chromium's task schedule, which has not
   // been started at this point, so we have to rely on Node's V8Platform.
   auto* tracing_agent = new node::tracing::Agent();
   auto* tracing_controller = tracing_agent->GetTracingController();
   node::tracing::TraceEventHelper::SetAgent(tracing_agent);
-  // gin::V8Platform::GetCurrentPageAllocator() is itself gated by
-  // PA_BUILDFLAG(USE_PARTITION_ALLOC) in gin/public/v8_platform.h:29-39.
-  // HarmonyOS bring-up disables use_partition_alloc (see lynxtron_tools/gn/gn.py
-  // harmony branch + wave 2 commit), so the symbol is not declared on harmony
-  // and we must pass a null PageAllocator and let v8 fall back to its default
-  // mmap-backed allocator. Win/Mac builds keep partition_alloc enabled and
-  // therefore continue to use the gin-provided allocator.
+  JS_LOG("step 9d: tracing agent set");
+  // PA-E provides AllocatorDispatch::default_dispatch but gin's PA-based
+  // PageAllocator fails CodeRange in HAP sandbox. V8 built-in mmap is used.
   platform_ = node::MultiIsolatePlatform::Create(
       base::RecommendedMaxNumberOfThreadsInThreadGroup(3, 8, 0.1, 0),
       tracing_controller,
-#if PA_BUILDFLAG(USE_PARTITION_ALLOC)
+#if BUILDFLAG(IS_HARMONY)
+      nullptr
+#elif PA_BUILDFLAG(USE_PARTITION_ALLOC)
       gin::V8Platform::GetCurrentPageAllocator()
 #else
       nullptr
 #endif
   );
+  JS_LOG("step 9e: MultiIsolatePlatform created");
 
   v8::V8::InitializePlatform(platform_.get());
+  JS_LOG("step 9f: V8::InitializePlatform done");
   gin::IsolateHolder::Initialize(
       gin::IsolateHolder::kNonStrictMode,
       gin::ArrayBufferAllocator::SharedInstance(),
       nullptr /* external_reference_table */, js_flags,
       false /* disallow_v8_feature_flag_overrides */,
+#if BUILDFLAG(IS_HARMONY)
+      &OnV8FatalError, &OnV8OOMError,
+#else
       nullptr /* fatal_error_callback */, nullptr /* oom_error_callback */,
+#endif
       false /* create_v8_platform */);
+  JS_LOG("step 9g: gin::IsolateHolder::Initialize done");
 
   v8::Isolate* isolate = v8::Isolate::Allocate();
+  JS_LOG("step 9h: v8::Isolate::Allocate -> %{public}p", isolate);
   platform_->RegisterIsolate(isolate, event_loop);
+  JS_LOG("step 9i: platform_->RegisterIsolate done");
 
   // This is done here because V8 checks for the callback in NewContext.
   // Our setup order doesn't allow for calling SetupIsolateForNode
@@ -158,8 +211,11 @@ v8::Isolate* JavascriptEnvironment::Initialize(uv_loop_t* event_loop,
     isolate->SetWasmStreamingCallback(
         node::wasm_web_api::StartStreamingCompilation);
   }
+  JS_LOG("step 9j: wasm streaming setup done (setup=%{public}d)",
+         setup_wasm_streaming ? 1 : 0);
 
   g_isolate = isolate;
+  JS_LOG("step 9k: Initialize() returning isolate");
 
   return isolate;
 }

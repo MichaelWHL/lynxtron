@@ -13,7 +13,7 @@ several undefined symbols at link time, including:
   - base::nix::GetXDGDirectory(...)
   - base::debug::ElfReader::* / stack_canary_linux symbols
   - base::dwarf_helpers source_set referenced by base.
-  - base::MessagePumpEpoll::* (added in WI-035 wave A via use_epoll)
+  - base::MessagePumpEpoll::* (enabled through use_epoll)
 
 The same `if (is_linux || is_chromeos)` -> `|| is_harmony` extension
 was applied to v8/BUILD.gn for v8::base::OS::* symbols (see

@@ -8,7 +8,7 @@
 
 namespace lynxtron {
 
-// HarmonyOS bring-up stubs for the three GetApplication* free functions
+// HarmonyOS fallbacks for the three GetApplication* free functions
 // declared cross-platform in application_info.h:28-30 but defined only in
 // application_info_mac.mm and application_info_win.cc.
 //
@@ -17,9 +17,8 @@ namespace lynxtron {
 // uses an empty-string check to decide between the override and the
 // platform-provided name; returning "" here would silently swap behaviour.
 //
-// Real impl will read the bundle metadata from the OHOS HAP entry's
-// module.json5 / app.json5 (bundleName / versionName / etc.) via the NAPI
-// @ohos.bundle.bundleManager API; tracked in WI-034.
+// A native implementation can read bundle metadata through the OHOS bundle
+// manager API.
 //
 // NOT stubbed here:
 //   - GetRawAppUserModelID / GetAppUserModelID / SetAppUserModelID /

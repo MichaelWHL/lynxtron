@@ -64,8 +64,7 @@ class NativeBrowserView;
 #if BUILDFLAG(IS_MAC)
 using NativeWindowHandle = NSView*;
 #elif BUILDFLAG(IS_HARMONY)
-// HarmonyOS bring-up: opaque pointer until shell/app/native_window_harmony.cc
-// wires the OHOS NativeWindow* (libnative_window.so) into Lynxtron.
+// HarmonyOS uses an opaque handle supplied by the XComponent surface bridge.
 using NativeWindowHandle = void*;
 #else
 using NativeWindowHandle = HWND;

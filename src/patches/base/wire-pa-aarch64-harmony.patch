@@ -15,13 +15,9 @@ returns false from IsBtiEnabled / IsMteEnabled). This is the only
 PA source that needed an IS_HARMONY-aware adjustment to compile
 under target_os=harmony with use_partition_alloc=true.
 
-Required by WI-035 wave B, which flips use_partition_alloc=true on
-harmony so that PA's own .cc files supply PartitionAllocHooks /
-PartitionRoot / ThreadCache / FreelistCorruptionDetected /
-OnNoMemory / Alias etc. - replacing the wave-E hand-stub attempt
-that revealed deeper PA internals (PartitionAddressSpace,
-PartitionBucket::SlowPathAlloc, SpinningMutex, SlotSpanMetadata)
-without converging.
+With use_partition_alloc=true on HarmonyOS, PA's own .cc files supply
+PartitionAllocHooks, PartitionRoot, ThreadCache, OnNoMemory, aliases, and
+the related allocator internals.
 ---
  .../src/partition_alloc/aarch64_support.h         | 8 +++++++-
  1 file changed, 7 insertions(+), 1 deletion(-)

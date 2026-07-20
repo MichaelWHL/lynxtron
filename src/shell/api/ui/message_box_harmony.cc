@@ -10,13 +10,12 @@
 
 namespace lynxtron {
 
-// HarmonyOS bring-up stubs for message box free functions and the
+// HarmonyOS fallbacks for message box free functions and the
 // MessageBoxSettings struct ctor/dtor. Declared in shell/api/ui/message_box.h
 // (cross-platform, no #if guard) but defined only in
 // message_box_mac.mm / message_box_win.cc.
 //
-// Real impl will dispatch through OHOS @ohos.promptAction (showDialog /
-// showActionMenu) NAPI once HAP packaging (WI-035) lands.
+// A native implementation can dispatch through OHOS promptAction APIs.
 
 MessageBoxSettings::MessageBoxSettings() = default;
 MessageBoxSettings::MessageBoxSettings(const MessageBoxSettings&) = default;

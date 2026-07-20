@@ -664,40 +664,67 @@ source_set("lynxtron_lib") {
   }
 
   if (is_harmony) {
-    # HarmonyOS bring-up: minimum *_harmony.cc set that resolves declared-only
-    # link-blockers in cross-platform .h. Each stub returns nullptr / empty /
-    # noop because main_harmony.cc does not invoke any of them at bring-up;
-    # the purpose is purely to let lynxtron_lib link cleanly under
-    # target_os=harmony once WI-033 unblocks base/fml compile errors. Real
-    # impl is tracked in WI-034 (OHOS NativeWindow + libuv polling on OHOS
-    # musl + Application platform integration).
-    #
-    # Wave A (2026-05-09): native_window + node_bindings factories.
-    # Wave B (2026-05-09): application + relauncher (main_parts not needed -
-    #                      HandleSIGCHLD/InstallShutdownSignalHandlers are
-    #                      already covered by main_parts_posix.cc via the
-    #                      is_posix block above, since harmony is OS_LINUX
-    #                      and therefore OS_POSIX per build_config.h).
-    # Wave C (2026-05-09): platform_util (5 syms inc. internal::PlatformTrashItem)
-    #                      + application_info (3 GetApplication* syms)
-    #                      + icon_manager (LoadPlatformIcon free fn).
-    #                      asar/archive not needed - archive.cc:280-287 already
-    #                      has `#if !IS_MAC && !IS_WIN` fallback that returns
-    #                      std::nullopt for HeaderIntegrity / RelativePath.
+    # HarmonyOS platform implementations and fallbacks for APIs that otherwise
+    # only have macOS or Windows definitions. POSIX process and signal handling
+    # is provided by the shared is_posix sources above.
     sources += [
       "shell/api/api_menu_harmony.cc",
       "shell/api/api_native_image_harmony.cc",
-      "shell/api/lynx_view/lynx_capi_stubs_harmony.cc",
-      "shell/api/lynx_view/lynx_fml_stubs_harmony.cc",
+      # lynx_capi_stubs_harmony.cc and lynx_fml_stubs_harmony.cc removed: the
+      # real lynx capi + fml (MessageLoop/TaskRunner/...) now come from
+      # //lynx/platform/embedder:embedder + //lynx/base/src:base_group (added to
+      # deps below). The stubs existed only to avoid the lepus -fexceptions
+      # subtree, now excluded via build_lepus_compile=false.
       "shell/api/ui/file_dialog_harmony.cc",
       "shell/api/ui/message_box_harmony.cc",
       "shell/app/application_harmony.cc",
       "shell/app/icon_manager_harmony.cc",
+      "shell/app/lynx_napi_v8_bridge_harmony.cc",
+      "shell/app/lynx_windowless_renderer_harmony.cc",
+      "shell/app/lynx_windowless_renderer_harmony.h",
       "shell/app/native_window_harmony.cc",
       "shell/app/relauncher_harmony.cc",
+      "shell/app/surface_render_harmony.cc",
       "shell/common/application_info_harmony.cc",
       "shell/common/node_bindings_harmony.cc",
+      "shell/common/node_bindings_harmony.h",
       "shell/common/platform_util_harmony.cc",
+    ]
+    # Real Lynx/Clay renderer capi, replacing lynx_capi_stubs_harmony.cc.
+    #
+    # The platform/embedder source_set alone is not a complete link — it
+    # references clay::UIDelegateClay, clay::NativePlatformView, lynx::fml
+    # TaskRunner, VsyncWaiterService, LynxModuleFactory etc. that live in
+    # sibling targets. On desktop these come via the platform shared library
+    # (lynx/platform/{windows,darwin/macos}) whose group deps lynx_adaptor +
+    # clay/shell/platform/{windows|macos} + clay/shell/platform/embedder. We
+    # mirror that recipe here, substituting the headless shell platform (this is
+    # Lynxtron's Clay desktop form, not the ArkUI mobile lynx_harmony).
+    deps += [
+      "//lynx/base/src:base_group",
+      "//lynx/clay/lynx_adaptor:lynx_adaptor",
+      "//lynx/clay/shell/platform/embedder:embedder",
+      "//lynx/clay/shell/platform/headless:headless",
+      "//lynx/platform/embedder:embedder",
+
+      # Lynx JS runtime backends. runtime_manager.cc's #if OS_HARMONY block
+      # references JSVM (makeJSVMRuntime / RegisterJSVMRuntimeProxyFactory) and
+      # our lynx modules reference the V8 napi proxy; provide both.
+      "//lynx/core/runtime/js/jsi/jsvm:jsvm",
+      "//lynx/core/runtime/common/napi:napi_binding_jsvm",
+      "//lynx/core/runtime/common/napi:napi_binding_v8",
+
+      # Real PrimJS-NAPI V8 engine (js_native_api_v8.cc): provides the real
+      # napi_attach_v8 / napi_get_env_context_v8 that wire the primjs napi env's
+      # method table to Node's V8. Replaces the former no-op stubs which left
+      # the env half-initialized (crash in Napi::Env::GetInstanceData).
+      "//lynx/third_party/napi:v8",
+
+      # Real PrimJS-NAPI QuickJS engine (js_native_api_QuickJS.cc): the main /
+      # tasm thread's lepus context is QuickJS-based; its NapiRuntimeProxyQuickjs
+      # ::Attach() calls napi_attach_quickjs, which must be real (not a no-op
+      # stub) or that env's napi methods stay null (same GetInstanceData crash).
+      "//lynx/third_party/napi:quickjs",
     ]
   }
 
@@ -1026,31 +1053,44 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
-  # HarmonyOS lynxtron_app — WI-036 wave A landed the napi_init /
-  # napi_module_register entry shape in shell/app/main_harmony.cc and
-  # registered libace_napi.z as a system lib, but kept the executable
-  # build form because flipping to shared_library requires -fPIC for
-  # the entire transitive set (node inspector / cppgc / etc. currently
-  # compile with absolute relocations only valid in PIE executables).
-  #
-  # WI-036 wave B will switch to shared_library after the global cflags
-  # add -fPIC for harmony, at which point output_name + output_extension
-  # become "lynxtron" / "so" and HAP UIAbility ts can `import lynxtron
-  # from 'liblynxtron.so'`. For wave A the executable form keeps the
-  # 42 MB ELF link-green milestone (WI-035 wave B) intact.
-  #
+  # Main HarmonyOS shared library loaded by the HAP bridge.
   shared_library("lynxtron_app") {
-    # WI-036 wave-pic: now a shared_library (liblynxtron.so) so the OHOS
-    # HAP loader can dlopen it from a UIAbility's ts code:
-    #   import lynxtron from 'liblynxtron.so'; lynxtron.start();
-    # -fPIC is enabled globally via build/config/compiler:default_compiler_flags
-    # for is_harmony (see wire-build-fpic-harmony.patch).
+    # Big main library (chromium + V8 + Node + Lynx). Exports LynxtronMain.
+    # NOT a NAPI module — the OHOS framework would choke on the bundled
+    # Node.js napi_* symbols. ETS-facing bridge is the separate
+    # liblynxtron_napi.so target below.
     output_name = "lynxtron"
     output_extension = "so"
     include_dirs = [ "." ]
     sources = [ "shell/app/main_harmony.cc" ]
     deps = [ ":lynxtron_lib" ]
-    libs = [ "ace_napi.z" ]
+    libs = [
+      "hilog_ndk.z",
+      "EGL",
+      "GLESv3",
+      # OHOS NDK system libs pulled in by the now-linked Lynx harmony platform
+      # code (base_core harmony_vsync_manager, clay native image/vsync):
+      "native_vsync",       # OH_NativeVSync_*
+      "native_image",       # OH_NativeImage_*
+      "deviceinfo_ndk.z",   # OH_GetOSFullName / OH_GetSdkApiVersion
+      "ace_napi.z",         # napi_create_ark_runtime (JSVM engine). Safe here:
+                            # liblynxtron.so is dlopen'd, not a NAPI module, so
+                            # its export table isn't scanned by the framework.
+    ]
+  }
+
+  # Small OHOS NAPI bridge that ETS imports (mirrors Electron's
+  # libadapter.so pattern). Built by CMake during HAP assembly, which
+  # links it directly to liblynxtron.so — no dlopen needed.
+  shared_library("lynxtron_napi_bridge") {
+    output_name = "lynxtron_napi"
+    output_extension = "so"
+    sources = [ "shell/app/lynxtron_napi_bridge.cc" ]
+    libs = [
+      "ace_napi.z",
+      "ace_ndk.z",  # OH_NativeXComponent_*
+      "hilog_ndk.z",
+    ]
   }
 }
 

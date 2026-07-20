@@ -39,6 +39,18 @@
 #include "shell/ui/display/desktop_screen.h"
 #endif
 
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0000
+#define LOG_TAG "LynxtronRun"
+#define MP_LOG(fmt, ...) \
+  OH_LOG_INFO(LOG_APP, "[MainParts] " fmt, ##__VA_ARGS__)
+#else
+#define MP_LOG(fmt, ...) (void)0
+#endif
+
 namespace lynxtron {
 
 namespace {
@@ -106,79 +118,89 @@ int MainParts::GetExitCode() const {
 }
 
 void MainParts::Initialize() {
+  MP_LOG("step 0: entered");
   if (main_parts_delegate_) {
+    MP_LOG("step 1: PreInitialization delegate");
     main_parts_delegate_->PreInitialization();
   }
 
+  MP_LOG("step 2: FeatureList::ClearInstanceForTesting");
   base::FeatureList::ClearInstanceForTesting();
 
 #if BUILDFLAG(IS_WIN)
   com_initializer_ = std::make_unique<base::win::ScopedCOMInitializer>();
 #endif
 
+  MP_LOG("step 3: InitializeFeatureList");
   InitializeFeatureList();
 
+  MP_LOG("step 4: HangWatcher::InitializeOnMainThread");
   base::HangWatcher::InitializeOnMainThread(
       base::HangWatcher::ProcessType::kBrowserProcess,
       /*emit_crashes=*/true);
 
   if (base::HangWatcher::IsEnabled()) {
+    MP_LOG("step 4b: HangWatcher enabled, creating instance");
     base::HangWatcher::CreateHangWatcherInstance();
     hang_watcher_unregister_thread_closure_ = base::HangWatcher::RegisterThread(
         base::HangWatcher::ThreadType::kMainThread);
     base::HangWatcher::GetInstance()->Start();
   }
 
+  MP_LOG("step 5: ThreadPoolInstance::CreateAndStartWithDefaultParams");
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams("lynxtron");
 #if BUILDFLAG(IS_MAC)
   RegisterAtomCrApp();
-  // Initialize native screen for macOS to ensure display::Screen::Get() returns
-  // valid screen
   scoped_native_screen_ = std::make_unique<display::ScopedNativeScreen>();
 #endif
-  // TODO(Guo Xi): path service
+  MP_LOG("step 6: PathService::RegisterProvider");
   base::PathService::RegisterProvider(PathProvider, PATH_START, PATH_END);
 
+  MP_LOG("step 7: creating GlobalThread");
   global_thread_ = std::make_unique<GlobalThread>();
 
+  MP_LOG("step 8: V8Initializer::LoadV8Snapshot");
   gin::V8Initializer::LoadV8Snapshot(gin::V8SnapshotFileType::kDefault);
 
-  // The ProxyResolverV8 has setup a complete V8 environment, in order to
-  // avoid conflicts we only initialize our V8 environment after that.
+  MP_LOG("step 9: creating JavascriptEnvironment "
+         "(node_bindings_->uv_loop())");
   js_env_ = std::make_unique<JavascriptEnvironment>(node_bindings_->uv_loop());
+  MP_LOG("step 9 done");
 
   v8::Isolate* const isolate = js_env_->isolate();
   v8::HandleScope scope(isolate);
   if (main_parts_delegate_) {
+    MP_LOG("step 10: PostV8Initialization delegate");
     main_parts_delegate_->PostV8Initialization();
   }
+  MP_LOG("step 11: node_bindings_->Initialize");
   node_bindings_->Initialize(isolate, isolate->GetCurrentContext());
 
-  // Create the global environment.
+  MP_LOG("step 12: node_bindings_->CreateEnvironment");
   node_env_ = node_bindings_->CreateEnvironment(
       isolate, isolate->GetCurrentContext(), js_env_->platform(),
       js_env_->max_young_generation_size_in_bytes());
 
+  MP_LOG("step 13: configuring node_env");
   node_env_->set_trace_sync_io(node_env_->options()->trace_sync_io);
-
-  // We do not want to crash the main process on unhandled rejections.
   node_env_->options()->unhandled_rejections = "warn-with-error-code";
 
-  // Add Electron extended APIs.
+  MP_LOG("step 14: lynxtron_bindings_->BindTo");
   lynxtron_bindings_->BindTo(isolate, node_env_->process_object());
 
-  // Create explicit microtasks runner.
+  MP_LOG("step 15: CreateMicrotasksRunner");
   js_env_->CreateMicrotasksRunner();
 
-  // Wrap the uv loop with global env.
+  MP_LOG("step 16: node_bindings_->set_uv_env");
   node_bindings_->set_uv_env(node_env_.get());
 
-  // Load everything.
+  MP_LOG("step 17: node_bindings_->LoadEnvironment");
   node_bindings_->LoadEnvironment(node_env_.get());
 
-  // Wait for app
+  MP_LOG("step 18: node_bindings_->JoinAppCode");
   node_bindings_->JoinAppCode();
 
+  MP_LOG("step 19: LynxView::SetNodePlatformEnv");
   LynxView::SetNodePlatformEnv(js_env_->platform());
 
 #if BUILDFLAG(IS_WIN)
@@ -187,10 +209,12 @@ void MainParts::Initialize() {
   }
 #endif
 
+  MP_LOG("step 20: PowerMonitor::Initialize");
   base::PowerMonitor::GetInstance()->Initialize(
       std::make_unique<base::PowerMonitorDeviceSource>());
 
   if (main_parts_delegate_) {
+    MP_LOG("step 21: PostInitialization delegate");
     main_parts_delegate_->PostInitialization();
   }
 
@@ -198,15 +222,21 @@ void MainParts::Initialize() {
   InitializeMacMainMessageLoop();
 #endif
 
+  MP_LOG("step 22: node_bindings_->PrepareEmbedThread");
   node_bindings_->PrepareEmbedThread();
+  MP_LOG("step 23: node_bindings_->StartPolling");
   node_bindings_->StartPolling();
 
 #if !BUILDFLAG(IS_MAC)
+  MP_LOG("step 24: Application::WillFinishLaunching");
   Application::Get()->WillFinishLaunching();
+  MP_LOG("step 25: Application::DidFinishLaunching");
   Application::Get()->DidFinishLaunching(base::Value::Dict());
 #endif
 
+  MP_LOG("step 26: Application::PreMainMessageLoopRun");
   Application::Get()->PreMainMessageLoopRun();
+  MP_LOG("step 27: Initialize finished");
 }
 
 void MainParts::WillRunMainMessageLoop(

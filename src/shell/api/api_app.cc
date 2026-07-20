@@ -460,9 +460,8 @@ ProcessMemoryInfo GetMemoryInfo() {
 
 #elif BUILDFLAG(IS_LINUX)
 
-// HarmonyOS bring-up stub: real impl will read /proc/self/statm or
-// base::ProcessMetrics::GetWorkingSetKBytes once OHOS proc fs schema is
-// validated. Tracked under WI-034.
+// Memory reporting is not implemented until the HarmonyOS procfs schema is
+// validated.
 ProcessMemoryInfo GetMemoryInfo() {
   return ProcessMemoryInfo{};
 }

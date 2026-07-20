@@ -50,22 +50,9 @@ group("lynx_lib") {
       "//lynx/platform/windows:lynx_windows_group",
     ]
   } else if (is_harmony) {
-    # HarmonyOS bring-up: lynx capi entries are stubbed inside the lynxtron
-    # tree (see shell/api/lynx_view/lynx_capi_stubs_harmony.cc) instead of
-    # pulling //lynx/platform/embedder:embedder, because the latter brings
-    # in lynx/core/runtime/lepus/ir/* (~50 .cc) which require -fexceptions
-    # and clash with lynxtron's -fno-exceptions cflag.
-    # Real lynx integration (full embedder dep + lynx/platform/harmony group)
-    # is tracked under WI-036.
-    #
-    # WI-035 wave A: wire the weak-node-api source build to provide the
-    # ~30+ napi_*_weak symbol definitions (weak_napi_defines.h rewrites
-    # napi_xxx -> napi_xxx_weak under USE_WEAK_SUFFIX_NAPI=1). The
-    # weak_node_api_source source_set is platform-agnostic (only compiles
-    # generated/weak_node_api.cpp) and its config already sets
-    # NAPI_DISABLE_CPP_EXCEPTIONS so it composes with lynxtron's
-    # -fno-exceptions cflag. This replaces the wave-D/E hand-written
-    # napi_*_weak stubs with the real lynx-supplied definitions.
+    # Provide the weak Node-API symbols used by the HarmonyOS V8 integration.
+    # This target disables C++ exceptions and therefore composes with the
+    # Lynxtron HarmonyOS configuration.
     deps += [
       "//lynx/third_party/weak-node-api:weak_node_api_source",
     ]

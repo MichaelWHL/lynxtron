@@ -563,7 +563,7 @@ index 68a9290..be94c86 100644
  }
 +
 +if (!toolchain_has_rust || !enable_rust_cxx) {
-+  # Stub for non-rust toolchains (e.g. HarmonyOS bring-up with enable_rust=false).
++  # Stub for non-rust toolchains (e.g. HarmonyOS with enable_rust=false).
 +  # Various C++ targets unconditionally depend on //build/rust:cxx_cppdeps;
 +  # provide an empty group so dependency resolution succeeds.
 +  group("cxx_cppdeps") {
@@ -717,4 +717,3 @@ index 38bc688..a781089 100644
  #else
 -- 
 2.34.1
-

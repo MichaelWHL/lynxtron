@@ -13,13 +13,12 @@
 
 namespace lynxtron {
 
-// HarmonyOS bring-up stubs for cross-platform Application:: methods that are
+// HarmonyOS fallbacks for cross-platform Application:: methods that are
 // declared in application.h without a #if guard but defined ONLY in
 // application_mac.mm and application_win.cc. The set was identified by
 // diffing application.h declarations against application.cc public defs.
-// Each stub returns the type's natural empty/default to satisfy the linker;
-// real impl is tracked under WI-034 once OHOS Ability + bundle metadata
-// integration lands.
+// Each fallback returns the type's natural empty/default until the matching
+// OHOS Ability or bundle metadata integration is implemented.
 //
 // NOT stubbed here:
 //   - methods inside `#if BUILDFLAG(IS_MAC)` / `#if BUILDFLAG(IS_WIN)` blocks

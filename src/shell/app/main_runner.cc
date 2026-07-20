@@ -11,8 +11,21 @@
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "shell/app/main_parts.h"
 #include "shell/app/uv_stdio_fix.h"
+
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0000
+#define LOG_TAG "LynxtronRun"
+#define LYNX_LOG(fmt, ...) \
+  OH_LOG_INFO(LOG_APP, "[MainRunner] " fmt, ##__VA_ARGS__)
+#else
+#define LYNX_LOG(fmt, ...) (void)0
+#endif
 
 #if BUILDFLAG(IS_MAC)
 #include "base/apple/bundle_locations.h"
@@ -51,15 +64,23 @@ int MainRunner::Initialize() {
 }
 
 int MainRunner::Run() {
+  LYNX_LOG("creating MainParts...");
   main_parts_ = std::make_unique<MainParts>();
+  LYNX_LOG("MainParts created, calling Initialize...");
   main_parts_->Initialize();
+  LYNX_LOG("MainParts::Initialize done");
 
   auto run_loop =
       std::make_unique<base::RunLoop>(base::RunLoop::Type::kDefault);
+  LYNX_LOG("calling WillRunMainMessageLoop...");
   main_parts_->WillRunMainMessageLoop(run_loop);
+  LYNX_LOG("entering run_loop->Run() (blocking event loop)...");
   run_loop->Run();
+  LYNX_LOG("run_loop->Run() returned, calling PostMainMessageLoopRun");
   main_parts_->PostMainMessageLoopRun();
-  return main_parts_->GetExitCode();
+  int code = main_parts_->GetExitCode();
+  LYNX_LOG("MainRunner::Run returning code=%{public}d", code);
+  return code;
 }
 
 void MainRunner::Shutdown() {
