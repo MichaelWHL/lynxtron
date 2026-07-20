@@ -281,6 +281,17 @@ Options:
   }
 
   const currentFilePath = url.fileURLToPath(import.meta.url);
-  const appPath = path.join(path.dirname(path.dirname(currentFilePath)), 'default_app.asar', 'default_app.bundle');
+  // resourcesDir is the folder that holds default_app.asar. On HarmonyOS the HAP
+  // stages a demo Lynx bundle right next to it (resources/main.lynx.bundle). If
+  // such a staged bundle exists, load it instead of the built-in welcome app —
+  // this lets us swap in different @lynx-example demos (view/text/image/list) to
+  // verify Lynxtron's rendering completeness by only re-staging that one file,
+  // with no JS rebuild. Falls back to the built-in default_app.bundle otherwise.
+  const resourcesDir = path.dirname(path.dirname(currentFilePath));
+  const stagedDemo = path.join(resourcesDir, 'main.lynx.bundle');
+  const appPath = fs.existsSync(stagedDemo)
+    ? stagedDemo
+    : path.join(resourcesDir, 'default_app.asar', 'default_app.bundle');
+  console.log(`[default_app] loading: ${appPath}`);
   await loadApplicationByFile(appPath);
 }

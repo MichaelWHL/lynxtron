@@ -1,14 +1,12 @@
 // TypeScript declaration for the lynxtron NAPI module.
 // Matches the napi_property_descriptor exported from
-// src/shell/app/main_harmony.cc::Init.
+// src/shell/app/lynxtron_napi_bridge.cc::Init.
 
 declare namespace lynxtron {
   /**
-   * Run LynxtronMain in the calling thread. Bring-up smoke test;
-   * future versions will accept a config object and dispatch on a
-   * worker thread so the UIAbility main thread isn't blocked.
+   * Start LynxtronMain on its dedicated native thread.
    *
-   * @returns LynxtronMain's exit code.
+   * @returns zero after the native thread is started.
    */
   function start(): number;
 }

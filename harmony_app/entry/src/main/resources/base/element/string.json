@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "Lynxtron"
+    },
+    {
+      "name": "reason_jit",
+      "value": "V8 JavaScript engine requires writable+executable memory for JIT compilation"
     }
   ]
 }

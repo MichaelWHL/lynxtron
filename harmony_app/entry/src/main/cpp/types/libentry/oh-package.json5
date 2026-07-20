@@ -1,6 +1,6 @@
 {
-  "name": "liblynxtron.so",
+  "name": "liblynxtron_napi.so",
   "types": "./Index.d.ts",
   "version": "1.0.0",
-  "description": "Lynxtron NAPI module type declarations"
+  "description": "Lynxtron NAPI bridge module type declarations"
 }

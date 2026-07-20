@@ -1,25 +1,19 @@
-# Lynxtron HarmonyOS HAP wrapper
+# Lynxtron HarmonyOS application
 
-Standard OHOS NAPI HAP project skeleton that loads `liblynxtron.so`
-(produced by the chromium-style GN build at the repo root) via a UIAbility
-ts entry. Tracked under WI-036.
+This directory contains the HarmonyOS HAP wrapper for Lynxtron. The ArkTS
+UIAbility loads a small NAPI bridge, which starts `liblynxtron.so` and connects
+an XComponent surface to the Lynx renderer.
 
-## Status
-
-- WI-036 wave A: napi_init / napi_module_register scaffolding landed in
-  `src/shell/app/main_harmony.cc` (still produces a PIE executable; flip
-  to shared_library blocked on -fPIC global cflag rollout).
-- WI-036 wave C (this directory): HAP project skeleton in standard OHOS
-  shape so that once wave B produces `liblynxtron.so`, this directory
-  can be opened in DevEco Studio (or built with `hvigorw assembleHap`)
-  and produce a signed `.hap`.
+The arm64 cross build and HAP have been verified on a HarmonyOS PC. Device
+installation requires a local signing certificate and a profile matching the
+configured bundle name.
 
 ## Layout
 
 ```
 harmony_app/
 ├── AppScope/              # workspace-level app metadata
-│   ├── app.json5          # bundleName=com.haitaichina.lynxtron
+│   ├── app.json5          # application metadata
 │   └── resources/
 ├── build-profile.json5    # workspace build settings
 ├── hvigorfile.ts          # workspace tasks
@@ -48,44 +42,50 @@ harmony_app/
         └── rawfile/                 # placeholder (icons / assets)
 ```
 
-## Building (when wave B is done)
+## Build
+
+Prepare the regular Lynxtron dependencies first:
 
 ```sh
-# 1. Build liblynxtron.so via the GN build:
-cd /opt/sda2/liuwh/lynxtron/lynxtron
-./lynxtron_tools/gn/gn.py --target-os=harmony --harmony-cpu=arm64
-ninja -C out/harmony_arm64_Release lynxtron_app
-# -> out/harmony_arm64_Release/liblynxtron.so
-
-# 2. Build the HAP via hvigor (CMakeLists picks up the prebuilt .so):
-cd /opt/sda2/liuwh/lynxtron/lynxtron/harmony_app
-hvigorw assembleHap
-
-# 3. Result:
-# entry/build/default/outputs/default/entry-default-unsigned.hap
+python3 lynxtron_tools/prepare_build_env.py
 ```
 
-To produce a signed HAP, configure `app.signingConfigs[]` in
-`build-profile.json5` with your developer cert + profile, then run
-`hvigorw assembleHap` again.
+Then generate and build the HarmonyOS arm64 targets from the repository root:
+
+```sh
+python3 lynxtron_tools/gn/gn.py --target-os=harmony --harmony-cpu=arm64
+ninja -C out/harmony_arm64_Release \
+  lynxtron_app lynxtron_napi_bridge default_app_asar
+```
+
+Build the HAP after installing the HarmonyOS command-line tools:
+
+```sh
+./harmony_app/build_hap.sh
+```
+
+The unsigned package is written to:
+
+```text
+harmony_app/entry/build/default/outputs/default/entry-default-unsigned.hap
+```
+
+`build_hap.sh --signed` can sign the result when all signing environment
+variables documented by the script are set. Certificates, profiles, key stores,
+and passwords must remain outside the repository.
 
 ## Running on device
 
 ```sh
-hdc install entry/build/default/outputs/default/entry-default-signed.hap
-hdc shell aa start -a EntryAbility -b com.haitaichina.lynxtron
-hdc hilog -t Lynxtron       # filter our logs
+hdc install harmony_app/entry/build/default/outputs/default/lynxtron-default-signed.hap
+hdc shell aa start -a EntryAbility -b com.lynxtron.harmony
+hdc hilog -t Lynxtron
 ```
 
-## Known wave-by-wave gaps
+## Notes
 
-- liblynxtron.so does not yet exist (wave B blocked on -fPIC global
-  cflag). The CMakeLists.txt prints a WARNING message during build if
-  the prebuilt is missing.
-- Application icon is a placeholder reference (`$media:icon` /
-  `$media:app_icon`). Drop a real `icon.png` into
-  `entry/src/main/resources/base/media/` and
-  `AppScope/resources/base/media/` for actual install.
-- LynxtronMain currently runs synchronously on the UIAbility main
-  thread, which will stall the Index page. Future wiring should spawn
-  a worker thread (napi_create_async_work or std::thread).
+- `build_hap.sh` stages native libraries and runtime resources from
+  `out/harmony_arm64_Release`; generated files are intentionally ignored.
+- The NAPI bridge runs `LynxtronMain` on a dedicated thread so the ArkUI event
+  loop remains responsive.
+- Change `bundleName` only when the signing profile is updated to match it.
