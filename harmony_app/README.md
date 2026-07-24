@@ -50,6 +50,23 @@ Prepare the regular Lynxtron dependencies first:
 python3 lynxtron_tools/prepare_build_env.py
 ```
 
+Make the HarmonyOS SDK available either at the repository-local default path
+or through `HARMONY_HOME`. The expected layout is:
+
+```text
+$HARMONY_HOME/HarmonyOS-NEXT-DB1/openharmony/native/llvm/bin/clang
+```
+
+For example, if the downloaded SDK directory itself contains `openharmony/`,
+create a versioned link outside the repository and export its parent:
+
+```sh
+mkdir -p /path/to/harmony-sdk-root
+ln -s /path/to/downloaded-sdk \
+  /path/to/harmony-sdk-root/HarmonyOS-NEXT-DB1
+export HARMONY_HOME=/path/to/harmony-sdk-root
+```
+
 Then generate and build the HarmonyOS arm64 targets from the repository root:
 
 ```sh

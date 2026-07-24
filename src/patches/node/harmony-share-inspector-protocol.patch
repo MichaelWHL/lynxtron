@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:20:00 +0800
+Subject: [PATCH] Share inspector protocol on HarmonyOS
+
+---
+ src/inspector/unofficial.gni | 18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/src/inspector/unofficial.gni b/src/inspector/unofficial.gni
+index 4810d93e..221a1ad9 100644
+--- a/src/inspector/unofficial.gni
++++ b/src/inspector/unofficial.gni
+@@ -79,9 +79,18 @@ template("inspector_gn_build") {
+     include_dirs = [ protocol_tool_path ]
+   }
+ 
+-  static_library("crdtp") {
+-    public_configs = [ ":crdtp_config" ]
+-    sources = [
++  # libnode already links the embedder's crdtp target. Building this
++  # test-only copy from the same source paths makes GN emit duplicate object
++  # outputs on HarmonyOS.
++  if (is_harmony) {
++    group("crdtp") {
++      public_configs = [ ":crdtp_config" ]
++      public_deps = [ "$node_inspector_protocol_path:crdtp" ]
++    }
++  } else {
++    static_library("crdtp") {
++      public_configs = [ ":crdtp_config" ]
++      sources = [
+       "$protocol_tool_path/crdtp/cbor.cc",
+       "$protocol_tool_path/crdtp/cbor.h",
+       "$protocol_tool_path/crdtp/dispatch.cc",
+@@ -105,6 +114,7 @@ template("inspector_gn_build") {
+       "$protocol_tool_path/crdtp/status.h",
+       "$protocol_tool_path/crdtp/json_platform.cc",
+       "$protocol_tool_path/crdtp/json_platform.h",
+-    ]
++      ]
++    }
+   }
+ }

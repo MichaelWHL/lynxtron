@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:25:00 +0800
+Subject: [PATCH] Fix allocator shim declarations on HarmonyOS
+
+---
+ allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_internals.h | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_internals.h b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_internals.h
+index afa8151..d7811ff 100644
+--- a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_internals.h
++++ b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_internals.h
+@@ -14,7 +14,10 @@
+ #endif
+ 
+ #ifndef __THROW   // Not a glibc system
+-#ifdef _NOEXCEPT  // LLVM libc++ uses noexcept instead
++#if defined(__OHOS__)
++// OpenHarmony's libc declarations do not use noexcept.
++#define __THROW
++#elif defined(_NOEXCEPT)  // LLVM libc++ uses noexcept instead
+ #define __THROW _NOEXCEPT
+ #else
+ #define __THROW

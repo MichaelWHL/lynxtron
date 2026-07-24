@@ -1,1 +1,2 @@
 add-xx_input_group-target-for-perfetto.patch
+skip-vm-sockets-on-harmony.patch

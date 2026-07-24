@@ -25,6 +25,8 @@ REPOS_TO_CHECK = [
     "url",
     "tools",
     "v8",
+    "third_party/protobuf",
+    "third_party/perfetto",
     "lynx",
     "lynx/lynx/third_party/quickjs/src"
 ]

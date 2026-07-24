@@ -5,7 +5,5 @@
   { "patch_dir": "src/patches/url", "repo": "url" },
   { "patch_dir": "src/patches/tools", "repo": "tools" },
   { "patch_dir": "src/patches/v8", "repo": "v8" },
-  { "patch_dir": "src/patches/protobuf", "repo": "third_party/protobuf" },
-  { "patch_dir": "src/patches/perfetto", "repo": "third_party/perfetto" },
-  { "patch_dir": "src/patches/libxml", "repo": "third_party/libxml" }
+  { "patch_dir": "src/patches/protobuf", "repo": "third_party/protobuf" }
 ]

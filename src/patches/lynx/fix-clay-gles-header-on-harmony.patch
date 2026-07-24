@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:25:00 +0800
+Subject: [PATCH] Use GLES headers for Clay on HarmonyOS
+
+---
+ clay/common/graphics/gl/gl_api_common.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/clay/common/graphics/gl/gl_api_common.h b/clay/common/graphics/gl/gl_api_common.h
+index a511db69..a8cdbd71 100644
+--- a/clay/common/graphics/gl/gl_api_common.h
++++ b/clay/common/graphics/gl/gl_api_common.h
+@@ -23,6 +23,10 @@
+ 
+ #import <OpenGLES/ES2/gl.h>
+ 
++#elif defined(OS_HARMONY)
++
++#include <GLES3/gl32.h>
++
+ #elif defined(OS_LINUX)
+ 
+ #include <epoxy/egl.h>

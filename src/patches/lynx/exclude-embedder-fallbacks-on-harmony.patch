@@ -1,0 +1,13 @@
+diff --git a/platform/embedder/BUILD.gn b/platform/embedder/BUILD.gn
+index 278b4a06..bf0adc70 100644
+--- a/platform/embedder/BUILD.gn
++++ b/platform/embedder/BUILD.gn
+@@ -104,7 +104,7 @@ lynx_core_source_set("embedder") {
+     ":config",
+   ]
+ 
+-  if (!enable_unittests && !is_android) {
++  if (!enable_unittests && !is_android && !is_harmony) {
+     sources += [
+       "sysinfo_embedder.cc",
+       "vsync_monitor_fallback.cc",

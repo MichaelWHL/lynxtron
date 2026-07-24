@@ -35,6 +35,9 @@ def main():
         python3 = "python3"
 
     os.environ["GIT_LFS_SKIP_SMUDGE"] = "1"
+    # Lynx installs with --frozen-lockfile. Do not let a user-level npmrc
+    # setting such as `lockfile=false` disable the lockfile for that command.
+    os.environ["npm_config_lockfile"] = "true"
     print(f"{COLORED_YELLOW_MSG}hab: {hab}{COLORED_PRINT_END}")
     print(f"{COLORED_YELLOW_MSG}envsetup: {envsetup}{COLORED_PRINT_END}")
     print(f"{COLORED_GREEN_MSG}abort am sessions............{COLORED_PRINT_END}")
@@ -73,7 +76,11 @@ def main():
         return return_code
     
     print(f"{COLORED_YELLOW_MSG}install lynxtron npm dependencies............{COLORED_PRINT_END}")
-    return_code = os.system(f'node tools/yarn.js install --immutable')
+    # Workspace postinstall downloads a released Lynxtron binary, while this
+    # script prepares dependencies for building Lynxtron from source.
+    return_code = os.system(
+        'node tools/yarn.js install --immutable --mode=skip-build'
+    )
     if return_code != 0:
         print(f"{COLORED_YELLOW_MSG}install lynxtron npm dependencies failed, exit{COLORED_PRINT_END}")
         return return_code

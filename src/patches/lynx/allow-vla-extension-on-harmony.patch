@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:35:00 +0800
+Subject: [PATCH] Allow VLA extension on HarmonyOS
+
+---
+ core/BUILD.gn | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/BUILD.gn b/core/BUILD.gn
+index 5ab32a36..7d25dae9 100644
+--- a/core/BUILD.gn
++++ b/core/BUILD.gn
+@@ -107,6 +107,9 @@ config("lynx_public_config") {
+   }
+ 
+   if (is_harmony) {
++    # Several legacy runtime paths use VLAs. Clang 19 diagnoses them as an
++    # extension, and some Lynx targets promote warnings to errors.
++    cflags += [ "-Wno-vla-cxx-extension" ]
+     defines += [ "OS_HARMONY=1" ]
+     if (enable_inspector) {
+       defines += [ "EXPORT_SYMBOLS_FOR_DEVTOOL=1" ]
