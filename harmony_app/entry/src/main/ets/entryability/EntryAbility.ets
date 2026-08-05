@@ -3,6 +3,7 @@ import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
+import lynxtron from 'liblynxtron_napi.so';
 
 const DOMAIN = 0x0000;
 const TAG = 'Lynxtron';

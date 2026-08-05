@@ -85,6 +85,13 @@ struct Index {
     // LynxtronMain is now started from XComponent.onLoad (see build()), so the
     // native surface exists before the render pipeline spins up.
     hilog.info(DOMAIN, TAG, 'aboutToAppear — waiting for XComponent surface');
+    setInterval(() => this.syncImeState(), 50);
+  }
+
+  syncImeState(): void {
+    const mod = lynxtron as Record<string, Object>;
+    if (!mod || typeof mod.syncIme !== 'function') return;
+    lynxtron.syncIme();
   }
 
   startLynxtron(): void {
