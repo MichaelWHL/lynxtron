@@ -89,7 +89,7 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     gn_args += 'v8_use_external_startup_data=true '
     # HarmonyOS kernel W^X policy rejects mprotect(RWX) with EINVAL.
     # WasmCodeManager::Commit needs 256MB RWX at isolate init — disable
-    # WebAssembly entirely on HarmonyOS (cjs-module-lexer falls back to JS).
+    # WebAssembly entirely during bring-up (cjs-module-lexer falls back to JS).
     gn_args += 'v8_enable_webassembly=false '
     # chromium114 build.sh: ARM64 PAC/BTI. Without this V8's stack unwinder
     # does not strip PAC bits from return addresses, so
@@ -99,7 +99,7 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     gn_args += 'arm_control_flow_integrity="standard" '
     # Lynx skia patch ships skia_harmony fontmgr in a truncated form (the patch
     # itself is incomplete, multiple .cpp/.h files miss tail). Disable the
-    # HarmonyOS font manager target; Skia will fall back to the
+    # harmony font manager target during bring-up; skia will fall back to the
     # default fontmgr. Revisit by either (a) restoring lynx skia patch from
     # upstream or (b) writing a proper SkFontMgr_New_Harmony implementation.
     gn_args += 'skia_enable_fontmgr_harmony=false '
@@ -115,7 +115,7 @@ def get_default_gn_args(is_debug, enable_enlarge_stack, target_os):
     # V8 Temporal API is implemented by rust temporal_rs crate; with
     # enable_rust=false the cxx-bridge headers are still emitted but the rust
     # symbols never get compiled, so mksnapshot link fails. Disable temporal
-    # support for this configuration.
+    # support during bring-up.
     gn_args += 'v8_enable_temporal_support=false '
     gn_args += 'skia_gl_standard="gles" '
     gn_args += 'skia_use_gl=true '

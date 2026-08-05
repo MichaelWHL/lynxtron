@@ -1,7 +1,8 @@
 {
   "app": {
-    "bundleName": "com.lynxtron.harmony",
-    "vendor": "lynxtron",
+    // The signing profile used locally must match this bundle name.
+    "bundleName": "com.huawei.electron",
+    "vendor": "huawei",
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:app_icon",

@@ -22,8 +22,8 @@ namespace lynxtron {
 // class (AddObserver/RemoveObserver, Notify*, InitFromOptions). Previously
 // NativeWindow::Create returned nullptr, so JS code doing `new BaseWindow()`
 // got a null and crashed at AddObserver. This class provides a real object so
-// the JS window API works and connects to the XComponent surface supplied by
-// the HAP.
+// the JS window API works; actual on-screen rendering is wired later when the
+// HAP passes an XComponent surface down (window-render wave).
 //
 // Bounds/title/visibility are tracked in-process so JS getters return sane
 // values. GetNativeWindowHandle() returns the surface pointer once set.

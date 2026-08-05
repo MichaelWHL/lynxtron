@@ -1,16 +1,19 @@
 #!/bin/bash
 #
 # Lynxtron HarmonyOS HAP build script.
+# Modeled after chromium132 (Huawei) hap_build_htbrowser.sh; uses the same
+# /opt/compilers/ohos_tools/ toolchain layout.
+#
 # Usage:
 #   ./build_hap.sh           # build unsigned hap (default)
-#   ./build_hap.sh --signed  # sign with credentials from the environment
+#   ./build_hap.sh --signed  # sign with credentials supplied by the environment
 #
 # Requires:
 #   /opt/compilers/ohos_tools/commandline-tools-linux-x64-6.0.2.640/
 #     command-line-tools/{hvigor/bin,ohpm/bin,bin,tool/node/bin}/
 #   /opt/compilers/ohos_tools/jdk-17.0.6/
 #
-# Signing environment:
+# Signing environment (only for --signed):
 #   HAP_SIGN_TOOL, HAP_SIGN_ALIAS, HAP_SIGN_CERT, HAP_SIGN_PROFILE,
 #   HAP_SIGN_KEYSTORE, HAP_SIGN_KEY_PASSWORD, HAP_SIGN_KEYSTORE_PASSWORD
 
@@ -112,9 +115,15 @@ else
   echo "[build_hap] (skip) ${LYNX_BUNDLE_SRC} not found — no demo staged."
 fi
 
-# Configure the OHPM registry. Override this for an internal mirror.
-OHPM_REGISTRY=${OHPM_REGISTRY:-https://repo.harmonyos.com/ohpm/}
-ohpm config set registry "${OHPM_REGISTRY}"
+# Configure registries (use Huawei mirrors so ohpm install can pull
+# @ohos packages from inside CN; same as chromium132 hap_build flow).
+npm config set registry=https://repo.huaweicloud.com/repository/npm/
+npm config set @ohos:registry=https://repo.harmonyos.com/npm/
+ohpm config set registry https://repo.harmonyos.com/ohpm/
+ohpm config set strict_ssl false
+
+# Refresh hvigor cache to avoid stale plugin state.
+rm -rf ~/.hvigor
 
 # Pull workspace + module deps.
 ohpm install --all
@@ -131,8 +140,8 @@ echo ""
 echo "[build_hap] unsigned hap: ${UNSIGNED_HAP}"
 ls -la "${UNSIGNED_HAP}" 2>/dev/null || echo "[build_hap] (not produced)"
 
-# Optional local signing. Keep all credentials outside the repository and use a
-# profile whose bundle name matches AppScope/app.json5.
+# Optional local signing. Keep certificates and passwords outside the
+# repository and use a profile whose bundle name matches AppScope/app.json5.
 if [ "$1" = "--signed" ]; then
   : "${HAP_SIGN_TOOL:?Set HAP_SIGN_TOOL to hap-sign-tool.jar}"
   : "${HAP_SIGN_ALIAS:?Set HAP_SIGN_ALIAS}"

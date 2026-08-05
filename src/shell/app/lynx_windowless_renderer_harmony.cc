@@ -11,7 +11,15 @@
 
 #include <map>
 #include <mutex>
+#include <array>
+#include <set>
+#include <string>
 #include <utility>
+
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
+#include "shell/common/global_thread.h"
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -23,6 +31,18 @@
 namespace lynxtron {
 
 namespace {
+
+std::mutex g_mutex;
+scoped_refptr<base::SingleThreadTaskRunner> g_lynx_platform_runner;
+
+// The runner Clay treats as its "platform thread": the Lynxtron UI thread that
+// built the LynxView (captured in LynxViewBuilder::Build). Clay's custom
+// platform task runner funnels through OnPostTask below, so without this the
+// runner is a black hole.
+scoped_refptr<base::SingleThreadTaskRunner> LynxPlatformRunner() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_lynx_platform_runner;
+}
 
 // GLDirect windowless renderer whose GL callbacks drive an EGL context bound to
 // the XComponent OHNativeWindow. Clay makes the context current on its own GPU
@@ -174,6 +194,73 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
     return reinterpret_cast<void*>(eglGetProcAddress(name));
   }
 
+  // Clay's custom platform task runner drains through here. Without an
+  // override the base class silently drops every task, which strands anything
+  // Clay schedules on its platform thread (IME commits, editor actions,
+  // clipboard round-trips) forever. Run them on the Lynxtron UI thread — the
+  // same thread that built the LynxView, which is what Clay was handed as its
+  // platform runner.
+  void OnPostTask(lynx_task_t task, uint64_t interval_nanoseconds) override {
+    auto runner = LynxPlatformRunner();
+    if (!runner) {
+      WLR_ERR("OnPostTask dropped: no platform runner captured yet");
+      return;
+    }
+    // The task holds a Clay-side handle that is only valid while this renderer
+    // lives; drop it if the view went away before the task ran.
+    auto closure = base::BindOnce(
+        [](std::weak_ptr<lynx::pub::LynxWindowlessRenderer> weak,
+           lynx_task_t t) {
+          if (auto self = weak.lock()) {
+            self->RunTask(t);
+          }
+        },
+        weak_from_this(), task);
+    if (interval_nanoseconds == 0) {
+      runner->PostTask(FROM_HERE, std::move(closure));
+    } else {
+      runner->PostDelayedTask(FROM_HERE, std::move(closure),
+                              base::Nanoseconds(interval_nanoseconds));
+    }
+  }
+
+  // The platform text client is owned by ArkUI.  These callbacks can arrive on
+  // a Lynx-owned sequence, so only cache POD state here; the NAPI bridge polls
+  // it from the ArkUI sequence before moving/focusing its TextInput.
+  void ShowTextInput(bool show) override {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    text_input_visible_ = show;
+    OH_LOG_INFO(LOG_APP, "[IME] ShowTextInput visible=%{public}d", show);
+  }
+
+  void SetMarkedTextRect(float x, float y, float width, float height) override {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    marked_rect_ = {x, y, width, height};
+    OH_LOG_INFO(LOG_APP,
+                "[IME] marked rect x=%{public}f y=%{public}f w=%{public}f h=%{public}f",
+                x, y, width, height);
+  }
+
+  void SetEditableTransform(const float transform[16]) override {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    for (size_t i = 0; i < editable_transform_.size(); ++i) {
+      editable_transform_[i] = transform[i];
+    }
+    OH_LOG_INFO(LOG_APP, "[IME] editable transform updated");
+  }
+
+  bool GetTextInputState(float* x, float* y, float* width, float* height) {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    // The Lynx callback uses view-local logical pixels. Apply the commonly
+    // used scale/translate subset once, leaving ArkUI to add the XComponent's
+    // own offset when it lays out the TextInput.
+    if (x) *x = marked_rect_[0] * editable_transform_[0] + editable_transform_[12];
+    if (y) *y = marked_rect_[1] * editable_transform_[5] + editable_transform_[13];
+    if (width) *width = marked_rect_[2];
+    if (height) *height = marked_rect_[3];
+    return text_input_visible_;
+  }
+
  private:
   EGLDisplay display_ = EGL_NO_DISPLAY;
   EGLConfig cfg_ = nullptr;
@@ -184,9 +271,13 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   std::mutex threads_mutex_;
   // Per resource/IO thread: its own shared context + 1x1 pbuffer.
   std::map<pthread_t, std::pair<EGLSurface, EGLContext>> per_thread_;
+  std::mutex input_mutex_;
+  bool text_input_visible_ = false;
+  std::array<float, 4> marked_rect_ = {0, 0, 1, 1};
+  std::array<float, 16> editable_transform_ = {
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-std::mutex g_mutex;
 std::shared_ptr<EglWindowlessRenderer> g_current;
 int g_surface_w = 0;
 int g_surface_h = 0;
@@ -220,6 +311,12 @@ GetCurrentHarmonyWindowlessRenderer() {
   return g_current;
 }
 
+void CaptureHarmonyLynxPlatformTaskRunner() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_lynx_platform_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
+  WLR_LOG("Captured Lynx platform task runner");
+}
+
 bool GetCurrentHarmonySurfaceSize(int* w, int* h) {
   std::lock_guard<std::mutex> lock(g_mutex);
   if (g_surface_w <= 0 || g_surface_h <= 0) return false;
@@ -228,38 +325,146 @@ bool GetCurrentHarmonySurfaceSize(int* w, int* h) {
   return true;
 }
 
+bool GetCurrentHarmonyTextInputState(float* x, float* y, float* width,
+                                     float* height) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_current && g_current->GetTextInputState(x, y, width, height);
+}
+
 }  // namespace lynxtron
+
+namespace {
+
+// XComponent callbacks run on ArkUI's UIAbility thread, whereas the Lynx
+// windowless renderer is owned by Lynxtron's UI runner.  Sending directly from
+// ArkUI lets the call cross the C ABI but bypasses Clay's sequence-affinity
+// assumptions, so focused editable controls never notify their text client.
+void PostToLynxUi(base::OnceClosure task) {
+  scoped_refptr<base::SingleThreadTaskRunner> runner =
+      lynxtron::LynxPlatformRunner();
+  if (!runner) {
+    runner = lynxtron::GetUIThreadTaskRunner();
+  }
+  if (runner) {
+    runner->PostTask(FROM_HERE, std::move(task));
+  }
+}
+
+void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
+                         int32_t device, int kind, size_t timestamp) {
+  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  if (!r) return;
+  static std::set<int32_t> active_devices;
+  if (phase != 5 && active_devices.insert(device).second) {
+    lynx_pointer_event_t add = {};
+    add.struct_size = sizeof(add);
+    add.phase = kLynxPointerPhaseAdd;
+    add.timestamp = timestamp;
+    add.x = x;
+    add.y = y;
+    add.device = device;
+    add.device_kind = static_cast<lynx_pointer_device_kind_e>(kind);
+    add.scale = 1.0;
+    r->SendPointerEvent(&add);
+  }
+  lynx_pointer_event_t ev = {};
+  ev.struct_size = sizeof(ev);
+  switch (phase) {
+    case 0: ev.phase = kLynxPointerPhaseDown; break;
+    case 1: ev.phase = kLynxPointerPhaseUp; break;
+    case 2: ev.phase = kLynxPointerPhaseMove; break;
+    case 4: ev.phase = kLynxPointerPhaseCancel; break;
+    case 5: ev.phase = kLynxPointerPhaseRemove; break;
+    default: ev.phase = kLynxPointerPhaseHover; break;
+  }
+  ev.x = x;
+  ev.y = y;
+  ev.timestamp = timestamp;
+  ev.device = device;
+  ev.device_kind = static_cast<lynx_pointer_device_kind_e>(kind);
+  ev.buttons = buttons;
+  ev.scale = 1.0;
+  r->SendPointerEvent(&ev);
+  if (phase == 5) active_devices.erase(device);
+}
+
+void SendKeyOnLynxUi(int type, uint64_t logical, uint64_t physical,
+                     double timestamp) {
+  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  if (!r) return;
+  lynx_key_event_t ev = {};
+  ev.struct_size = sizeof(ev);
+  ev.timestamp = timestamp;
+  ev.type = type == 0 ? kLynxKeyEventTypeUp : kLynxKeyEventTypeDown;
+  ev.logical = logical;
+  ev.physical = physical;
+  ev.synthesized = false;
+  r->SendKeyEvent(&ev);
+}
+
+void SendTextOnLynxUi(std::string text, double timestamp, bool composing) {
+  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  if (!r) {
+    WLR_LOG("[IME] drop text: renderer unavailable");
+    return;
+  }
+  WLR_LOG("[IME] dispatch %{public}s bytes=%{public}zu",
+          composing ? "composing" : "committed", text.size());
+  lynx_key_event_t ev = {};
+  ev.struct_size = sizeof(ev);
+  ev.timestamp = timestamp;
+  // Repeat marks pre-edit text, Down marks a final commit — see the windowless
+  // UI renderer's send_key_event bridge, which splits on exactly this.
+  ev.type = composing ? kLynxKeyEventTypeRepeat : kLynxKeyEventTypeDown;
+  ev.character = text.c_str();
+  // IME text is generated by the platform input method rather than a physical
+  // key. Clay uses this marker to route the character payload to the focused
+  // text input (the macOS embedder's TypeText does the same).
+  ev.synthesized = true;
+  r->SendKeyEvent(&ev);
+}
+
+}  // namespace
 
 // Exported for the NAPI bridge (dlsym'd like LynxtronSetNativeSurface). Forwards
 // an XComponent pointer/mouse event to the current LynxView's windowless
 // renderer so Lynx can hit-test and dispatch it (button clicks, hover, etc.).
-//   phase: 0=down, 1=up, 2=move, 3=hover
-//   buttons: bitmask, bit0 = primary/left
+//   phase: 0=down, 1=up, 2=move, 3=hover, 4=cancel, 5=remove
+//   kind: 1=mouse, 2=touch, 3=stylus, 4=trackpad
 extern "C" __attribute__((visibility("default"))) void LynxtronSendPointerEvent(
-    int phase, double x, double y, int64_t buttons) {
-  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
-  if (!r) return;
-  lynx_pointer_event_t ev = {};
-  ev.struct_size = sizeof(ev);
-  switch (phase) {
-    case 0:
-      ev.phase = kLynxPointerPhaseDown;
-      break;
-    case 1:
-      ev.phase = kLynxPointerPhaseUp;
-      break;
-    case 2:
-      ev.phase = kLynxPointerPhaseMove;
-      break;
-    default:
-      ev.phase = kLynxPointerPhaseHover;
-      break;
-  }
-  ev.x = x;
-  ev.y = y;
-  ev.device = 0;
-  ev.device_kind = kLynxPointerDeviceKindMouse;
-  ev.buttons = buttons;
-  ev.scale = 1.0;
-  r->SendPointerEvent(&ev);
+    int phase, double x, double y, int64_t buttons, int32_t device, int kind,
+    size_t timestamp) {
+  PostToLynxUi(base::BindOnce(&SendPointerOnLynxUi, phase, x, y, buttons,
+                              device, kind, timestamp));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSendKeyEvent(
+    int type, uint64_t logical, uint64_t physical, double timestamp) {
+  PostToLynxUi(
+      base::BindOnce(&SendKeyOnLynxUi, type, logical, physical, timestamp));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSendTextInput(
+    const char* text, double timestamp) {
+  if (!text || !*text) return;
+  std::string committed_text(text);
+  WLR_LOG("[IME] queue committed text bytes=%{public}zu", committed_text.size());
+  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, std::move(committed_text),
+                              timestamp, /*composing=*/false));
+}
+
+// Pre-edit (marked) text an IME is still composing. An empty string clears the
+// composing region, which is how a cancelled composition is reported.
+extern "C" __attribute__((visibility("default"))) void
+LynxtronSendComposingText(const char* text, double timestamp) {
+  if (!text) return;
+  std::string composing_text(text);
+  WLR_LOG("[IME] queue composing text bytes=%{public}zu", composing_text.size());
+  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, std::move(composing_text),
+                              timestamp, /*composing=*/true));
+}
+
+extern "C" __attribute__((visibility("default"))) bool LynxtronGetTextInputState(
+    float* x, float* y, float* width, float* height) {
+  return lynxtron::GetCurrentHarmonyTextInputState(x, y, width, height);
 }

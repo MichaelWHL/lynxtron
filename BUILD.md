@@ -60,6 +60,41 @@ python lynxtron/tools/gn/gn.py --enable-trace --is-debug --windows-cpu ['x64', '
 ninja -C out/Debug lynxtron_app
 ```
 
+### HarmonyOS (Linux host, arm64 device)
+
+```
+git clone git@github.com:lynx-family/lynxtron.git
+cd lynxtron
+python3 lynxtron_tools/prepare_build_env.py
+source lynxtron_tools/envsetup.sh
+python3 lynxtron_tools/gn/gn.py --target-os harmony --harmony-cpu arm64
+ninja -C out/harmony_arm64_Release lynxtron_app lynxtron_napi_bridge
+# package + sign the HAP (stages both .so files into the project first)
+harmony_app/build_hap.sh --signed
+```
+
+`prepare_build_env.py` applies the patches in `src/patches` — the harmony
+adaptations to `base`, `build`, `v8`, `third_party/node` and `third_party/skia`
+exist only there, because those checkouts are upstream repos on a detached HEAD.
+See [src/patches/README.md](src/patches/README.md).
+
+If you sync or reset those repos afterwards, replay the patches before building:
+
+```
+python3 src/script/apply_all_patches.py src/patches/config.json
+python3 src/script/apply_all_patches.py src/patches/lynx/config.json
+```
+
+Skipping this still produces a `liblynxtron.so` that links, but it fails to
+`dlopen` on device with a missing symbol such as
+`v8::base::OS::AdjustSchedulingParams()`. `src/patches/README.md` explains why.
+
+Two build outputs matter: `liblynxtron.so` (the main library, loaded via
+`dlopen`) and `liblynxtron_napi.so` (the small NAPI bridge ArkTS imports).
+`build_hap.sh` copies both into `harmony_app/entry/libs/arm64-v8a/`. It also
+stages a Lynx demo bundle; pass `LYNX_DEMO=<key|/abs/path.lynx.bundle>` to pick
+one, or it overwrites whatever bundle is currently staged with the default.
+
 # Formatting
 
 Format code before committing:

@@ -3,6 +3,7 @@ import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
+import lynxtron from 'liblynxtron_napi.so';
 
 const DOMAIN = 0x0000;
 const TAG = 'Lynxtron';
@@ -52,6 +53,17 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
+
+    // The input method service routes text per window. XComponent draws its own
+    // editable, so the native IME client (see lynxtron_napi_bridge.cc) has no
+    // ArkUI node to infer the window from and must be told explicitly.
+    try {
+      const id: number = windowStage.getMainWindowSync().getWindowProperties().id;
+      lynxtron.setWindowId(id);
+      hilog.info(DOMAIN, TAG, 'published IME windowId=%{public}d', id);
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'setWindowId failed: %{public}s', String(e));
+    }
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {

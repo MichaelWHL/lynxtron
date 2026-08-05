@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Thu, 30 Jul 2026 10:10:00 +0800
+Subject: [PATCH] Route IME text through the platform view on windowless hosts
+
+Committed IME text reached Clay by dereferencing Shell::GetEngine(), a
+UI-thread-affine WeakPtr, from the windowless host's platform thread. Clay
+already has the correct route for this — Shell::OnPlatformViewSendKeyboardEvent
+does the UI-thread hop and lands in PageView's IME listener — but nothing
+called it, because PlatformView had no forwarding entry point. Add
+PlatformView::SendKeyboardEvent and use it.
+
+Also split committed vs composing (pre-edit) text: the windowless key-event
+bridge maps a synthesized Repeat event to CommitComposingText and a
+synthesized Down to CommitText, so an embedder can report marked text while
+an IME is still composing.
+
+platform_harmony.cc only gains a comment noting that per-character font
+fallback now lives in SkFontMgr_Custom (see the skia patch of the same
+series).
+---
+ 6 files changed, 73 insertions(+)
+
+diff --git a/clay/shell/common/platform_view.cc b/clay/shell/common/platform_view.cc
+index 1589a95f..6a9c1f10 100644
+--- a/clay/shell/common/platform_view.cc
++++ b/clay/shell/common/platform_view.cc
+@@ -38,6 +38,10 @@ void PlatformView::DispatchKeyEvent(std::unique_ptr<clay::KeyEvent> key_event,
+                                            std::move(callback));
+ }
+ 
++void PlatformView::SendKeyboardEvent(std::unique_ptr<clay::KeyEvent> key_event) {
++  delegate_.OnPlatformViewSendKeyboardEvent(std::move(key_event));
++}
++
+ #ifdef ENABLE_ACCESSIBILITY
+ void PlatformView::DispatchClaySemanticsAction(int virtual_view_id,
+                                                int action) {
+diff --git a/clay/shell/common/platform_view.h b/clay/shell/common/platform_view.h
+index 1fe442af..28e372d6 100644
+--- a/clay/shell/common/platform_view.h
++++ b/clay/shell/common/platform_view.h
+@@ -315,6 +315,17 @@ class PlatformView {
+   void DispatchKeyDataPacket(std::unique_ptr<clay::KeyDataPacket> packet,
+                              Delegate::KeyDataResponse callback);
+ 
++  //----------------------------------------------------------------------------
++  /// @brief      Sends an IME-originated keyboard event (committed text,
++  ///             composing text) straight to the focused text client. Unlike
++  ///             DispatchKeyEvent this bypasses the focus manager's key
++  ///             handling, matching how a platform text input client delivers
++  ///             text rather than keystrokes. Hops to the UI thread.
++  ///
++  /// @param[in]  key_event  The keyboard event to deliver.
++  ///
++  void SendKeyboardEvent(std::unique_ptr<clay::KeyEvent> key_event);
++
+   //--------------------------------------------------------------------------
+   /// @brief      Directly invokes platform-specific APIs to compute the
+   ///             locale the platform would have natively resolved to.
+diff --git a/clay/shell/platform/headless/clay_headless_engine.cc b/clay/shell/platform/headless/clay_headless_engine.cc
+index 8d31b2c9..11fb2745 100644
+--- a/clay/shell/platform/headless/clay_headless_engine.cc
++++ b/clay/shell/platform/headless/clay_headless_engine.cc
+@@ -406,6 +406,33 @@ void ClayHeadlessEngine::SendKeyEvent(const ClayKeyEvent* event,
+   }
+ }
+ 
++void ClayHeadlessEngine::CommitText(const char* text, uint64_t timestamp) {
++  SendImeText(KeyEventType::kCommitText, text, timestamp);
++}
++
++void ClayHeadlessEngine::CommitComposingText(const char* text,
++                                             uint64_t timestamp) {
++  SendImeText(KeyEventType::kCommitComposingText, text, timestamp);
++}
++
++void ClayHeadlessEngine::SendImeText(KeyEventType type, const char* text,
++                                     uint64_t timestamp) {
++  if (!IsValid() || !text) {
++    return;
++  }
++  // Route through the platform view rather than touching the engine directly:
++  // Shell::GetEngine() hands back a UI-thread-affine WeakPtr, and the windowless
++  // host calls us from Clay's platform thread. OnPlatformViewSendKeyboardEvent
++  // does the UI-thread hop and lands in PageView's IME listener, which is the
++  // same route a platform text input client takes on Windows/macOS.
++  auto platform_view = engine_->GetShell().GetPlatformView();
++  if (platform_view) {
++    platform_view->SendKeyboardEvent(std::make_unique<KeyEvent>(
++        timestamp, type, PhysicalKeyboardKey::kUnknown,
++        LogicalKeyboardKey::kUnidentified, true, text));
++  }
++}
++
+ void ClayHeadlessEngine::PostPlatformThreadTask(ClayVoidCallback callback,
+                                                 void* callback_data) {
+   if (IsValid()) {
+diff --git a/clay/shell/platform/headless/clay_headless_engine.h b/clay/shell/platform/headless/clay_headless_engine.h
+index d2ccc423..00b79545 100644
+--- a/clay/shell/platform/headless/clay_headless_engine.h
++++ b/clay/shell/platform/headless/clay_headless_engine.h
+@@ -17,6 +17,7 @@
+ #include "clay/shell/platform/embedder/platform_view_embedder_delegate.h"
+ #include "clay/shell/platform/headless/clay_event_loop.h"
+ #include "clay/shell/platform/headless/public/embdder_headless_delegate.h"
++#include "clay/ui/event/key_event.h"
+ 
+ namespace lynx {
+ class EmbedderLynxView;
+@@ -54,6 +55,12 @@ class ClayHeadlessEngine : public clay::PlatformViewEmbedderDelegate {
+   void SendPointerEvents(const ClayPointerEvent* events, size_t events_count);
+   void SendKeyEvent(const ClayKeyEvent* event, ClayKeyEventCallback callback,
+                     void* user_data);
++  // Sends IME text through Clay's keyboard bridge. This is distinct from a
++  // physical key event: PageView routes it to the active IME listener.
++  // CommitText finalizes text; CommitComposingText updates the pre-edit
++  // (marked) region an IME is still composing.
++  void CommitText(const char* text, uint64_t timestamp);
++  void CommitComposingText(const char* text, uint64_t timestamp);
+   void PostPlatformThreadTask(ClayVoidCallback callback, void* callback_data);
+   void* GetViewContext();
+ 
+@@ -74,6 +81,10 @@ class ClayHeadlessEngine : public clay::PlatformViewEmbedderDelegate {
+   }
+ 
+  private:
++  // Common tail of CommitText / CommitComposingText.
++  void SendImeText(clay::KeyEventType type, const char* text,
++                   uint64_t timestamp);
++
+   bool RunEngine(
+       const char* icu_data_path,
+       const ClayHeadlessRendererConfig* renderer_config,
+diff --git a/clay/third_party/txt/src/txt/platform_harmony.cc b/clay/third_party/txt/src/txt/platform_harmony.cc
+index a7f88f92..948464e6 100644
+--- a/clay/third_party/txt/src/txt/platform_harmony.cc
++++ b/clay/third_party/txt/src/txt/platform_harmony.cc
+@@ -32,6 +32,10 @@ sk_sp<SkFontMgr> GetDefaultFontManager(uint32_t font_initialization_data) {
+   // files under /system/fonts/. Scan that directory so Lynx <text> can actually
+   // rasterize glyphs — SkFontMgr::RefDefault() would otherwise be the empty
+   // manager (no fonts) since we build without the harmony/fontconfig fontmgr.
++  //
++  // Per-character fallback (a CJK codepoint missing from the requested family)
++  // is handled by SkFontMgr_Custom::onMatchFamilyStyleCharacter, which consults
++  // the system font config for its per-language fallback chains.
+   static sk_sp<SkFontMgr> mgr = SkFontMgr_New_Custom_Directory("/system/fonts/");
+   if (mgr && mgr->countFamilies() > 0) {
+     return mgr;
+diff --git a/platform/embedder/windowless/lynx_ui_renderer_windowless.cc b/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
+index f86a0969..b01b85a2 100644
+--- a/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
++++ b/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
+@@ -49,6 +49,22 @@ LynxUIRendererWindowless::LynxUIRendererWindowless(lynx_view_builder_t* builder)
+   windowless_renderer_->send_key_event = [this](lynx_key_event_t* event) {
+     static_assert(sizeof(lynx_key_event_t) == sizeof(ClayKeyEvent),
+                   "Key event size not match");
++    // IME text must go through the keyboard bridge, which reaches PageView's
++    // IME listener. Physical keys keep the normal focus manager path below.
++    // kLynxKeyEventTypeRepeat is reused by the windowless host to mark
++    // still-composing (pre-edit) text, which the editor renders as marked text
++    // until a subsequent commit or an empty composing string clears it.
++    if (event->synthesized && event->character &&
++        (event->type == kLynxKeyEventTypeDown ||
++         event->type == kLynxKeyEventTypeRepeat)) {
++      auto timestamp = static_cast<uint64_t>(event->timestamp);
++      if (event->type == kLynxKeyEventTypeRepeat) {
++        headless_engine_->CommitComposingText(event->character, timestamp);
++      } else if (event->character[0]) {
++        headless_engine_->CommitText(event->character, timestamp);
++      }
++      return;
++    }
+     headless_engine_->SendKeyEvent(reinterpret_cast<ClayKeyEvent*>(event),
+                                    nullptr, nullptr);
+   };
+--
+2.34.1

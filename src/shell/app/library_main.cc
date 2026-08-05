@@ -107,8 +107,8 @@ int LynxtronMain(int argc, char* argv[]) {
 #if BUILDFLAG(IS_HARMONY)
   // HAP apps discard stdout/stderr — redirect to a file so Node.js JS
   // errors (bootstrap failures, uncaught exceptions before exit) are
-  // captured. The file can be pulled from the application's files sandbox with
-  // hdc; the host-side sandbox path depends on the bundle name and user.
+  // captured. Pull with:
+  //   hdc file recv /data/app/el2/100/base/com.huawei.electron/files/lynxtron-stdio.log
   {
     const char* kStdioLog = "/data/storage/el2/base/files/lynxtron-stdio.log";
     FILE* f = freopen(kStdioLog, "w", stderr);
