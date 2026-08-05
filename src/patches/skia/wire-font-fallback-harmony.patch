@@ -1,0 +1,219 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Thu, 30 Jul 2026 10:00:00 +0800
+Subject: [PATCH] Implement per-character font fallback on OpenHarmony
+
+SkFontMgr_Custom::onMatchFamilyStyleCharacter was a stub returning nullptr,
+so any codepoint outside the requested family had no glyph and rendered
+blank. On harmony we load fonts via SkFontMgr_New_Custom_Directory
+("/system/fonts/"), which made every CJK character in Lynx <text> and in
+text inputs render as empty space.
+
+Port the selection algorithm from OHOS's own SkFontMgr_OHOS: consult the
+system font config (OH_Drawing_GetSystemFontConfigInfo) for its per-group,
+per-language fallback chains, then search those families for one covering
+the character. The upstream implementation cannot be used verbatim because
+it targets a newer Skia (it needs SkFontScanner), but the lookup itself
+only relies on matchFamily()/matchStyle(), which this Skia already has.
+
+Guarded by __OHOS__; other platforms keep the previous nullptr behaviour.
+---
+ BUILD.gn                       |   6 ++
+ src/ports/SkFontMgr_custom.cpp | 154 ++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 158 insertions(+), 2 deletions(-)
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 1da9daf..b2e24e0 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -527,6 +527,12 @@ optional("fontmgr_custom") {
+   deps = [ ":typeface_freetype" ]
+   public = [ "src/ports/SkFontMgr_custom.h" ]
+   sources = [ "src/ports/SkFontMgr_custom.cpp" ]
++
++  if (is_harmony) {
++    # onMatchFamilyStyleCharacter reads the system font config
++    # (OH_Drawing_GetSystemFontConfigInfo) for its per-language fallback chains.
++    libs = [ "native_drawing" ]
++  }
+ }
+ 
+ optional("fontmgr_custom_directory") {
+diff --git a/src/ports/SkFontMgr_custom.cpp b/src/ports/SkFontMgr_custom.cpp
+index cfa39ef..e4d4641 100644
+--- a/src/ports/SkFontMgr_custom.cpp
++++ b/src/ports/SkFontMgr_custom.cpp
+@@ -22,6 +22,12 @@
+ #include <limits>
+ #include <memory>
+ 
++#if defined(__OHOS__)
++#include <native_drawing/drawing_text_typography.h>
++
++#include <cstring>
++#endif
++
+ using namespace skia_private;
+ 
+ class SkData;
+@@ -185,12 +191,156 @@ sk_sp<SkTypeface> SkFontMgr_Custom::onMatchFamilyStyle(const char familyName[],
+     return sset->matchStyle(fontStyle);
+ }
+ 
++#if defined(__OHOS__)
++namespace {
++
++/** The system font configuration, queried once. Owned for the life of the
++ *  process: the fallback chains are consulted on every missing glyph.
++ */
++const OH_Drawing_FontConfigInfo* GetOhosFontConfigInfo() {
++    static OH_Drawing_FontConfigInfo* info = []() -> OH_Drawing_FontConfigInfo* {
++        OH_Drawing_FontConfigInfoErrorCode code = SUCCESS_FONT_CONFIG_INFO;
++        OH_Drawing_FontConfigInfo* cfg = OH_Drawing_GetSystemFontConfigInfo(&code);
++        if (code != SUCCESS_FONT_CONFIG_INFO) {
++            SkDEBUGF("OH_Drawing_GetSystemFontConfigInfo failed: %d\n", (int)code);
++            if (cfg) {
++                OH_Drawing_DestroySystemFontConfigInfo(cfg);
++            }
++            return nullptr;
++        }
++        return cfg;
++    }();
++    return info;
++}
++
++/** Index of the fallback group serving |familyName|, or the default group
++ *  (the one with no group name) when |familyName| is null or unlisted.
++ */
++int FindOhosFallbackGroup(const OH_Drawing_FontConfigInfo* cfg, const char familyName[]) {
++    for (size_t i = 0; i < cfg->fallbackGroupSize; ++i) {
++        const char* groupName = cfg->fallbackGroupSet[i].groupName;
++        if (familyName == nullptr) {
++            if (groupName == nullptr || groupName[0] == '\0') {
++                return (int)i;
++            }
++        } else if (groupName != nullptr && strcmp(groupName, familyName) == 0) {
++            return (int)i;
++        }
++    }
++    return -1;
++}
++
++/** Ranks a fallback entry's language tag against the requested bcp47 list.
++ *  Returns a slot in |tps| (higher is a better match), or -1 for no match.
++ *  bcp47[bcp47Count-1] is the most significant tag, so a full-tag hit is
++ *  scored above an iso639-only hit by offsetting it by bcp47Count.
++ */
++int CompareOhosLangs(const char* langs, const char* bcp47[], int bcp47Count, const int tps[]) {
++    if (langs == nullptr || bcp47 == nullptr || bcp47Count == 0) {
++        return -1;
++    }
++    SkString langsStr(langs);
++    for (int i = bcp47Count - 1; i >= 0; --i) {
++        if (tps[i] != -1) {
++            continue;
++        }
++        if (langsStr.find(bcp47[i]) != -1 ||
++            (strcmp(bcp47[i], "zh-CN") == 0 && langsStr.find("zh-Hans") != -1)) {
++            return i + bcp47Count;
++        }
++        const char* iso15924 = strrchr(bcp47[i], '-');
++        if (iso15924 == nullptr) {
++            continue;
++        }
++        ++iso15924;
++        if (langsStr.find(iso15924) != -1) {
++            return i;
++        }
++    }
++    return -1;
++}
++
++}  // namespace
++#endif  // defined(__OHOS__)
++
+ sk_sp<SkTypeface> SkFontMgr_Custom::onMatchFamilyStyleCharacter(
+-    const char familyName[], const SkFontStyle&,
++    const char familyName[], const SkFontStyle& style,
+     const char* bcp47[], int bcp47Count,
+-    SkUnichar) const
++    SkUnichar character) const
+ {
++#if defined(__OHOS__)
++    // Per-character fallback, mirroring OHOS's own SkFontMgr_OHOS: the system
++    // font config lists, per group, the font families that cover each language.
++    // Without this a codepoint outside the requested family (CJK, emoji) has no
++    // glyph and renders blank.
++    const OH_Drawing_FontConfigInfo* cfg = GetOhosFontConfigInfo();
++    if (cfg == nullptr) {
++        return nullptr;
++    }
++    const int matchIndex = FindOhosFallbackGroup(cfg, familyName);
++    const int defaultIndex = FindOhosFallbackGroup(cfg, nullptr);
++
++    // Returns the first typeface in |family| that has a glyph for |character|.
++    auto glyphInFamily = [this, style, character](const char* family) -> sk_sp<SkTypeface> {
++        sk_sp<SkFontStyleSet> sset(this->matchFamily(family));
++        if (sset == nullptr) {
++            return nullptr;
++        }
++        for (int i = 0; i < sset->count(); ++i) {
++            sk_sp<SkTypeface> tf = sset->createTypeface(i);
++            if (tf && tf->unicharToGlyph(character) != 0) {
++                return sset->matchStyle(style);
++            }
++        }
++        return nullptr;
++    };
++
++    // Pass 1: honour the requested language, most significant tag first.
++    if (bcp47Count > 0) {
++        for (int index : {matchIndex, defaultIndex}) {
++            if (index < 0) {
++                continue;
++            }
++            const OH_Drawing_FontFallbackGroup& group = cfg->fallbackGroupSet[index];
++            const int totalCount = bcp47Count * 2;
++            AutoSTMalloc<8, int> tps(totalCount);
++            for (int i = 0; i < totalCount; ++i) {
++                tps[i] = -1;
++            }
++            for (size_t i = 0; i < group.fallbackInfoSize; ++i) {
++                int slot = CompareOhosLangs(group.fallbackInfoSet[i].language,
++                                            bcp47, bcp47Count, tps.get());
++                if (slot >= 0) {
++                    tps[slot] = (int)i;
++                }
++            }
++            for (int i = totalCount - 1; i >= 0; --i) {
++                if (tps[i] == -1) {
++                    continue;
++                }
++                if (auto tf = glyphInFamily(group.fallbackInfoSet[tps[i]].familyName)) {
++                    return tf;
++                }
++            }
++        }
++    }
++
++    // Pass 2: any family in the group that covers the character.
++    for (int index : {matchIndex, defaultIndex}) {
++        if (index < 0) {
++            continue;
++        }
++        const OH_Drawing_FontFallbackGroup& group = cfg->fallbackGroupSet[index];
++        for (size_t i = 0; i < group.fallbackInfoSize; ++i) {
++            if (auto tf = glyphInFamily(group.fallbackInfoSet[i].familyName)) {
++                return tf;
++            }
++        }
++    }
++    return nullptr;
++#else
+     return nullptr;
++#endif
+ }
+ 
+ sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromData(sk_sp<SkData> data, int ttcIndex) const {
+--
+2.34.1

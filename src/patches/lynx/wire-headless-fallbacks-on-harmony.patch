@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: wenhua.liu <wenhua.liu@haitaichina.com>
+Date: Fri, 31 Jul 2026 10:40:00 +0800
+Subject: [PATCH] Compile the desktop fallbacks on headless HarmonyOS
+
+Two build conditions treat HarmonyOS as the ArkUI mobile platform and skip
+sources the Clay desktop (headless) form still needs, leaving liblynxtron.so
+with undefined symbols that only surface as a dlopen failure on device:
+
+  clay::VsyncWaiterService::Create()          <- vsync_waiter_fallback.cc
+  lynx::runtime::js::JSSourceLoaderDesktop::LoadJSSource(...)
+                                              <- js_source_loader_desktop.cc
+
+harmony-in-headless is Lynxtron's Clay desktop form, not lynx_harmony on
+ArkUI: it wants the timer-based vsync waiter and the generic desktop JS
+source loader, exactly like win/mac. Gate on !is_headless so the mobile
+harmony build keeps its native vsync.
+---
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/clay/shell/common/BUILD.gn b/clay/shell/common/BUILD.gn
+index 90001df5..a364f692 100644
+--- a/clay/shell/common/BUILD.gn
++++ b/clay/shell/common/BUILD.gn
+@@ -94,7 +94,8 @@ source_set("common") {
+   }
+ 
+   # Use real vsync waiter on mobile platforms, use timer-based fallback on other platforms
+-  if (!((is_android && !is_headless) || is_harmony || is_ios || is_tvos)) {
++  if (!((is_android && !is_headless) || (is_harmony && !is_headless) ||
++        is_ios || is_tvos)) {
+     sources += [
+       "vsync_waiter_fallback.cc",
+       "vsync_waiter_fallback.h",
+diff --git a/platform/embedder/resource/BUILD.gn b/platform/embedder/resource/BUILD.gn
+index ef88480f..db974b31 100644
+--- a/platform/embedder/resource/BUILD.gn
++++ b/platform/embedder/resource/BUILD.gn
+@@ -12,7 +12,7 @@ lynx_core_source_set("resource") {
+     "lynx_resource_loader_embedder.cc",
+     "lynx_resource_loader_embedder.h",
+   ]
+-  if (is_win) {
++  if (is_win || is_harmony) {
+     sources += [ "js_source_loader_desktop.cc" ]
+   } else if (is_mac) {
+     sources += [ "js_source_loader_desktop.mm" ]
+--
+2.34.1
