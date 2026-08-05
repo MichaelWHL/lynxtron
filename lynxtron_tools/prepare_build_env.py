@@ -35,9 +35,6 @@ def main():
         python3 = "python3"
 
     os.environ["GIT_LFS_SKIP_SMUDGE"] = "1"
-    # Lynx installs with --frozen-lockfile. Do not let a user-level npmrc
-    # setting such as `lockfile=false` disable the lockfile for that command.
-    os.environ["npm_config_lockfile"] = "true"
     print(f"{COLORED_YELLOW_MSG}hab: {hab}{COLORED_PRINT_END}")
     print(f"{COLORED_YELLOW_MSG}envsetup: {envsetup}{COLORED_PRINT_END}")
     print(f"{COLORED_GREEN_MSG}abort am sessions............{COLORED_PRINT_END}")
@@ -76,22 +73,28 @@ def main():
         return return_code
     
     print(f"{COLORED_YELLOW_MSG}install lynxtron npm dependencies............{COLORED_PRINT_END}")
-    # Workspace postinstall downloads a released Lynxtron binary, while this
-    # script prepares dependencies for building Lynxtron from source.
-    return_code = os.system(
-        'node tools/yarn.js install --immutable --mode=skip-build'
-    )
+    return_code = os.system(f'node tools/yarn.js install --immutable')
     if return_code != 0:
         print(f"{COLORED_YELLOW_MSG}install lynxtron npm dependencies failed, exit{COLORED_PRINT_END}")
         return return_code
 
-    # apply lynx all patches
+    # Apply all patches. src/patches/config.json carries the chromium-side
+    # repos (base, build, v8, node, skia, ...) — these are upstream checkouts
+    # on a detached HEAD with no fork to push to, so their adaptations only
+    # exist as patches here. Skipping it yields a .so that links but fails to
+    # dlopen on device with missing symbols (e.g. v8/BUILD.gn's `|| is_harmony`
+    # is what compiles platform-linux.cc, which defines
+    # v8::base::OS::AdjustSchedulingParams). It must run before the lynx config.
     original_dir = os.getcwd()
     try:
         os.chdir("..")
+        return_code = os.system(f"{python3} src/script/apply_all_patches.py src/patches/config.json")
+        if return_code != 0:
+            print(f"{COLORED_RED_MSG}apply_all_patches.py (src/patches/config.json) failed, exit{COLORED_PRINT_END}")
+            return return_code
         return_code = os.system(f"{python3} src/script/apply_all_patches.py src/patches/lynx/config.json")
         if return_code != 0:
-            print(f"{COLORED_RED_MSG}apply_all_patches.py failed, exit{COLORED_PRINT_END}")
+            print(f"{COLORED_RED_MSG}apply_all_patches.py (lynx) failed, exit{COLORED_PRINT_END}")
             return return_code
     finally:
         os.chdir(start_cwd)

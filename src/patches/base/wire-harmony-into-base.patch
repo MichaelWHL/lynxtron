@@ -84,7 +84,7 @@ index 664b729..f390df2 100644
  #include "third_party/rust/serde_json_lenient/v0_2/wrapper/lib.rs.h"
 +#endif
 +
-+// HarmonyOS: skip rust serde_json_lenient (rust toolchain not yet
++// HarmonyOS bring-up: skip rust serde_json_lenient (rust toolchain not yet
 +// wired into harmony build); fall back to base::internal::JSONParser, same
 +// strategy as chromium uses for NaCl.
 +#if !BUILDFLAG(IS_HARMONY)
@@ -105,7 +105,7 @@ index 664b729..f390df2 100644
                                        int options,
                                        size_t max_depth) {
 +#if BUILDFLAG(IS_HARMONY)
-+  // Fallback: lynxtron's base/json/ doesn't ship base::internal::JSONParser
++  // Bring-up stub: lynxtron's base/json/ doesn't ship base::internal::JSONParser
 +  // and rust serde_json_lenient is gated off until rust is wired into harmony
 +  // toolchain. Return nullopt; no production caller hits this on harmony yet.
 +  return std::nullopt;
@@ -127,7 +127,7 @@ index 664b729..f390df2 100644
      int options) {
 +#if BUILDFLAG(IS_HARMONY)
 +  Error error;
-+  error.message = "JSON parser is not available on HarmonyOS";
++  error.message = "JSON parser not available on HarmonyOS bring-up";
 +  error.line = 0;
 +  error.column = 0;
 +  return base::unexpected(std::move(error));
@@ -248,3 +248,4 @@ index aab14da..a8fe30f 100644
    using NativeHandle = WaitableEvent;
 -- 
 2.34.1
+

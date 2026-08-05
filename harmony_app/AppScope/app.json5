@@ -1,7 +1,13 @@
 {
   "app": {
-    "bundleName": "com.lynxtron.harmony",
-    "vendor": "lynxtron",
+    // bundleName matches the new electron profile under
+    //   /opt/sda1/liuwh/ohos_certs/electron-20260528专用证书/
+    //     0001-elctron-profile-debugDebug.p7b
+    // (bundle-name=com.huawei.electron, apl=normal).
+    // This avoids the AppGallery collision with the real 海泰浏览器
+    // product (also com.haitai.htbrowser) that auto-downloads from store.
+    "bundleName": "com.huawei.electron",
+    "vendor": "huawei",
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:app_icon",

@@ -152,7 +152,7 @@ v8::Isolate* JavascriptEnvironment::Initialize(uv_loop_t* event_loop,
   // HarmonyOS kernel W^X rejects mprotect(RWX) with EINVAL. V8 14 pre-commits
   // the whole CodeRange as RWX in non-jitless mode (code-range.cc
   // kRecommitOnly), which always fails without an XPM/JIT whitelist entry.
-  // Run jitless (Ignition interpreter only) on HarmonyOS.
+  // Run jitless (Ignition interpreter only) during bring-up.
   js_flags.append("--jitless ");
 #endif
   js_flags.append(

@@ -471,6 +471,7 @@ void LynxWindow::EnsureLynxView() {
   }
   lynx_view_ = builder.Build();
   lynx_view_->SetClient(weak_factory_.GetWeakPtr());
+
   SyncRenderActiveState();
 
   if (data_str_.has_value() && global_props_.has_value()) {

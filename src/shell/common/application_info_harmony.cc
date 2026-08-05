@@ -2,9 +2,9 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-#include "shell/common/application_info.h"
-
 #include <string>
+
+#include "shell/common/application_info.h"
 
 namespace lynxtron {
 
@@ -25,12 +25,45 @@ namespace lynxtron {
 //     IsRunningInDesktopBridge (application_info.h:36-40) are inside
 //     `#if BUILDFLAG(IS_WIN)` and thus not declared on harmony.
 
+// std::string GetApplicationName() {
+//   return "Lynxtron";
+// }
+
+// std::string GetApplicationVersion() {
+//   return std::string();
+// }
+
 std::string GetApplicationName() {
-  return "Lynxtron";
+  // attempt #1: the string set in app.setName()
+  std::string ret = OverriddenApplicationName();
+
+  // attempt #2: Electron's name
+  if (ret.empty()) {
+    ret = "Lynxtron";
+  }
+  return ret;
 }
 
 std::string GetApplicationVersion() {
-  return std::string();
+  std::string ret;
+  std::string ELECTRON_PRODUCT_NAME = "Lynxtron";
+  std::string ELECTRON_VERSION_STRING = "0.0.1";
+
+  // ensure ELECTRON_PRODUCT_NAME and GetApplicationVersion match up
+  if (GetApplicationName() == ELECTRON_PRODUCT_NAME) {
+    ret = ELECTRON_VERSION_STRING;
+  }
+
+  // try to use the string set in app.setVersion()
+  if (ret.empty()) {
+    ret = OverriddenApplicationVersion();
+  }
+
+  // no name and version fields in package.json
+  if (ret.empty()) {
+    ret = ELECTRON_VERSION_STRING;
+  }
+  return ret;
 }
 
 std::string GetApplicationId() {

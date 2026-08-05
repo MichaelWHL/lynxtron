@@ -171,6 +171,10 @@ LynxtronSetNativeSurface(void* window, int width, int height) {
   // removed now that Clay renders the real Lynx bundle here.
   lynxtron::CreateHarmonyWindowlessRenderer(window, width, height);
 
-  // The default application creates the LynxWindow and its LynxView. Reusing
-  // that view keeps a single owner for the XComponent surface.
+  // NOTE: no bring-up LynxView here anymore. The default_app JS creates a real
+  // LynxWindow (BrowserWindow) and loads its own Lynx app; that window's
+  // LynxView drives this renderer. Creating a second bring-up view here made two
+  // LynxViews fight over the one surface (an 800x600 one and a 2090x1293 one).
+  // NativeWindowHarmony now sizes the window to this surface via
+  // GetCurrentHarmonySurfaceSize().
 }

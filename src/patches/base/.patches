@@ -6,4 +6,3 @@ adapt-modp-with-lynx-prefix.patch
 wire-harmony-into-base.patch
 wire-process-linux-harmony.patch
 wire-pa-aarch64-harmony.patch
-fix-allocator-shim-throw-on-harmony.patch

@@ -170,6 +170,9 @@ struct Index {
           .fontSize(11)
           .fontColor('#999999')
           .height(16)
+          .onClick(()=>{
+
+          })
       }
       .width('100%')
       .height('100%')

@@ -7,6 +7,7 @@
 #include <hilog/log.h>
 
 #include "shell/app/lynx_windowless_renderer_harmony.h"
+#include "shell/app/window_list.h"
 #include "shell/common/gin_helper/dictionary.h"
 
 #undef LOG_DOMAIN
@@ -16,14 +17,16 @@
 
 namespace lynxtron {
 
+static std::string g_harmony_window_title;
+
 // HarmonyOS NativeWindow — minimal concrete implementation.
 //
 // The window lifecycle and observer bookkeeping live in the NativeWindow base
 // class (AddObserver/RemoveObserver, Notify*, InitFromOptions). Previously
 // NativeWindow::Create returned nullptr, so JS code doing `new BaseWindow()`
 // got a null and crashed at AddObserver. This class provides a real object so
-// the JS window API works and connects to the XComponent surface supplied by
-// the HAP.
+// the JS window API works; actual on-screen rendering is wired later when the
+// HAP passes an XComponent surface down (window-render wave).
 //
 // Bounds/title/visibility are tracked in-process so JS getters return sane
 // values. GetNativeWindowHandle() returns the surface pointer once set.
@@ -57,6 +60,7 @@ class NativeWindowHarmony : public NativeWindow {
   void CloseImmediately() override {
     OH_LOG_INFO(LOG_APP, "[Window] CloseImmediately");
     NotifyWindowClosed();
+    WindowList::RemoveWindow(this);
   }
 
   // --- focus / visibility ---
@@ -139,7 +143,10 @@ class NativeWindowHarmony : public NativeWindow {
   }
   ui::ZOrderLevel GetZOrderLevel() const override { return z_order_; }
   void Center() override {}
-  void SetTitle(const std::string& title) override { title_ = title; }
+  void SetTitle(const std::string& title) override {
+    title_ = title;
+    g_harmony_window_title = title;
+  }
   std::string GetTitle() const override { return title_; }
   // GetAlwaysOnTopLevel / SetActive / IsActive are MAC-only.
 
@@ -218,3 +225,8 @@ NativeWindow* NativeWindow::Create(const gin_helper::Dictionary& options,
 }
 
 }  // namespace lynxtron
+
+extern "C" __attribute__((visibility("default")))
+const char* LynxtronGetWindowTitle() {
+  return lynxtron::g_harmony_window_title.c_str();
+}

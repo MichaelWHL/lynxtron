@@ -38,6 +38,9 @@ export default class EntryAbility extends UIAbility {
     } else {
       hilog.info(DOMAIN, TAG, '(no electron_debug in launch params)');
     }
+
+    AppStorage.setOrCreate('abilityContext', this.context);
+    lynxtron.setAbilityContext(this.context);
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -50,7 +53,7 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, TAG, 'EntryAbility onDestroy');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
 
     windowStage.loadContent('pages/Index', (err) => {

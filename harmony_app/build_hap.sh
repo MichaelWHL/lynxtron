@@ -1,23 +1,24 @@
 #!/bin/bash
 #
 # Lynxtron HarmonyOS HAP build script.
+# Modeled after chromium132 (Huawei) hap_build_htbrowser.sh; uses the same
+# /opt/compilers/ohos_tools/ toolchain layout.
+#
 # Usage:
 #   ./build_hap.sh           # build unsigned hap (default)
-#   ./build_hap.sh --signed  # sign with credentials from the environment
+#   ./build_hap.sh --signed  # also run b_sign_hap_release.sh
 #
 # Requires:
 #   /opt/compilers/ohos_tools/commandline-tools-linux-x64-6.0.2.640/
 #     command-line-tools/{hvigor/bin,ohpm/bin,bin,tool/node/bin}/
 #   /opt/compilers/ohos_tools/jdk-17.0.6/
-#
-# Signing environment:
-#   HAP_SIGN_TOOL, HAP_SIGN_ALIAS, HAP_SIGN_CERT, HAP_SIGN_PROFILE,
-#   HAP_SIGN_KEYSTORE, HAP_SIGN_KEY_PASSWORD, HAP_SIGN_KEYSTORE_PASSWORD
+#   /opt/compilers/ohos_tools/tools/haps_signed/  (only for --signed)
 
 set -e
 
 OHOS_TOOLS=${OHOS_TOOLS:-/opt/compilers/ohos_tools}
 OHOS_SDK_VERSION=${OHOS_SDK_VERSION:-commandline-tools-linux-x64-6.0.2.640}
+HAP_SIGNED_DIR=${OHOS_TOOLS}/tools/haps_signed
 
 # Java JDK
 export JAVA_HOME=${OHOS_TOOLS}/jdk-17.0.6
@@ -112,9 +113,15 @@ else
   echo "[build_hap] (skip) ${LYNX_BUNDLE_SRC} not found — no demo staged."
 fi
 
-# Configure the OHPM registry. Override this for an internal mirror.
-OHPM_REGISTRY=${OHPM_REGISTRY:-https://repo.harmonyos.com/ohpm/}
-ohpm config set registry "${OHPM_REGISTRY}"
+# Configure registries (use Huawei mirrors so ohpm install can pull
+# @ohos packages from inside CN; same as chromium132 hap_build flow).
+npm config set registry=https://repo.huaweicloud.com/repository/npm/
+npm config set @ohos:registry=https://repo.harmonyos.com/npm/
+ohpm config set registry https://repo.harmonyos.com/ohpm/
+ohpm config set strict_ssl false
+
+# Refresh hvigor cache to avoid stale plugin state.
+rm -rf ~/.hvigor
 
 # Pull workspace + module deps.
 ohpm install --all
@@ -131,30 +138,36 @@ echo ""
 echo "[build_hap] unsigned hap: ${UNSIGNED_HAP}"
 ls -la "${UNSIGNED_HAP}" 2>/dev/null || echo "[build_hap] (not produced)"
 
-# Optional local signing. Keep all credentials outside the repository and use a
-# profile whose bundle name matches AppScope/app.json5.
+# Optional signing — uses the electron dedicated cert (bundle name
+# com.huawei.electron, avoiding AppGallery collision with the real
+# 海泰浏览器 product at com.haitai.htbrowser).
 if [ "$1" = "--signed" ]; then
-  : "${HAP_SIGN_TOOL:?Set HAP_SIGN_TOOL to hap-sign-tool.jar}"
-  : "${HAP_SIGN_ALIAS:?Set HAP_SIGN_ALIAS}"
-  : "${HAP_SIGN_CERT:?Set HAP_SIGN_CERT}"
-  : "${HAP_SIGN_PROFILE:?Set HAP_SIGN_PROFILE}"
-  : "${HAP_SIGN_KEYSTORE:?Set HAP_SIGN_KEYSTORE}"
-  : "${HAP_SIGN_KEY_PASSWORD:?Set HAP_SIGN_KEY_PASSWORD}"
-  : "${HAP_SIGN_KEYSTORE_PASSWORD:?Set HAP_SIGN_KEYSTORE_PASSWORD}"
+  CERT_DIR='/opt/sda1/liuwh/ohos_certs/electron-20260528专用证书'
+  CERT_PW='haitai@123'
+  SIGN_TOOL="${HAP_SIGNED_DIR}/hap-sign-tool.jar"
+
+  if [ ! -f "${SIGN_TOOL}" ]; then
+    echo "[build_hap] hap-sign-tool.jar not found at ${SIGN_TOOL}, skipping signing."
+    exit 0
+  fi
+  if [ ! -d "${CERT_DIR}" ]; then
+    echo "[build_hap] cert dir ${CERT_DIR} not found, skipping signing."
+    exit 0
+  fi
 
   SIGNED_OUT="${HAP_OUT_DIR}/lynxtron-default-signed.hap"
   rm -f "${SIGNED_OUT}"
-  java -jar "${HAP_SIGN_TOOL}" sign-app \
-    -keyAlias "${HAP_SIGN_ALIAS}" \
+  java -jar "${SIGN_TOOL}" sign-app \
+    -keyAlias 'htbrowser' \
     -signAlg 'SHA256withECDSA' \
     -mode 'localSign' \
-    -appCertFile "${HAP_SIGN_CERT}" \
-    -profileFile "${HAP_SIGN_PROFILE}" \
+    -appCertFile "${CERT_DIR}/htrlbrowser-debug.cer" \
+    -profileFile "${CERT_DIR}/0001-elctron-profile-debugDebug.p7b" \
     -inFile      "${UNSIGNED_HAP}" \
     -outFile     "${SIGNED_OUT}" \
-    -keystoreFile "${HAP_SIGN_KEYSTORE}" \
-    -keyPwd      "${HAP_SIGN_KEY_PASSWORD}" \
-    -keystorePwd "${HAP_SIGN_KEYSTORE_PASSWORD}"
+    -keystoreFile "${CERT_DIR}/htbrowser.p12" \
+    -keyPwd      "${CERT_PW}" \
+    -keystorePwd "${CERT_PW}"
   echo ""
-  echo "[build_hap] signed hap: ${SIGNED_OUT}"
+  echo "[build_hap] signed hap (com.huawei.electron): ${SIGNED_OUT}"
 fi

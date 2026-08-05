@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "shell/common/application_info.h"
 #include "url/gurl.h"
 
 namespace lynxtron {
@@ -56,7 +58,7 @@ bool Application::IsDefaultProtocolClient(const std::string& protocol,
 }
 
 std::u16string Application::GetApplicationNameForProtocol(const GURL& url) {
-  return std::u16string();
+  return base::ASCIIToUTF16(GetApplicationName());
 }
 
 v8::Local<v8::Promise> Application::GetApplicationInfoForProtocol(
@@ -77,11 +79,11 @@ bool Application::IsEmojiPanelSupported() {
 }
 
 std::string Application::GetExecutableFileVersion() const {
-  return std::string();
+  return GetApplicationVersion();
 }
 
 std::string Application::GetExecutableFileProductName() const {
-  return std::string();
+  return GetApplicationName();
 }
 
 void Application::ShowAboutPanel() {}
@@ -89,3 +91,4 @@ void Application::ShowAboutPanel() {}
 void Application::SetAboutPanelOptions(base::Value::Dict options) {}
 
 }  // namespace lynxtron
+ 

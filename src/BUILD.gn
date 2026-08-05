@@ -664,9 +664,26 @@ source_set("lynxtron_lib") {
   }
 
   if (is_harmony) {
-    # HarmonyOS platform implementations and fallbacks for APIs that otherwise
-    # only have macOS or Windows definitions. POSIX process and signal handling
-    # is provided by the shared is_posix sources above.
+    # HarmonyOS bring-up: minimum *_harmony.cc set that resolves declared-only
+    # link-blockers in cross-platform .h. Each stub returns nullptr / empty /
+    # noop because main_harmony.cc does not invoke any of them at bring-up;
+    # the purpose is purely to let lynxtron_lib link cleanly under
+    # target_os=harmony once WI-033 unblocks base/fml compile errors. Real
+    # impl is tracked in WI-034 (OHOS NativeWindow + libuv polling on OHOS
+    # musl + Application platform integration).
+    #
+    # Wave A (2026-05-09): native_window + node_bindings factories.
+    # Wave B (2026-05-09): application + relauncher (main_parts not needed -
+    #                      HandleSIGCHLD/InstallShutdownSignalHandlers are
+    #                      already covered by main_parts_posix.cc via the
+    #                      is_posix block above, since harmony is OS_LINUX
+    #                      and therefore OS_POSIX per build_config.h).
+    # Wave C (2026-05-09): platform_util (5 syms inc. internal::PlatformTrashItem)
+    #                      + application_info (3 GetApplication* syms)
+    #                      + icon_manager (LoadPlatformIcon free fn).
+    #                      asar/archive not needed - archive.cc:280-287 already
+    #                      has `#if !IS_MAC && !IS_WIN` fallback that returns
+    #                      std::nullopt for HeaderIntegrity / RelativePath.
     sources += [
       "shell/api/api_menu_harmony.cc",
       "shell/api/api_native_image_harmony.cc",
@@ -679,6 +696,8 @@ source_set("lynxtron_lib") {
       "shell/api/ui/message_box_harmony.cc",
       "shell/app/application_harmony.cc",
       "shell/app/icon_manager_harmony.cc",
+      "shell/app/lynx_bringup_harmony.cc",
+      "shell/app/lynx_bringup_harmony.h",
       "shell/app/lynx_napi_v8_bridge_harmony.cc",
       "shell/app/lynx_windowless_renderer_harmony.cc",
       "shell/app/lynx_windowless_renderer_harmony.h",
@@ -1053,7 +1072,19 @@ template("dist_zip") {
 }
 
 if (is_harmony) {
-  # Main HarmonyOS shared library loaded by the HAP bridge.
+  # HarmonyOS lynxtron_app — WI-036 wave A landed the napi_init /
+  # napi_module_register entry shape in shell/app/main_harmony.cc and
+  # registered libace_napi.z as a system lib, but kept the executable
+  # build form because flipping to shared_library requires -fPIC for
+  # the entire transitive set (node inspector / cppgc / etc. currently
+  # compile with absolute relocations only valid in PIE executables).
+  #
+  # WI-036 wave B will switch to shared_library after the global cflags
+  # add -fPIC for harmony, at which point output_name + output_extension
+  # become "lynxtron" / "so" and HAP UIAbility ts can `import lynxtron
+  # from 'liblynxtron.so'`. For wave A the executable form keeps the
+  # 42 MB ELF link-green milestone (WI-035 wave B) intact.
+  #
   shared_library("lynxtron_app") {
     # Big main library (chromium + V8 + Node + Lynx). Exports LynxtronMain.
     # NOT a NAPI module — the OHOS framework would choke on the bundled
@@ -1088,8 +1119,9 @@ if (is_harmony) {
     sources = [ "shell/app/lynxtron_napi_bridge.cc" ]
     libs = [
       "ace_napi.z",
-      "ace_ndk.z",  # OH_NativeXComponent_*
+      "ace_ndk.z",       # OH_NativeXComponent_*
       "hilog_ndk.z",
+      "ohinputmethod",   # OH_InputMethodController_* / OH_TextEditorProxy_*
     ]
   }
 }
