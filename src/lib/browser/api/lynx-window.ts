@@ -108,6 +108,37 @@ LynxWindow.prototype._init = function (this: LWT) {
     nativeSetBounds.call(this, bounds, ...opts);
   };
 
+  // Handle bridge.call() invocations from the Lynx renderer (TSX).
+  // The LynxBridgeModule calls EmitWithoutEvent("-lynx-invoke", channel, ...args)
+  // which triggers this event with (event, channel, ...rest).
+  // We resolve known channels to C++ linked bindings and invoke the callback.
+  this.on('-lynx-invoke', function (this: LWT, event: any, channel: string, callback: any) {
+    console.log('[zybapi] lynx-window -lynx-invoke channel=', channel);
+    if (channel === 'checkAppUpdate') {
+      console.log('[zybapi] lynx-window dispatching checkAppUpdate');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      bindings.checkAppUpdate()
+        .then((result: any) => { console.log('[zybapi] lynx-window checkAppUpdate resolved:', JSON.stringify(result).substring(0, 200)); if (typeof callback === 'function') callback(result); })
+        .catch((err: any) => { console.log('[zybapi] lynx-window checkAppUpdate rejected:', err); if (typeof callback === 'function') callback({ error: true, message: String(err) }); });
+    } else if (channel === 'showUpdateDialog') {
+      console.log('[zybapi] lynx-window dispatching showUpdateDialog');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      bindings.showUpdateDialog()
+        .then((result: any) => { console.log('[zybapi] lynx-window showUpdateDialog resolved:', result); if (typeof callback === 'function') callback({ resultCode: result }); })
+        .catch((err: any) => { console.log('[zybapi] lynx-window showUpdateDialog rejected:', err); if (typeof callback === 'function') callback({ error: true, message: String(err) }); });
+    } else if (channel === 'loadProduct') {
+      console.log('[zybapi] lynx-window dispatching loadProduct');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      // args[0] holds the params JSON from the Lynx page
+      const params = event && event.sender ? undefined : (arguments.length > 2 ? arguments[2] : '{}');
+      const paramsJson = typeof params === 'string' ? params : JSON.stringify(params || {});
+      console.log('[zybapi] lynx-window loadProduct paramsJson=', paramsJson);
+      bindings.loadProduct(paramsJson)
+        .then((result: any) => { console.log('[zybapi] lynx-window loadProduct resolved:', JSON.stringify(result).substring(0, 200)); if (typeof callback === 'function') callback(result); })
+        .catch((err: any) => { console.log('[zybapi] lynx-window loadProduct rejected:', err); if (typeof callback === 'function') callback({ error: true, message: String(err) }); });
+    }
+  });
+
   // Dispatch messages from lynx window to the LynxBridgeMain module.
   // this.on('-lynx-message', function (this: LWT, event, channel, args) {
   //   lynxBridgeMain.emit(channel, event, args);

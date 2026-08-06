@@ -61,4 +61,5 @@
 /out/
 .venv/
 **/__pycache__/
+.vscode/
 ./third_party

@@ -451,6 +451,8 @@ source_set("lynxtron_lib") {
     "shell/api/api_shell.cc",
     "shell/api/api_tray.cc",
     "shell/api/api_tray.h",
+    "shell/api/api_update_check.cc",
+    "shell/api/api_update_check.h",
     "shell/api/api_v8_util.cc",
     "shell/api/api_v8_util.h",
     "shell/api/lynx_view/lynx_update_meta.cc",

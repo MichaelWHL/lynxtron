@@ -47,6 +47,8 @@
 #define LOG_DOMAIN 0x0000
 #define LOG_TAG "LynxtronBridge"
 
+#define ZYBAPI_TAG "zybapi"
+
 namespace {
 
 // Optional bounds carried by ArkTS for will-resize events. Passed as a plain
@@ -1406,6 +1408,20 @@ GetTextInputStateFn g_get_text_input_state = nullptr;
 GetTitleFn g_get_title = nullptr;
 SetWindowCommandHandlerFn g_set_window_command_handler = nullptr;
 
+// ---- Update check / AppGallery Kit bridge ----
+using ConsumeCheckFn = bool (*)();
+using ResolveCheckFn = void (*)(const char*);
+using ConsumeDialogFn = bool (*)();
+using ResolveDialogFn = void (*)(int);
+using ConsumeProductFn = const char* (*)();
+using ResolveProductFn = void (*)(const char*);
+ConsumeCheckFn g_consume_check = nullptr;
+ResolveCheckFn g_resolve_check = nullptr;
+ConsumeDialogFn g_consume_dialog = nullptr;
+ResolveDialogFn g_resolve_dialog = nullptr;
+ConsumeProductFn g_consume_product = nullptr;
+ResolveProductFn g_resolve_product = nullptr;
+
 // Lynx logical key ids (see ToLynxLogicalKey below for the full mapping).
 constexpr uint64_t kLogicalBackspace = 0x00100000008ULL;
 constexpr uint64_t kLogicalEnter = 0x0010000000dULL;
@@ -2222,6 +2238,110 @@ napi_value OpenPath(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// ---- AppGallery Kit polling functions ----
+// Polled from ArkTS (Index.ets). Each checks a request flag set by the C++
+// binding (api_update_check.cc), runs the real @kit.AppGalleryKit API on the
+// ArkUI thread, and reports the result back.
+
+napi_value ConsumeCheckAppUpdateRequest(napi_env env, napi_callback_info) {
+  if (!g_consume_check && g_lynxtron_handle)
+    g_consume_check = reinterpret_cast<ConsumeCheckFn>(
+        dlsym(g_lynxtron_handle, "LynxtronConsumeCheckAppUpdateRequest"));
+  bool pending = g_consume_check && g_consume_check();
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest → %{public}d", ZYBAPI_TAG, pending);
+  napi_value result = nullptr;
+  napi_get_boolean(env, pending, &result);
+  return result;
+}
+
+napi_value ResolveCheckAppUpdate(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    if (len > 0) {
+      std::string json(len + 1, '\0');
+      napi_get_value_string_utf8(env, argv[0], json.data(), json.size(), &len);
+      json.resize(len);
+      OH_LOG_INFO(LOG_APP, "%{public}s ResolveCheckAppUpdate json=%{public}s", ZYBAPI_TAG, json.c_str());
+      if (!g_resolve_check && g_lynxtron_handle)
+        g_resolve_check = reinterpret_cast<ResolveCheckFn>(
+            dlsym(g_lynxtron_handle, "LynxtronResolveCheckAppUpdate"));
+      if (g_resolve_check) g_resolve_check(json.c_str());
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value ConsumeShowUpdateDialogRequest(napi_env env, napi_callback_info) {
+  if (!g_consume_dialog && g_lynxtron_handle)
+    g_consume_dialog = reinterpret_cast<ConsumeDialogFn>(
+        dlsym(g_lynxtron_handle, "LynxtronConsumeShowUpdateDialogRequest"));
+  bool pending = g_consume_dialog && g_consume_dialog();
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeShowUpdateDialogRequest → %{public}d", ZYBAPI_TAG, pending);
+  napi_value result = nullptr;
+  napi_get_boolean(env, pending, &result);
+  return result;
+}
+
+napi_value ResolveShowUpdateDialog(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    int32_t code = 0;
+    napi_get_value_int32(env, argv[0], &code);
+    OH_LOG_INFO(LOG_APP, "%{public}s ResolveShowUpdateDialog code=%{public}d", ZYBAPI_TAG, code);
+    if (!g_resolve_dialog && g_lynxtron_handle)
+      g_resolve_dialog = reinterpret_cast<ResolveDialogFn>(
+          dlsym(g_lynxtron_handle, "LynxtronResolveShowUpdateDialog"));
+    if (g_resolve_dialog) g_resolve_dialog(code);
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value ConsumeLoadProductParams(napi_env env, napi_callback_info) {
+  if (!g_consume_product && g_lynxtron_handle)
+    g_consume_product = reinterpret_cast<ConsumeProductFn>(
+        dlsym(g_lynxtron_handle, "LynxtronConsumeLoadProductParams"));
+  const char* json = g_consume_product ? g_consume_product() : nullptr;
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeLoadProductParams json=%{public}s", ZYBAPI_TAG, json ? json : "(null)");
+  if (!json || !*json) {
+    napi_value result = nullptr;
+    napi_get_null(env, &result);
+    return result;
+  }
+  napi_value result = nullptr;
+  napi_create_string_utf8(env, json, NAPI_AUTO_LENGTH, &result);
+  return result;
+}
+
+napi_value ResolveLoadProduct(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    if (len > 0) {
+      std::string json(len + 1, '\0');
+      napi_get_value_string_utf8(env, argv[0], json.data(), json.size(), &len);
+      json.resize(len);
+      OH_LOG_INFO(LOG_APP, "%{public}s ResolveLoadProduct json=%{public}s", ZYBAPI_TAG, json.c_str());
+      if (!g_resolve_product && g_lynxtron_handle)
+        g_resolve_product = reinterpret_cast<ResolveProductFn>(
+            dlsym(g_lynxtron_handle, "LynxtronResolveLoadProduct"));
+      if (g_resolve_product) g_resolve_product(json.c_str());
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 // Polled from the ArkUI thread. Attaching there keeps GetTextConfig on the
 // UI thread, which is what the NDK documents for the config callback.
 //
@@ -2560,6 +2680,18 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"openPath", nullptr, OpenPath, nullptr, nullptr, nullptr, napi_default,
        nullptr},
+      {"consumeCheckAppUpdateRequest", nullptr, ConsumeCheckAppUpdateRequest,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveCheckAppUpdate", nullptr, ResolveCheckAppUpdate,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"consumeShowUpdateDialogRequest", nullptr, ConsumeShowUpdateDialogRequest,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowUpdateDialog", nullptr, ResolveShowUpdateDialog,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"consumeLoadProductParams", nullptr, ConsumeLoadProductParams,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveLoadProduct", nullptr, ResolveLoadProduct,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);
