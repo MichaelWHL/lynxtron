@@ -27,9 +27,9 @@ bool LynxtronConsumeShowUpdateDialogRequest();
 void LynxtronResolveShowUpdateDialog(int result_code);
 
 // ---- loadProduct ----
-// Returns the JSON params string when JS has requested loadProduct, or nullptr.
-// The NAPI bridge consumes this (returns nullptr on subsequent calls).
-const char* LynxtronConsumeLoadProductParams();
+// Returns true when JS has requested loadProduct.
+// Params are hardcoded on the ArkTS side (bundleName etc.).
+bool LynxtronConsumeLoadProductParams();
 // Called by the NAPI bridge with the result from productViewManager.loadProduct().
 // |json| is JSON: { success: bool, errorCode?: number, errorMessage?: string }
 void LynxtronResolveLoadProduct(const char* json);

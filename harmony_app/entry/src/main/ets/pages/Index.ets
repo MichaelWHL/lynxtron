@@ -184,8 +184,8 @@ struct Index {
     setInterval(() => this.syncImeState(), 50);
     // Poll for AppGallery Kit requests from Lynx JS.
     setInterval(() => this.pollCheckAppUpdate(), 1000);
-    setInterval(() => this.pollShowUpdateDialog(), 1000);
-    setInterval(() => this.pollLoadProduct(), 1000);
+    //setInterval(() => this.pollShowUpdateDialog(), 1000);
+    //setInterval(() => this.pollLoadProduct(), 1000);
   }
 
   syncImeState(): void {
@@ -201,20 +201,20 @@ struct Index {
     if (!mod || typeof mod.consumeCheckAppUpdateRequest !== 'function') return;
     if (!lynxtron.consumeCheckAppUpdateRequest()) return;
 
-    hilog.info(DOMAIN, TAG, '[zybapi] [Update] checkAppUpdate requested');
+    hilog.info(DOMAIN, TAG, '[Update] checkAppUpdate requested');
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       updateManager.checkAppUpdate(ctx)
         .then((result: updateManager.CheckUpdateResult) => {
-          hilog.info(DOMAIN, TAG, '[zybapi] [Update] checkAppUpdate OK: %{public}s', String(result.updateAvailable));
+          hilog.info(DOMAIN, TAG, '[Update] checkAppUpdate OK: %{public}s', String(result.updateAvailable));
           lynxtron.resolveCheckAppUpdate(JSON.stringify(result));
         })
         .catch((error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[zybapi] [Update] checkAppUpdate FAILED: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[Update] checkAppUpdate FAILED: code=%{public}d', error.code);
           lynxtron.resolveCheckAppUpdate(JSON.stringify({ updateAvailable: false, error: error.message }));
         });
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[zybapi] [Update] checkAppUpdate threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[Update] checkAppUpdate threw: %{public}s', String(e));
       lynxtron.resolveCheckAppUpdate(JSON.stringify({ updateAvailable: false, error: String(e) }));
     }
   }
@@ -224,20 +224,20 @@ struct Index {
     if (!mod || typeof mod.consumeShowUpdateDialogRequest !== 'function') return;
     if (!lynxtron.consumeShowUpdateDialogRequest()) return;
 
-    hilog.info(DOMAIN, TAG, '[zybapi] [Update] showUpdateDialog requested');
+    hilog.info(DOMAIN, TAG, '[Update] showUpdateDialog requested');
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       updateManager.showUpdateDialog(ctx)
         .then((resultCode: updateManager.ShowUpdateResultCode) => {
-          hilog.info(DOMAIN, TAG, '[zybapi] [Update] showUpdateDialog OK: code=%{public}d', resultCode);
+          hilog.info(DOMAIN, TAG, '[Update] showUpdateDialog OK: code=%{public}d', resultCode);
           lynxtron.resolveShowUpdateDialog(resultCode);
         })
         .catch((error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[zybapi] [Update] showUpdateDialog FAILED: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[Update] showUpdateDialog FAILED: code=%{public}d', error.code);
           lynxtron.resolveShowUpdateDialog(-1);
         });
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[zybapi] [Update] showUpdateDialog threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[Update] showUpdateDialog threw: %{public}s', String(e));
       lynxtron.resolveShowUpdateDialog(-1);
     }
   }
@@ -248,7 +248,7 @@ struct Index {
     const paramsJson = lynxtron.consumeLoadProductParams();
     if (!paramsJson) return;
 
-    hilog.info(DOMAIN, TAG, '[zybapi] [Update] loadProduct requested: %{public}s', paramsJson);
+    hilog.info(DOMAIN, TAG, '[Update] loadProduct requested: %{public}s', paramsJson);
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const params = JSON.parse(paramsJson) as Record<string, Object>;
@@ -258,20 +258,20 @@ struct Index {
       };
       const callback: productViewManager.ProductViewCallback = {
         onError: (error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[zybapi] [Update] loadProduct onError: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[Update] loadProduct onError: code=%{public}d', error.code);
           lynxtron.resolveLoadProduct(JSON.stringify({ success: false, errorCode: error.code, errorMessage: error.message }));
         },
         onAppear: () => {
-          hilog.info(DOMAIN, TAG, '[zybapi] [Update] loadProduct onAppear');
+          hilog.info(DOMAIN, TAG, '[Update] loadProduct onAppear');
           lynxtron.resolveLoadProduct(JSON.stringify({ success: true }));
         },
         onDisappear: () => {
-          hilog.info(DOMAIN, TAG, '[zybapi] [Update] loadProduct onDisappear');
+          hilog.info(DOMAIN, TAG, '[Update] loadProduct onDisappear');
         },
       };
       productViewManager.loadProduct(ctx, wantParam, callback);
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[zybapi] [Update] loadProduct threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[Update] loadProduct threw: %{public}s', String(e));
       lynxtron.resolveLoadProduct(JSON.stringify({ success: false, errorMessage: String(e) }));
     }
   }

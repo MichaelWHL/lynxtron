@@ -47,7 +47,7 @@
 #define LOG_DOMAIN 0x0000
 #define LOG_TAG "LynxtronBridge"
 
-#define ZYBAPI_TAG "zybapi"
+#define ZYBAPI_TAG ""
 
 namespace {
 
@@ -1413,7 +1413,7 @@ using ConsumeCheckFn = bool (*)();
 using ResolveCheckFn = void (*)(const char*);
 using ConsumeDialogFn = bool (*)();
 using ResolveDialogFn = void (*)(int);
-using ConsumeProductFn = const char* (*)();
+using ConsumeProductFn = bool (*)();
 using ResolveProductFn = void (*)(const char*);
 ConsumeCheckFn g_consume_check = nullptr;
 ResolveCheckFn g_resolve_check = nullptr;
@@ -2244,17 +2244,22 @@ napi_value OpenPath(napi_env env, napi_callback_info info) {
 // ArkUI thread, and reports the result back.
 
 napi_value ConsumeCheckAppUpdateRequest(napi_env env, napi_callback_info) {
-  if (!g_consume_check && g_lynxtron_handle)
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest ENTER handle=%{public}p", ZYBAPI_TAG, (void*)g_lynxtron_handle);
+  if (!g_consume_check && g_lynxtron_handle) {
+    OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest dlsym...", ZYBAPI_TAG);
     g_consume_check = reinterpret_cast<ConsumeCheckFn>(
         dlsym(g_lynxtron_handle, "LynxtronConsumeCheckAppUpdateRequest"));
+    OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest dlsym → %{public}p", ZYBAPI_TAG, (void*)g_consume_check);
+  }
   bool pending = g_consume_check && g_consume_check();
-  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest → %{public}d", ZYBAPI_TAG, pending);
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeCheckAppUpdateRequest → %{public}d (g_consume_check=%{public}p)", ZYBAPI_TAG, pending, (void*)g_consume_check);
   napi_value result = nullptr;
   napi_get_boolean(env, pending, &result);
   return result;
 }
 
 napi_value ResolveCheckAppUpdate(napi_env env, napi_callback_info info) {
+  OH_LOG_INFO(LOG_APP, "%{public}s ResolveCheckAppUpdate ENTER", ZYBAPI_TAG);
   size_t argc = 1;
   napi_value argv[1] = {};
   if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
@@ -2308,15 +2313,10 @@ napi_value ConsumeLoadProductParams(napi_env env, napi_callback_info) {
   if (!g_consume_product && g_lynxtron_handle)
     g_consume_product = reinterpret_cast<ConsumeProductFn>(
         dlsym(g_lynxtron_handle, "LynxtronConsumeLoadProductParams"));
-  const char* json = g_consume_product ? g_consume_product() : nullptr;
-  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeLoadProductParams json=%{public}s", ZYBAPI_TAG, json ? json : "(null)");
-  if (!json || !*json) {
-    napi_value result = nullptr;
-    napi_get_null(env, &result);
-    return result;
-  }
+  bool pending = g_consume_product && g_consume_product();
+  OH_LOG_INFO(LOG_APP, "%{public}s ConsumeLoadProductParams → %{public}d", ZYBAPI_TAG, pending);
   napi_value result = nullptr;
-  napi_create_string_utf8(env, json, NAPI_AUTO_LENGTH, &result);
+  napi_get_boolean(env, pending, &result);
   return result;
 }
 

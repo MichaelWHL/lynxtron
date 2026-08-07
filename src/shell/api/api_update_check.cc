@@ -15,14 +15,32 @@
 #include "shell/api/api_update_check.h"
 
 #include <atomic>
+#include <chrono>
+#include <ctime>
 #include <mutex>
 #include <string>
 
+#include "base/functional/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "shell/common/gin_helper/dictionary.h"
+#include "shell/common/global_thread.h"
 #include "shell/common/node_includes.h"
 
-#define ZYBAPI_TAG "[zybapi] "
+#define ZYBAPI_TAG ""
+#define ZYBAPI_LOG(fmt, ...)                                  \
+  do {                                                        \
+    auto _now = std::chrono::system_clock::now();              \
+    auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>( \
+                   _now.time_since_epoch()).count() % 1000;   \
+    std::time_t _tt = std::chrono::system_clock::to_time_t(_now); \
+    struct tm _tm;                                            \
+    localtime_r(&_tt, &_tm);                                  \
+    fprintf(stderr, "%02d%02d%02d.%03lld " ZYBAPI_TAG fmt "\n", \
+            _tm.tm_hour, _tm.tm_min, _tm.tm_sec,              \
+            (long long)_ms, ##__VA_ARGS__);                   \
+    fflush(stderr);                                           \
+  } while (0)
 
 // ---- Shared state ----
 
@@ -41,7 +59,6 @@ static v8::Persistent<v8::Promise::Resolver>* g_dialog_resolver = nullptr;
 // loadProduct
 static std::atomic<bool> g_load_product_pending{false};
 static std::mutex g_product_mutex;
-static std::string g_product_params_json;
 static v8::Isolate* g_product_isolate = nullptr;
 static v8::Persistent<v8::Promise::Resolver>* g_product_resolver = nullptr;
 
@@ -61,87 +78,102 @@ static void ClearResolver(v8::Persistent<v8::Promise::Resolver>** r,
 
 extern "C" {
 
-bool LynxtronConsumeCheckAppUpdateRequest() {
+__attribute__((visibility("default"))) bool
+LynxtronConsumeCheckAppUpdateRequest() {
   bool pending = g_check_app_update_pending.exchange(false);
-  LOG(INFO) << ZYBAPI_TAG << "ConsumeCheckAppUpdateRequest pending=" << pending;
+  ZYBAPI_LOG("ConsumeCheckAppUpdateRequest pending=%d", (int)pending);
   return pending;
 }
 
-void LynxtronResolveCheckAppUpdate(const char* json) {
-  LOG(INFO) << ZYBAPI_TAG << "ResolveCheckAppUpdate json=" << (json ? json : "null");
-  std::lock_guard<std::mutex> lock(g_check_mutex);
-  if (!g_check_isolate || !g_check_resolver || !json) {
-    LOG(INFO) << ZYBAPI_TAG << "ResolveCheckAppUpdate skipped: no resolver";
+__attribute__((visibility("default"))) void LynxtronResolveCheckAppUpdate(const char* json) {
+  ZYBAPI_LOG("ResolveCheckAppUpdateApi json=%s", json ? json : "null");
+  if (!json) return;
+  std::string json_copy(json);
+  // Post V8 work to the Node.js main thread so we don't block ArkTS.
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (!runner) {
+    ZYBAPI_LOG("ResolveCheckAppUpdate: no UI runner, dropping");
     return;
   }
-  v8::Isolate* isolate = g_check_isolate;
-  v8::HandleScope hs(isolate);
-  v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-  v8::Context::Scope cs(ctx);
-  v8::Local<v8::Promise::Resolver> r =
-      v8::Local<v8::Promise::Resolver>::New(isolate, *g_check_resolver);
-  v8::Local<v8::String> v = v8::String::NewFromUtf8(isolate, json).ToLocalChecked();
-  v8::Local<v8::Value> parsed;
-  if (v8::JSON::Parse(ctx, v).ToLocal(&parsed)) {
-    r->Resolve(ctx, parsed).Check();
-  } else {
-    r->Resolve(ctx, v).Check();
-  }
-  ClearResolver(&g_check_resolver, &g_check_isolate);
-  LOG(INFO) << ZYBAPI_TAG << "ResolveCheckAppUpdate done";
+  runner->PostTask(FROM_HERE, base::BindOnce([](std::string result_json) {
+    std::lock_guard<std::mutex> lock(g_check_mutex);
+    if (!g_check_isolate || !g_check_resolver) {
+      ZYBAPI_LOG("ResolveCheckAppUpdate skipped: resolver gone");
+      return;
+    }
+    v8::Isolate* isolate = g_check_isolate;
+    v8::HandleScope hs(isolate);
+    v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+    v8::Context::Scope cs(ctx);
+    v8::Local<v8::Promise::Resolver> r =
+        v8::Local<v8::Promise::Resolver>::New(isolate, *g_check_resolver);
+    v8::Local<v8::String> v =
+        v8::String::NewFromUtf8(isolate, result_json.c_str()).ToLocalChecked();
+    v8::Local<v8::Value> parsed;
+    if (v8::JSON::Parse(ctx, v).ToLocal(&parsed)) {
+      r->Resolve(ctx, parsed).Check();
+    } else {
+      r->Resolve(ctx, v).Check();
+    }
+    ClearResolver(&g_check_resolver, &g_check_isolate);
+    ZYBAPI_LOG("ResolveCheckAppUpdate done");
+  }, std::move(json_copy)));
 }
 
-bool LynxtronConsumeShowUpdateDialogRequest() {
+__attribute__((visibility("default"))) bool LynxtronConsumeShowUpdateDialogRequest() {
   bool pending = g_show_dialog_pending.exchange(false);
-  LOG(INFO) << ZYBAPI_TAG << "ConsumeShowUpdateDialogRequest pending=" << pending;
+  ZYBAPI_LOG("ConsumeShowUpdateDialogRequest pending=%d", (int)pending);
   return pending;
 }
 
-void LynxtronResolveShowUpdateDialog(int result_code) {
-  LOG(INFO) << ZYBAPI_TAG << "ResolveShowUpdateDialog result_code=" << result_code;
-  std::lock_guard<std::mutex> lock(g_dialog_mutex);
-  if (!g_dialog_isolate || !g_dialog_resolver) {
-    LOG(INFO) << ZYBAPI_TAG << "ResolveShowUpdateDialog skipped: no resolver";
-    return;
-  }
-  v8::Isolate* isolate = g_dialog_isolate;
-  v8::HandleScope hs(isolate);
-  v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-  v8::Context::Scope cs(ctx);
-  v8::Local<v8::Promise::Resolver> r =
-      v8::Local<v8::Promise::Resolver>::New(isolate, *g_dialog_resolver);
-  r->Resolve(ctx, v8::Integer::New(isolate, result_code)).Check();
-  ClearResolver(&g_dialog_resolver, &g_dialog_isolate);
+__attribute__((visibility("default"))) void LynxtronResolveShowUpdateDialog(int result_code) {
+  ZYBAPI_LOG("ResolveShowUpdateDialog result_code=%d", result_code);
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (!runner) return;
+  runner->PostTask(FROM_HERE, base::BindOnce([](int code) {
+    std::lock_guard<std::mutex> lock(g_dialog_mutex);
+    if (!g_dialog_isolate || !g_dialog_resolver) {
+      return;
+    }
+    v8::Isolate* isolate = g_dialog_isolate;
+    v8::HandleScope hs(isolate);
+    v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+    v8::Context::Scope cs(ctx);
+    v8::Local<v8::Promise::Resolver> r =
+        v8::Local<v8::Promise::Resolver>::New(isolate, *g_dialog_resolver);
+    r->Resolve(ctx, v8::Integer::New(isolate, code)).Check();
+    ClearResolver(&g_dialog_resolver, &g_dialog_isolate);
+  }, result_code));
 }
 
-const char* LynxtronConsumeLoadProductParams() {
-  std::lock_guard<std::mutex> lock(g_product_mutex);
-  if (!g_load_product_pending.load()) return nullptr;
-  g_load_product_pending.store(false);
-  // Transfer ownership: caller gets the string, we clear ours.
-  static thread_local std::string copy;
-  copy = std::move(g_product_params_json);
-  g_product_params_json.clear();
-  return copy.empty() ? nullptr : copy.c_str();
+__attribute__((visibility("default"))) bool LynxtronConsumeLoadProductParams() {
+  return g_load_product_pending.exchange(false);
 }
 
-void LynxtronResolveLoadProduct(const char* json) {
-  std::lock_guard<std::mutex> lock(g_product_mutex);
-  if (!g_product_isolate || !g_product_resolver || !json) return;
-  v8::Isolate* isolate = g_product_isolate;
-  v8::HandleScope hs(isolate);
-  v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-  v8::Context::Scope cs(ctx);
-  v8::Local<v8::Promise::Resolver> r =
-      v8::Local<v8::Promise::Resolver>::New(isolate, *g_product_resolver);
-  v8::Local<v8::String> v = v8::String::NewFromUtf8(isolate, json).ToLocalChecked();
-  v8::Local<v8::Value> parsed;
-  if (v8::JSON::Parse(ctx, v).ToLocal(&parsed)) {
-    r->Resolve(ctx, parsed).Check();
-  } else {
-    r->Resolve(ctx, v).Check();
-  }
-  ClearResolver(&g_product_resolver, &g_product_isolate);
+__attribute__((visibility("default"))) void LynxtronResolveLoadProduct(const char* json) {
+  if (!json) return;
+  std::string json_copy(json);
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (!runner) return;
+  runner->PostTask(FROM_HERE, base::BindOnce([](std::string result_json) {
+    std::lock_guard<std::mutex> lock(g_product_mutex);
+    if (!g_product_isolate || !g_product_resolver) return;
+    v8::Isolate* isolate = g_product_isolate;
+    v8::HandleScope hs(isolate);
+    v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+    v8::Context::Scope cs(ctx);
+    v8::Local<v8::Promise::Resolver> r =
+        v8::Local<v8::Promise::Resolver>::New(isolate, *g_product_resolver);
+    v8::Local<v8::String> v =
+        v8::String::NewFromUtf8(isolate, result_json.c_str()).ToLocalChecked();
+    v8::Local<v8::Value> parsed;
+    if (v8::JSON::Parse(ctx, v).ToLocal(&parsed)) {
+      r->Resolve(ctx, parsed).Check();
+    } else {
+      r->Resolve(ctx, v).Check();
+    }
+    ClearResolver(&g_product_resolver, &g_product_isolate);
+  }, std::move(json_copy)));
 }
 
 }  // extern "C"
@@ -151,6 +183,7 @@ void LynxtronResolveLoadProduct(const char* json) {
 namespace {
 
 v8::Local<v8::Value> CheckAppUpdate(v8::Isolate* isolate) {
+  ZYBAPI_LOG("CheckAppUpdateApi called");
 #if !BUILDFLAG(IS_HARMONY)
   auto resolver = v8::Promise::Resolver::New(isolate->GetCurrentContext()).ToLocalChecked();
   resolver->Reject(isolate->GetCurrentContext(),
@@ -168,7 +201,7 @@ v8::Local<v8::Value> CheckAppUpdate(v8::Isolate* isolate) {
     g_check_resolver->Reset(isolate, resolver);
   }
   g_check_app_update_pending.store(true);
-  LOG(INFO) << ZYBAPI_TAG << "CheckAppUpdate request flag set";
+  ZYBAPI_LOG("CheckAppUpdate request flag set");
   return resolver->GetPromise();
 #endif
 }
@@ -191,13 +224,12 @@ v8::Local<v8::Value> ShowUpdateDialog(v8::Isolate* isolate) {
     g_dialog_resolver->Reset(isolate, resolver);
   }
   g_show_dialog_pending.store(true);
-  LOG(INFO) << ZYBAPI_TAG << "ShowUpdateDialog request flag set";
+  ZYBAPI_LOG("ShowUpdateDialog request flag set");
   return resolver->GetPromise();
 #endif
 }
 
-v8::Local<v8::Value> LoadProduct(v8::Isolate* isolate,
-                                  const std::string& params_json) {
+v8::Local<v8::Value> LoadProduct(v8::Isolate* isolate) {
 #if !BUILDFLAG(IS_HARMONY)
   auto resolver = v8::Promise::Resolver::New(isolate->GetCurrentContext()).ToLocalChecked();
   resolver->Reject(isolate->GetCurrentContext(),
@@ -213,10 +245,9 @@ v8::Local<v8::Value> LoadProduct(v8::Isolate* isolate,
     g_product_isolate = isolate;
     g_product_resolver = new v8::Persistent<v8::Promise::Resolver>();
     g_product_resolver->Reset(isolate, resolver);
-    g_product_params_json = params_json;
   }
   g_load_product_pending.store(true);
-  LOG(INFO) << ZYBAPI_TAG << "LoadProduct request flag set, params=" << params_json;
+  ZYBAPI_LOG("LoadProduct request flag set");
   return resolver->GetPromise();
 #endif
 }
@@ -230,7 +261,7 @@ void Initialize(v8::Local<v8::Object> exports,
   dict.SetMethod("checkAppUpdate", &CheckAppUpdate);
   dict.SetMethod("showUpdateDialog", &ShowUpdateDialog);
   dict.SetMethod("loadProduct", &LoadProduct);
-  LOG(INFO) << ZYBAPI_TAG << "Initialize: checkAppUpdate, showUpdateDialog, loadProduct registered";
+  ZYBAPI_LOG("Initialize: checkAppUpdate, showUpdateDialog, loadProduct registered");
 }
 
 }  // namespace
