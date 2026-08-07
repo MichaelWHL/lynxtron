@@ -212,6 +212,7 @@ typescript_build("default_app_js") {
   sources = [
     "packages/default_app/default_app.ts",
     "packages/default_app/main.ts",
+    "packages/default_app/testDemo.ts",
   ]
 
   output_gen_dir = "${target_gen_default_app_js}"
@@ -709,6 +710,7 @@ source_set("lynxtron_lib") {
       "shell/common/node_bindings_harmony.cc",
       "shell/common/node_bindings_harmony.h",
       "shell/common/platform_util_harmony.cc",
+      "shell/api/api_clipboard_harmony.cc",
     ]
     # Real Lynx/Clay renderer capi, replacing lynx_capi_stubs_harmony.cc.
     #
@@ -745,10 +747,30 @@ source_set("lynxtron_lib") {
       # ::Attach() calls napi_attach_quickjs, which must be real (not a no-op
       # stub) or that env's napi methods stay null (same GetInstanceData crash).
       "//lynx/third_party/napi:quickjs",
+
+      # Clipboard: the OHOS calls live in a pure-C TU that includes the
+      # official SDK headers.  Kept OUT of lynxtron_lib's sources because
+      # this target's include path carries the weak-node-api headers, which
+      # shadow OHOS's node_api.h / js_native_api.h and conflict with
+      # native_api.h.  The wrap TU builds in its own target with only the
+      # sysroot on the include path.
+      ":clipboard_ohos_wrap",
     ]
   }
 
   deps += [ "shell/ui" ]
+}
+
+if (is_harmony) {
+  # Pure-C isolation layer over the OHOS pasteboard / UDMF / UDS NDK APIs
+  # (see shell/api/clipboard_ohos_wrap.h for why).  Deliberately tiny include
+  # path: just the src root plus the toolchain sysroot — no weak-node-api, so
+  # <napi/native_api.h> and friends resolve to the OHOS originals instead of
+  # being shadowed by the lynxtron (Node) headers.
+  source_set("clipboard_ohos_wrap") {
+    sources = [ "shell/api/clipboard_ohos_wrap.c" ]
+    include_dirs = [ "." ]
+  }
 }
 
 bundle_data("lynxtron_app_resource_bundle_data") {
@@ -1105,9 +1127,14 @@ if (is_harmony) {
       "native_vsync",       # OH_NativeVSync_*
       "native_image",       # OH_NativeImage_*
       "deviceinfo_ndk.z",   # OH_GetOSFullName / OH_GetSdkApiVersion
+      "pasteboard",
+      "udmf",
       "ace_napi.z",         # napi_create_ark_runtime (JSVM engine). Safe here:
                             # liblynxtron.so is dlopen'd, not a NAPI module, so
                             # its export table isn't scanned by the framework.
+      # File dialog persistence + URI conversion (file_dialog_harmony.cc):
+      "ohfileshare",        # OH_FileShare_PersistPermission / ActivatePermission
+      "ohfileuri",          # OH_FileUri_GetPathFromUri / GetUriFromPath
     ]
   }
 

@@ -31,6 +31,8 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <unordered_map>
+#include <vector>
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -111,6 +113,770 @@ napi_value Start(napi_env env, napi_callback_info info) {
   napi_create_int32(env, 0, &result);
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// OpenExternal handler — bridges platform_util -> ArkTS via TSFN
+//
+// Pattern: liblynxtron.so exports LynxtronSetOpenExternalHandler (a setter
+// that takes a C function pointer).  The bridge dlsym's the setter, injects
+// a static C handler, and creates a TSFN so that calls from arbitrary
+// lynxtron threads reach the ETS (ArkTS) thread safely.
+//
+// Electron equivalent: FileAdapter -> AKI GetJSFunction -> ArkTS.
+// Lynxtron uses dlsym + TSFN instead of AKI.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// napi_ref to the ArkTS handler registered via registerOpenExternal().
+napi_ref g_open_external_js_handler = nullptr;
+
+// TSFN for dispatching from platform_util threads to the ETS main thread.
+napi_threadsafe_function g_open_external_tsfn = nullptr;
+
+// Context passed through the TSFN call.
+struct OpenExternalData {
+  char url[2048];
+};
+
+// Called on the ETS main thread by the TSFN.
+void OpenExternalCallJs(napi_env env, napi_value js_callback,
+                        void* context, void* data) {
+  auto* d = static_cast<OpenExternalData*>(data);
+  if (!d || !js_callback) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] TSFN callback: null data or callback");
+    delete d;
+    return;
+  }
+
+  napi_value args[1];
+  napi_status s = napi_create_string_utf8(env, d->url, NAPI_AUTO_LENGTH, &args[0]);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] napi_create_string_utf8 failed: %{public}d", (int)s);
+    delete d;
+    return;
+  }
+
+  s = napi_call_function(env, nullptr, js_callback, 1, args, nullptr);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] napi_call_function failed: %{public}d", (int)s);
+  } else {
+    OH_LOG_INFO(LOG_APP, "[OpenExternal] dispatched url=%{public}s", d->url);
+  }
+  delete d;
+}
+
+// Static C handler injected into liblynxtron.so via LynxtronSetOpenExternalHandler.
+// Called from arbitrary lynxtron thread — dispatches via TSFN to ETS thread.
+// Returns nullptr (success) immediately; actual result is fire-and-forget
+// (matches Electron's out => undefined behavior).
+const char* OpenExternalBridgeHandler(const char* url) {
+  if (!g_open_external_tsfn || !url) {
+    return "openExternal: handler not registered";
+  }
+
+  auto* data = new OpenExternalData();
+  strncpy(data->url, url, sizeof(data->url) - 1);
+  data->url[sizeof(data->url) - 1] = '\0';
+
+  napi_status s = napi_call_threadsafe_function(
+      g_open_external_tsfn, data, napi_tsfn_blocking);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] napi_call_threadsafe_function failed: %{public}d", (int)s);
+    delete data;
+    return "openExternal: failed to dispatch";
+  }
+
+  return nullptr;  // fire-and-forget success
+}
+
+// NAPI export: registerOpenExternal(handler)
+// ETS calls this at startup to register the URL handler callback.
+// The handler receives a URL string and opens it via Want/startAbility.
+napi_value RegisterOpenExternal(napi_env env, napi_callback_info info) {
+  OH_LOG_INFO(LOG_APP, "[OpenExternal] registerOpenExternal() called from ETS");
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "registerOpenExternal requires a callback");
+    return nullptr;
+  }
+
+  napi_valuetype type;
+  napi_typeof(env, args[0], &type);
+  if (type != napi_function) {
+    napi_throw_error(env, nullptr, "registerOpenExternal: arg must be a function");
+    return nullptr;
+  }
+
+  // Store the JS handler as a napi_ref.
+  if (g_open_external_js_handler) {
+    napi_delete_reference(env, g_open_external_js_handler);
+  }
+  napi_create_reference(env, args[0], 1, &g_open_external_js_handler);
+
+  // Create TSFN for cross-thread dispatch.
+  if (g_open_external_tsfn) {
+    napi_release_threadsafe_function(g_open_external_tsfn, napi_tsfn_release);
+  }
+
+  napi_value resource_name;
+  napi_create_string_utf8(env, "OpenExternalTSFN", NAPI_AUTO_LENGTH, &resource_name);
+
+  napi_status s = napi_create_threadsafe_function(
+      env, args[0], nullptr, resource_name,
+      0,   // unlimited queue
+      1,   // one thread will call
+      nullptr, nullptr, nullptr,
+      OpenExternalCallJs,
+      &g_open_external_tsfn);
+
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] napi_create_threadsafe_function failed: %{public}d", (int)s);
+    napi_throw_error(env, nullptr, "Failed to create TSFN");
+    return nullptr;
+  }
+
+  OH_LOG_INFO(LOG_APP, "[OpenExternal] TSFN created, handler registered");
+
+  // Inject the static handler into liblynxtron.so.
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  using SetOpenExternalHandlerFn = void (*)(const char* (*)(const char*));
+  auto setter = reinterpret_cast<SetOpenExternalHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetOpenExternalHandler"));
+  if (!setter) {
+    OH_LOG_ERROR(LOG_APP, "[OpenExternal] dlsym LynxtronSetOpenExternalHandler FAILED: %{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr, "LynxtronSetOpenExternalHandler not found");
+    return nullptr;
+  }
+
+  setter(OpenExternalBridgeHandler);
+  OH_LOG_INFO(LOG_APP, "[OpenExternal] handler injected into liblynxtron.so");
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// OpenPath handler — bridges platform_util::OpenPath -> ArkTS via TSFN
+//
+// Electron reference: FileAdapter::OpenPath() dispatches to two ArkTS methods:
+//   directory → FileManagerAdapter.OpenItemInFolder (openLink filemanager)
+//   file     → FileManagerAdapter.OpenVerifiedItem (Want viewData + permissions)
+//
+// Lynxtron: TSFN dispatches (path, isDirectory) to ArkTS.  Fire-and-forget
+// like openExternal — the ArkTS calls (openLink / startAbility) return
+// immediately, so no timeout/promise machinery needed for v1.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+napi_ref g_open_path_js_handler = nullptr;
+napi_threadsafe_function g_open_path_tsfn = nullptr;
+
+struct OpenPathData {
+  char path[4096];
+  int is_directory;
+};
+
+void OpenPathCallJs(napi_env env, napi_value js_callback,
+                    void* context, void* data) {
+  auto* d = static_cast<OpenPathData*>(data);
+  if (!d || !js_callback) {
+    OH_LOG_ERROR(LOG_APP, "[OpenPath] TSFN callback: null");
+    delete d;
+    return;
+  }
+
+  napi_value args[2];
+  napi_create_string_utf8(env, d->path, NAPI_AUTO_LENGTH, &args[0]);
+  napi_create_int32(env, d->is_directory, &args[1]);
+
+  napi_status s = napi_call_function(env, nullptr, js_callback, 2, args, nullptr);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenPath] napi_call_function failed: %{public}d", (int)s);
+  } else {
+    OH_LOG_INFO(LOG_APP, "[OpenPath] dispatched path=%{public}s isDir=%{public}d",
+                d->path, d->is_directory);
+  }
+  delete d;
+}
+
+const char* OpenPathBridgeHandler(const char* path, int is_directory) {
+  if (!g_open_path_tsfn || !path) {
+    return "openPath: handler not registered";
+  }
+
+  auto* data = new OpenPathData();
+  strncpy(data->path, path, sizeof(data->path) - 1);
+  data->path[sizeof(data->path) - 1] = '\0';
+  data->is_directory = is_directory;
+
+  napi_status s = napi_call_threadsafe_function(
+      g_open_path_tsfn, data, napi_tsfn_blocking);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenPath] TSFN dispatch failed: %{public}d", (int)s);
+    delete data;
+    return "openPath: failed to dispatch";
+  }
+  return nullptr;
+}
+
+napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
+  OH_LOG_INFO(LOG_APP, "[OpenPath] registerOpenPath() called from ETS");
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "registerOpenPath requires a callback");
+    return nullptr;
+  }
+
+  napi_valuetype type;
+  napi_typeof(env, args[0], &type);
+  if (type != napi_function) {
+    napi_throw_error(env, nullptr, "registerOpenPath: arg must be a function");
+    return nullptr;
+  }
+
+  if (g_open_path_js_handler) {
+    napi_delete_reference(env, g_open_path_js_handler);
+  }
+  napi_create_reference(env, args[0], 1, &g_open_path_js_handler);
+
+  if (g_open_path_tsfn) {
+    napi_release_threadsafe_function(g_open_path_tsfn, napi_tsfn_release);
+  }
+
+  napi_value resource_name;
+  napi_create_string_utf8(env, "OpenPathTSFN", NAPI_AUTO_LENGTH, &resource_name);
+
+  napi_status s = napi_create_threadsafe_function(
+      env, args[0], nullptr, resource_name,
+      0, 1, nullptr, nullptr, nullptr,
+      OpenPathCallJs, &g_open_path_tsfn);
+
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenPath] TSFN create failed: %{public}d", (int)s);
+    napi_throw_error(env, nullptr, "Failed to create OpenPath TSFN");
+    return nullptr;
+  }
+
+  OH_LOG_INFO(LOG_APP, "[OpenPath] TSFN created, injecting handler...");
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  using SetOpenPathHandlerFn = void (*)(const char* (*)(const char*, int));
+  auto setter = reinterpret_cast<SetOpenPathHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetOpenPathHandler"));
+  if (!setter) {
+    OH_LOG_ERROR(LOG_APP, "[OpenPath] dlsym LynxtronSetOpenPathHandler FAILED: %{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr, "LynxtronSetOpenPathHandler not found");
+    return nullptr;
+  }
+
+  setter(OpenPathBridgeHandler);
+  OH_LOG_INFO(LOG_APP, "[OpenPath] handler injected into liblynxtron.so");
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// ShowOpenDialog handler — bridges file_dialog::ShowOpenDialog -> ArkTS
+//
+// Electron reference: DialogAdapter::ShowOpenDialog() runs a std::thread +
+// std::promise/future, invokes the ArkTS DocumentViewPicker via AKI, and
+// blocks until the ArkTS callback resolves the promise.
+//
+// Lynxtron: file_dialog_harmony.cc holds a promise/future and calls the
+// injected handler below.  The handler allocates a request id, dispatches
+// (id, settings_json) to ArkTS through a TSFN, and returns immediately;
+// liblynxtron.so keeps blocking on its future.  When ArkTS finishes the
+// picker it calls resolveShowOpenDialog(id, paths, canceled), which looks up
+// the request and fires the stored callback — unblocking the C++ side.
+// ---------------------------------------------------------------------------
+namespace {
+
+using ShowOpenDialogResultCallback = void (*)(void* user_data,
+                                              const char* const* uris,
+                                              size_t uri_count,
+                                              const char* const* paths,
+                                              size_t path_count,
+                                              bool canceled);
+using ShowOpenDialogHandlerFn = void (*)(const char* settings_json,
+                                         ShowOpenDialogResultCallback callback,
+                                         void* user_data);
+
+napi_ref g_show_open_dialog_js_handler = nullptr;
+napi_threadsafe_function g_show_open_dialog_tsfn = nullptr;
+
+struct ShowOpenDialogRequest {
+  ShowOpenDialogResultCallback callback;
+  void* user_data;
+};
+
+struct ShowOpenDialogTsfnData {
+  int id;
+  std::string settings;
+};
+
+std::mutex g_dialog_mutex;
+std::unordered_map<int, ShowOpenDialogRequest> g_dialog_requests;
+int g_next_dialog_id = 1;
+
+// Called on the ETS main thread by the TSFN: delivers (id, settings) to the
+// ArkTS FileDialogBridge handler.
+void ShowOpenDialogCallJs(napi_env env, napi_value js_callback,
+                          void* context, void* data) {
+  auto* d = static_cast<ShowOpenDialogTsfnData*>(data);
+  if (!d || !js_callback) {
+    OH_LOG_ERROR(LOG_APP, "[OpenDialog] TSFN callback: null data or callback");
+    delete d;
+    return;
+  }
+
+  napi_value args[2];
+  napi_create_int32(env, d->id, &args[0]);
+  napi_create_string_utf8(env, d->settings.c_str(), NAPI_AUTO_LENGTH,
+                          &args[1]);
+
+  napi_status s = napi_call_function(env, nullptr, js_callback, 2, args,
+                                     nullptr);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenDialog] napi_call_function failed: %{public}d",
+                 (int)s);
+  } else {
+  }
+  delete d;
+}
+
+// Static C handler injected into liblynxtron.so via
+// LynxtronSetShowOpenDialogHandler.  Called from the thread-pool thread where
+// file_dialog::ShowOpenDialogAdapter blocks on its future.  We only dispatch
+// to ArkTS and return; the future is resolved later by ResolveShowOpenDialog.
+void ShowOpenDialogBridgeHandler(const char* settings_json,
+                                 ShowOpenDialogResultCallback callback,
+                                 void* user_data) {
+  if (!g_show_open_dialog_tsfn || !callback) {
+    OH_LOG_ERROR(LOG_APP, "[OpenDialog] handler: tsfn or callback missing");
+    if (callback) callback(user_data, nullptr, 0, nullptr, 0, true);
+    return;
+  }
+
+  int id;
+  {
+    std::lock_guard<std::mutex> lock(g_dialog_mutex);
+    id = g_next_dialog_id++;
+    g_dialog_requests[id] = {callback, user_data};
+  }
+
+  auto* data = new ShowOpenDialogTsfnData();
+  data->id = id;
+  if (settings_json) data->settings = settings_json;
+
+  napi_status s = napi_call_threadsafe_function(g_show_open_dialog_tsfn, data,
+                                                napi_tsfn_blocking);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenDialog] TSFN dispatch failed: %{public}d",
+                 (int)s);
+    {
+      std::lock_guard<std::mutex> lock(g_dialog_mutex);
+      g_dialog_requests.erase(id);
+    }
+    delete data;
+    callback(user_data, nullptr, 0, nullptr, 0, true);  // treat as canceled
+  }
+}
+
+// NAPI export: resolveShowOpenDialog(id, uris, paths, canceled)
+// Called from ArkTS on the ETS main thread after the picker finishes.
+// uris = raw picker URIs (for FileAccessPersist), paths = converted real
+// paths (returned to JS as filePaths).
+napi_value ResolveShowOpenDialog(napi_env env, napi_callback_info info) {
+  size_t argc = 4;
+  napi_value args[4];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 4) {
+    napi_throw_error(env, nullptr,
+                     "resolveShowOpenDialog requires (id, uris, paths, canceled)");
+    return nullptr;
+  }
+
+  int32_t id = -1;
+  napi_get_value_int32(env, args[0], &id);
+  bool canceled = true;
+  napi_get_value_bool(env, args[3], &canceled);
+
+  ShowOpenDialogRequest req;
+  {
+    std::lock_guard<std::mutex> lock(g_dialog_mutex);
+    auto it = g_dialog_requests.find(id);
+    if (it == g_dialog_requests.end()) {
+      OH_LOG_ERROR(LOG_APP, "[OpenDialog] resolve: unknown id=%{public}d", id);
+      napi_value result;
+      napi_get_undefined(env, &result);
+      return result;
+    }
+    req = it->second;
+    g_dialog_requests.erase(it);
+  }
+
+  std::vector<std::string> uris;
+  std::vector<std::string> paths;
+  if (!canceled) {
+    auto parse_array = [&](napi_value arr, std::vector<std::string>& out) {
+      bool is_array = false;
+      napi_is_array(env, arr, &is_array);
+      if (!is_array) {
+        return;
+      }
+      uint32_t len = 0;
+      napi_get_array_length(env, arr, &len);
+      for (uint32_t i = 0; i < len; ++i) {
+        napi_value elem;
+        if (napi_get_element(env, arr, i, &elem) != napi_ok) continue;
+        size_t slen = 0;
+        napi_get_value_string_utf8(env, elem, nullptr, 0, &slen);
+        if (slen == 0) continue;
+        std::string s(slen + 1, '\0');
+        napi_get_value_string_utf8(env, elem, s.data(), s.size(), &slen);
+        s.resize(slen);
+        out.push_back(std::move(s));
+      }
+    };
+    parse_array(args[1], uris);
+    parse_array(args[2], paths);
+  }
+
+  std::vector<const char*> c_uris;
+  c_uris.reserve(uris.size());
+  for (const auto& u : uris) c_uris.push_back(u.c_str());
+  std::vector<const char*> c_paths;
+  c_paths.reserve(paths.size());
+  for (const auto& p : paths) c_paths.push_back(p.c_str());
+
+  if (req.callback) {
+    req.callback(req.user_data, c_uris.data(), c_uris.size(), c_paths.data(),
+                 c_paths.size(), canceled);
+  }
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+// NAPI export: registerShowOpenDialog(handler)
+// ETS calls this at startup to register the (id, settings) handler and
+// inject ShowOpenDialogBridgeHandler into liblynxtron.so.
+napi_value RegisterShowOpenDialog(napi_env env, napi_callback_info info) {
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "registerShowOpenDialog requires a callback");
+    return nullptr;
+  }
+
+  napi_valuetype type;
+  napi_typeof(env, args[0], &type);
+  if (type != napi_function) {
+    napi_throw_error(env, nullptr,
+                     "registerShowOpenDialog: arg must be a function");
+    return nullptr;
+  }
+
+  if (g_show_open_dialog_js_handler) {
+    napi_delete_reference(env, g_show_open_dialog_js_handler);
+  }
+  napi_create_reference(env, args[0], 1, &g_show_open_dialog_js_handler);
+
+  if (g_show_open_dialog_tsfn) {
+    napi_release_threadsafe_function(g_show_open_dialog_tsfn,
+                                     napi_tsfn_release);
+  }
+
+  napi_value resource_name;
+  napi_create_string_utf8(env, "ShowOpenDialogTSFN", NAPI_AUTO_LENGTH,
+                          &resource_name);
+  napi_status s = napi_create_threadsafe_function(
+      env, args[0], nullptr, resource_name,
+      0, 1, nullptr, nullptr, nullptr,
+      ShowOpenDialogCallJs, &g_show_open_dialog_tsfn);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[OpenDialog] TSFN create failed: %{public}d",
+                 (int)s);
+    napi_throw_error(env, nullptr, "Failed to create ShowOpenDialog TSFN");
+    return nullptr;
+  }
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  using SetShowOpenDialogHandlerFn = void (*)(ShowOpenDialogHandlerFn);
+  auto setter = reinterpret_cast<SetShowOpenDialogHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetShowOpenDialogHandler"));
+  if (!setter) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[OpenDialog] dlsym LynxtronSetShowOpenDialogHandler FAILED: "
+                 "%{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr, "LynxtronSetShowOpenDialogHandler not found");
+    return nullptr;
+  }
+
+  setter(ShowOpenDialogBridgeHandler);
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Save dialog bridge (showSaveDialog)
+//
+// Mirrors the open-dialog bridge above.  Save returns a single path, so the
+// result callback carries one uri + one converted path instead of arrays.
+// ---------------------------------------------------------------------------
+
+using ShowSaveDialogResultCallback = void (*)(void* user_data,
+                                              const char* uri,
+                                              const char* path,
+                                              bool canceled);
+using ShowSaveDialogHandlerFn = void (*)(const char* settings_json,
+                                         ShowSaveDialogResultCallback callback,
+                                         void* user_data);
+
+napi_ref g_show_save_dialog_js_handler = nullptr;
+napi_threadsafe_function g_show_save_dialog_tsfn = nullptr;
+
+struct ShowSaveDialogRequest {
+  ShowSaveDialogResultCallback callback;
+  void* user_data;
+};
+
+struct ShowSaveDialogTsfnData {
+  int id;
+  std::string settings;
+};
+
+std::mutex g_save_dialog_mutex;
+std::unordered_map<int, ShowSaveDialogRequest> g_save_dialog_requests;
+int g_next_save_dialog_id = 1;
+
+// Called on the ETS main thread by the TSFN: delivers (id, settings) to the
+// ArkTS FileDialogBridge.save handler.
+void ShowSaveDialogCallJs(napi_env env, napi_value js_callback,
+                          void* context, void* data) {
+  auto* d = static_cast<ShowSaveDialogTsfnData*>(data);
+  if (!d || !js_callback) {
+    OH_LOG_ERROR(LOG_APP, "[SaveDialog] TSFN callback: null data or callback");
+    delete d;
+    return;
+  }
+
+  napi_value args[2];
+  napi_create_int32(env, d->id, &args[0]);
+  napi_create_string_utf8(env, d->settings.c_str(), NAPI_AUTO_LENGTH,
+                          &args[1]);
+
+  napi_status s = napi_call_function(env, nullptr, js_callback, 2, args,
+                                     nullptr);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[SaveDialog] napi_call_function failed: %{public}d",
+                 (int)s);
+  }
+  delete d;
+}
+
+// Static C handler injected into liblynxtron.so via
+// LynxtronSetShowSaveDialogHandler.  Same dispatch pattern as the open dialog.
+void ShowSaveDialogBridgeHandler(const char* settings_json,
+                                 ShowSaveDialogResultCallback callback,
+                                 void* user_data) {
+  if (!g_show_save_dialog_tsfn || !callback) {
+    OH_LOG_ERROR(LOG_APP, "[SaveDialog] handler: tsfn or callback missing");
+    if (callback) callback(user_data, nullptr, nullptr, true);
+    return;
+  }
+
+  int id;
+  {
+    std::lock_guard<std::mutex> lock(g_save_dialog_mutex);
+    id = g_next_save_dialog_id++;
+    g_save_dialog_requests[id] = {callback, user_data};
+  }
+
+  auto* data = new ShowSaveDialogTsfnData();
+  data->id = id;
+  if (settings_json) data->settings = settings_json;
+
+  napi_status s = napi_call_threadsafe_function(g_show_save_dialog_tsfn, data,
+                                                napi_tsfn_blocking);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[SaveDialog] TSFN dispatch failed: %{public}d",
+                 (int)s);
+    {
+      std::lock_guard<std::mutex> lock(g_save_dialog_mutex);
+      g_save_dialog_requests.erase(id);
+    }
+    delete data;
+    callback(user_data, nullptr, nullptr, true);  // treat as canceled
+  }
+}
+
+// NAPI export: resolveShowSaveDialog(id, uri, path, canceled)
+// Called from ArkTS on the ETS main thread after the save picker finishes.
+napi_value ResolveShowSaveDialog(napi_env env, napi_callback_info info) {
+  size_t argc = 4;
+  napi_value args[4];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 4) {
+    napi_throw_error(env, nullptr,
+                     "resolveShowSaveDialog requires (id, uri, path, canceled)");
+    return nullptr;
+  }
+
+  int32_t id = -1;
+  napi_get_value_int32(env, args[0], &id);
+  bool canceled = true;
+  napi_get_value_bool(env, args[3], &canceled);
+
+  ShowSaveDialogRequest req;
+  {
+    std::lock_guard<std::mutex> lock(g_save_dialog_mutex);
+    auto it = g_save_dialog_requests.find(id);
+    if (it == g_save_dialog_requests.end()) {
+      OH_LOG_ERROR(LOG_APP, "[SaveDialog] resolve: unknown id=%{public}d", id);
+      napi_value result;
+      napi_get_undefined(env, &result);
+      return result;
+    }
+    req = it->second;
+    g_save_dialog_requests.erase(it);
+  }
+
+  std::string uri;
+  std::string path;
+  if (!canceled) {
+    auto get_str = [&](napi_value v, std::string& out) -> bool {
+      size_t slen = 0;
+      if (napi_get_value_string_utf8(env, v, nullptr, 0, &slen) != napi_ok ||
+          slen == 0) {
+        return false;
+      }
+      std::string s(slen + 1, '\0');
+      napi_get_value_string_utf8(env, v, s.data(), s.size(), &slen);
+      s.resize(slen);
+      out = std::move(s);
+      return true;
+    };
+    get_str(args[1], uri);
+    get_str(args[2], path);
+  }
+
+  if (req.callback) {
+    req.callback(req.user_data, uri.empty() ? nullptr : uri.c_str(),
+                 path.empty() ? nullptr : path.c_str(), canceled);
+  }
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+// NAPI export: registerShowSaveDialog(handler)
+// ETS calls this at startup to register the save handler and inject
+// ShowSaveDialogBridgeHandler into liblynxtron.so.
+napi_value RegisterShowSaveDialog(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "registerShowSaveDialog requires a callback");
+    return nullptr;
+  }
+
+  napi_valuetype type;
+  napi_typeof(env, args[0], &type);
+  if (type != napi_function) {
+    napi_throw_error(env, nullptr,
+                     "registerShowSaveDialog: arg must be a function");
+    return nullptr;
+  }
+
+  if (g_show_save_dialog_js_handler) {
+    napi_delete_reference(env, g_show_save_dialog_js_handler);
+  }
+  napi_create_reference(env, args[0], 1, &g_show_save_dialog_js_handler);
+
+  if (g_show_save_dialog_tsfn) {
+    napi_release_threadsafe_function(g_show_save_dialog_tsfn,
+                                     napi_tsfn_release);
+  }
+
+  napi_value resource_name;
+  napi_create_string_utf8(env, "ShowSaveDialogTSFN", NAPI_AUTO_LENGTH,
+                          &resource_name);
+  napi_status s = napi_create_threadsafe_function(
+      env, args[0], nullptr, resource_name,
+      0, 1, nullptr, nullptr, nullptr,
+      ShowSaveDialogCallJs, &g_show_save_dialog_tsfn);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[SaveDialog] TSFN create failed: %{public}d",
+                 (int)s);
+    napi_throw_error(env, nullptr, "Failed to create ShowSaveDialog TSFN");
+    return nullptr;
+  }
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  using SetShowSaveDialogHandlerFn = void (*)(ShowSaveDialogHandlerFn);
+  auto setter = reinterpret_cast<SetShowSaveDialogHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetShowSaveDialogHandler"));
+  if (!setter) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[SaveDialog] dlsym LynxtronSetShowSaveDialogHandler FAILED: "
+                 "%{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr, "LynxtronSetShowSaveDialogHandler not found");
+    return nullptr;
+  }
+
+  setter(ShowSaveDialogBridgeHandler);
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // XComponent surface plumbing
@@ -717,6 +1483,12 @@ napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
       {"start", nullptr, Start, nullptr, nullptr, nullptr, napi_default,
        nullptr},
+      {"registerOpenExternal", nullptr, RegisterOpenExternal, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"registerOpenPath", nullptr, RegisterOpenPath, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"registerShowOpenDialog", nullptr, RegisterShowOpenDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowOpenDialog", nullptr, ResolveShowOpenDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"registerShowSaveDialog", nullptr, RegisterShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowSaveDialog", nullptr, ResolveShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"sendText", nullptr, SendText, nullptr, nullptr, nullptr, napi_default,
        nullptr},
       {"getTextInputState", nullptr, GetTextInputState, nullptr, nullptr,

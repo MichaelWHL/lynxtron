@@ -4,6 +4,7 @@ import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
 import lynxtron from 'liblynxtron_napi.so';
+import { BridgeRegistry } from '../bridge/BridgeRegistry';
 
 const DOMAIN = 0x0000;
 const TAG = 'Lynxtron';
@@ -64,7 +65,7 @@ export default class EntryAbility extends UIAbility {
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'setWindowId failed: %{public}s', String(e));
     }
-
+    BridgeRegistry.registerAll(this.context);
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s',

@@ -40,6 +40,50 @@ declare namespace lynxtron {
    * onWindowStageCreate, before any editable can take focus.
    */
   function setWindowId(id: number): void;
+
+  /**
+   * Registers the ArkTS handler for dialog.showOpenDialog(). The handler
+   * receives a request id plus the serialized dialog settings JSON, opens
+   * the system file picker, and reports the result via resolveShowOpenDialog.
+   */
+  function registerShowOpenDialog(
+    callback: (id: number, settings: string) => void
+  ): void;
+
+  /**
+   * Resolves a pending showOpenDialog request from ArkTS. `uris` are the raw
+   * picker URIs (used by C++ for OH_FileShare_PersistPermission — must be
+   * file://docs URIs, not paths), `paths` are the real filesystem paths
+   * converted by the ArkTS side (returned to JS as filePaths).
+   */
+  function resolveShowOpenDialog(
+    id: number,
+    uris: string[],
+    paths: string[],
+    canceled: boolean
+  ): void;
+
+  /**
+   * Registers the ArkTS handler for dialog.showSaveDialog(). The handler
+   * receives a request id plus the serialized dialog settings JSON, opens
+   * the system save picker, and reports the result via resolveShowSaveDialog.
+   */
+  function registerShowSaveDialog(
+    callback: (id: number, settings: string) => void
+  ): void;
+
+  /**
+   * Resolves a pending showSaveDialog request from ArkTS. `uri` is the raw
+   * picker URI (used by C++ for OH_FileShare_PersistPermission — must be a
+   * file://docs URI, not a path), `path` is the real filesystem path converted
+   * by the ArkTS side (returned to JS as filePath).
+   */
+  function resolveShowSaveDialog(
+    id: number,
+    uri: string,
+    path: string,
+    canceled: boolean
+  ): void;
 }
 
 export default lynxtron;

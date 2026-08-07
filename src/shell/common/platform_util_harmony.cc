@@ -4,56 +4,98 @@
 
 #include "shell/common/platform_util.h"
 
+#include <cstring>
 #include <string>
+#include <sys/stat.h>
 #include <utility>
 
 #include "base/files/file_path.h"
 #include "base/functional/callback.h"
+#include "base/logging.h"
 #include "shell/common/platform_util_internal.h"
 #include "url/gurl.h"
 
 namespace platform_util {
 
-// HarmonyOS fallbacks for cross-platform free functions declared in
-// platform_util.h without an #if guard but defined only in
-// platform_util_mac.mm and platform_util_win.cc:
-//
-//   ShowItemInFolder, OpenPath, OpenExternal, Beep
-//
-// Plus internal::PlatformTrashItem (declared in platform_util_internal.h)
-// which is invoked unconditionally from the cross-platform platform_util.cc:28.
-//
-// All four user-facing entry points return errors via their OpenCallback
-// rather than succeeding silently, so that JS-side promise consumers see a
-// faithful "not supported on harmony" error instead of a stale empty success.
-//
-// NOT stubbed here:
-//   - GetFolderPath (platform_util.h:52) - declared inside `#if IS_WIN`
-//   - GetLoginItemEnabled / SetLoginItemEnabled (h:56-60) - declared inside
-//     `#if IS_MAC`
-//   Those declarations are absent on harmony, so no link entry is emitted.
-//
-// OHOS Want APIs can provide the external application integration in a future
-// implementation.
+namespace {
 
-void ShowItemInFolder(const base::FilePath& full_path) {
-  // File-manager integration requires a NAPI bridge to OHOS Want APIs.
+bool IsDirectory(const base::FilePath& path) {
+  struct stat st;
+  if (stat(path.value().c_str(), &st) != 0)
+    return false;
+  return S_ISDIR(st.st_mode);
 }
 
-void OpenPath(const base::FilePath& full_path, OpenCallback callback) {
-  std::move(callback).Run(
-      "platform_util::OpenPath is not implemented on HarmonyOS");
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// OpenExternal handler (injected by lynxtron_napi_bridge via dlsym)
+// ---------------------------------------------------------------------------
+
+using OpenExternalHandlerFn = const char* (*)(const char* url);
+
+static OpenExternalHandlerFn g_open_external_handler = nullptr;
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronSetOpenExternalHandler(OpenExternalHandlerFn fn) {
+  g_open_external_handler = fn;
 }
 
 void OpenExternal(const GURL& url,
-                  const OpenExternalOptions& options,
+                  const OpenExternalOptions& /*options*/,
                   OpenCallback callback) {
-  std::move(callback).Run(
-      "platform_util::OpenExternal is not implemented on HarmonyOS");
+  if (!g_open_external_handler) {
+    std::move(callback).Run(
+        "platform_util::OpenExternal: handler not registered");
+    return;
+  }
+  std::string url_str = url.spec();
+  const char* error = g_open_external_handler(url_str.c_str());
+  std::move(callback).Run(error ? error : "");
+}
+
+// ---------------------------------------------------------------------------
+// OpenPath handler (injected by lynxtron_napi_bridge via dlsym)
+//
+// Electron reference: FileAdapter::OpenPath() dispatches to two ArkTS methods:
+//   directory -> openLink('filemanager://openDirectory')
+//   file     -> Want { viewData, uri }
+// ---------------------------------------------------------------------------
+
+using OpenPathHandlerFn = const char* (*)(const char* path, int is_directory);
+
+static OpenPathHandlerFn g_open_path_handler = nullptr;
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronSetOpenPathHandler(OpenPathHandlerFn fn) {
+  g_open_path_handler = fn;
+}
+
+void OpenPath(const base::FilePath& full_path, OpenCallback callback) {
+  if (!g_open_path_handler) {
+    std::move(callback).Run(
+        "platform_util::OpenPath: handler not registered");
+    return;
+  }
+
+  bool is_directory = IsDirectory(full_path);
+  std::string path_str = full_path.value();
+
+  const char* error =
+      g_open_path_handler(path_str.c_str(), is_directory ? 1 : 0);
+  std::move(callback).Run(error ? error : "");
+}
+
+// ---------------------------------------------------------------------------
+// Remaining stubs
+// ---------------------------------------------------------------------------
+
+void ShowItemInFolder(const base::FilePath& full_path) {
+  // Not yet implemented.
 }
 
 void Beep() {
-  // No console bell is currently exposed by this integration.
+  // No console bell.
 }
 
 namespace internal {
