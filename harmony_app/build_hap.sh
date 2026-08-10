@@ -83,6 +83,23 @@ else
   echo "[build_hap] (skip) ${GN_OUT_DIR}/resources/default_app.asar not found — build src:default_app_asar first."
 fi
 
+# Lynx JS core runtime. BTSRuntime::ReadCoreJS asks for it as
+# `assets://lynx_core.js`, which lynx-resource-fetcher.ts resolves against
+# resourcesPath. Without it the background JS runtime never defines `loadCard`,
+# App::LoadApp fails with kAppLoadFailed, and every JS event -- bindtap, input,
+# all of it -- is dropped even though lepus still renders the first screen.
+# Build it with:
+#   lynx/tools/js_tools/build.py --platform android   (harmony uses the android
+#   flavor, same as lynx/explorer/harmony/script/build.py does)
+LYNX_CORE_JS=${LYNXTRON_ROOT}/lynx/js_libraries/lynx-core/output/lynx_core.js
+if [ -f "${LYNX_CORE_JS}" ]; then
+  cp "${LYNX_CORE_JS}" "${RESFILE_DIR}/resources/lynx_core.js"
+  echo "[build_hap] staged resfile/resources/lynx_core.js ($(stat -c%s "${RESFILE_DIR}/resources/lynx_core.js") bytes)"
+else
+  echo "[build_hap] WARNING: ${LYNX_CORE_JS} not found — Lynx JS runtime will"
+  echo "[build_hap]          fail to load and no JS event will fire."
+fi
+
 # Step 2 render: stage a Lynx demo bundle as resfile/resources/main.lynx.bundle.
 # default_app/main.ts loads this staged bundle in preference to its built-in
 # welcome app, so swapping it here changes which @lynx-example demo renders on

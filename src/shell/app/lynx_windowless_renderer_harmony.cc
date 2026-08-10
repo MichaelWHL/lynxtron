@@ -9,6 +9,7 @@
 #include <hilog/log.h>
 #include <pthread.h>
 
+#include <chrono>
 #include <map>
 #include <mutex>
 #include <array>
@@ -282,10 +283,88 @@ std::shared_ptr<EglWindowlessRenderer> g_current;
 int g_surface_w = 0;
 int g_surface_h = 0;
 
+// ---------------------------------------------------------------------------
+// Global UI task runner for windowless mode
+//
+// Lynx's UIThread is what Clay/Lynx post their vsync ticks, animation frames
+// and element patches onto. Left to itself, LynxUIRendererWindowless calls
+// base::UIThread::Init(), which does
+// fml::MessageLoop::EnsureInitializedForCurrentThread() on whatever thread
+// built the view -- here the Lynxtron (chromium) UI thread. Chromium's RunLoop
+// knows nothing about that fml loop and never pumps it, so every task posted to
+// UIThread::GetRunner() is silently dropped forever: no vsync callback, no
+// animation tick, no patch. The first frame still shows up because it goes
+// through the synchronous load path.
+//
+// The windowless C API exists for exactly this: hand Lynx a delegate that
+// forwards onto a runner the host actually drives. It must be installed before
+// any windowless renderer is created (once installed, UIThread::InitTaskRunner
+// is a no-op because HasInit() is already true).
+//
+// Note this is why the Windows build works without it: the UIThread::Init()
+// call in LynxUIRendererWindowless is guarded by #if !defined(OS_WIN).
+// ---------------------------------------------------------------------------
+
+scoped_refptr<base::SingleThreadTaskRunner> LynxUiRunner() {
+  auto runner = LynxPlatformRunner();
+  if (!runner) {
+    runner = lynxtron::GetUIThreadTaskRunner();
+  }
+  return runner;
+}
+
+bool UiRunsOnCurrentThread(void* /*user_data*/) {
+  auto runner = LynxUiRunner();
+  return runner && runner->RunsTasksInCurrentSequence();
+}
+
+// Clay hands us an absolute deadline on the same clock fml::TimePoint uses
+// (steady_clock nanoseconds since epoch); convert it to a relative delay.
+void UiPostTask(lynx_task_t task, uint64_t target_time_nanos,
+                void* /*user_data*/) {
+  auto runner = LynxUiRunner();
+  if (!runner) {
+    WLR_ERR("[UITASK] dropped: no UI runner yet");
+    return;
+  }
+  auto closure = base::BindOnce([](lynx_task_t t) {
+    lynx_windowless_run_ui_task(t);
+  }, task);
+
+  const uint64_t now = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+  if (target_time_nanos > now) {
+    runner->PostDelayedTask(FROM_HERE, std::move(closure),
+                            base::Nanoseconds(target_time_nanos - now));
+  } else {
+    runner->PostTask(FROM_HERE, std::move(closure));
+  }
+}
+
+// Installs the delegate exactly once. Must run before the first LynxView (and
+// therefore the first LynxUIRendererWindowless) is built.
+void EnsureGlobalUiTaskRunner() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    lynx_windowless_ui_task_runner_config_t config = {};
+    config.struct_size = sizeof(config);
+    config.user_data = nullptr;
+    config.runs_on_current_thread_callback = &UiRunsOnCurrentThread;
+    config.post_task_callback = &UiPostTask;
+    const bool ok = lynx_windowless_set_global_ui_task_runner(&config);
+    WLR_LOG("[UITASK] set_global_ui_task_runner ok=%{public}d", ok ? 1 : 0);
+  });
+}
+
 }  // namespace
 
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height) {
+  // Must happen before the first LynxView is built, i.e. before anything can
+  // call base::UIThread::Init() and claim the (never-pumped) fml loop.
+  EnsureGlobalUiTaskRunner();
   std::lock_guard<std::mutex> lock(g_mutex);
   if (g_current && g_current->window() == egl_window) {
     return g_current;
@@ -354,19 +433,12 @@ void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
                          int32_t device, int kind, size_t timestamp) {
   auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
   if (!r) return;
-  static std::set<int32_t> active_devices;
-  if (phase != 5 && active_devices.insert(device).second) {
-    lynx_pointer_event_t add = {};
-    add.struct_size = sizeof(add);
-    add.phase = kLynxPointerPhaseAdd;
-    add.timestamp = timestamp;
-    add.x = x;
-    add.y = y;
-    add.device = device;
-    add.device_kind = static_cast<lynx_pointer_device_kind_e>(kind);
-    add.scale = 1.0;
-    r->SendPointerEvent(&add);
-  }
+  // Keep the event stream as small as the reference GLFW embedder does (a click
+  // is just Down -> Up, never Add/Remove: Clay maps Remove to Cancel, which
+  // undoes a completed tap). The one thing we must NOT leave zeroed is
+  // device_kind: EmbedderEngine treats a zeroed device_kind as a legacy embedder
+  // and reports the event as a MOUSE, so Lynx receives mousedown/mouseup and
+  // `bindtap` -- which is part of the touch event family -- never fires.
   lynx_pointer_event_t ev = {};
   ev.struct_size = sizeof(ev);
   switch (phase) {
@@ -374,7 +446,7 @@ void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
     case 1: ev.phase = kLynxPointerPhaseUp; break;
     case 2: ev.phase = kLynxPointerPhaseMove; break;
     case 4: ev.phase = kLynxPointerPhaseCancel; break;
-    case 5: ev.phase = kLynxPointerPhaseRemove; break;
+    case 5: return;  // upstream embedders never emit Remove
     default: ev.phase = kLynxPointerPhaseHover; break;
   }
   ev.x = x;
@@ -382,10 +454,12 @@ void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
   ev.timestamp = timestamp;
   ev.device = device;
   ev.device_kind = static_cast<lynx_pointer_device_kind_e>(kind);
-  ev.buttons = buttons;
-  ev.scale = 1.0;
+  // For touch, EmbedderEngine fills in the contact button itself; passing our
+  // own mouse-style mask here would be wrong.
+  if (kind != 2) {
+    ev.buttons = buttons;
+  }
   r->SendPointerEvent(&ev);
-  if (phase == 5) active_devices.erase(device);
 }
 
 void SendKeyOnLynxUi(int type, uint64_t logical, uint64_t physical,

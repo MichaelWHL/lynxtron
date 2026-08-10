@@ -4,6 +4,8 @@
 
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 
 type HttpFetchOptions = {
   timeoutMs?: number;
@@ -104,6 +106,32 @@ function fetchHttpBuffer(
   return requestOnce(initialUrl.href, 0);
 }
 
+const ASSETS_SCHEME = 'assets://';
+
+// Lynx asks for its own runtime assets under the `assets:` scheme, most
+// importantly `assets://lynx_core.js` (see BTSRuntime::ReadCoreJS). Those live
+// next to the app bundle inside the HAP, so resolve them from resourcesPath
+// instead of treating them as an unknown network protocol. Getting this wrong
+// is not a cosmetic failure: without lynx_core.js the JS runtime never defines
+// `loadCard`, LoadApp fails, and every JS event (bindtap included) is dropped.
+function readAssetsResource(urlString: string): LynxFetchReplayData {
+  const relative = urlString.slice(ASSETS_SCHEME.length);
+  const base = process.resourcesPath;
+  if (!base) {
+    throw new Error('resourcesPath is unavailable');
+  }
+  const resolved = path.resolve(base, relative);
+  // Keep a malformed asset name from escaping the bundle directory.
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+    throw new Error(`asset path escapes resources dir: ${relative}`);
+  }
+  return {
+    url: urlString,
+    statusCode: 0,
+    data: fs.readFileSync(resolved),
+  };
+}
+
 export async function onResourceFetcher(
   event: LynxFetchEvent,
   _resourceType: string,
@@ -112,6 +140,15 @@ export async function onResourceFetcher(
   const urlString = typeof url === 'string' ? url : String(url ?? '');
 
   try {
+    if (urlString.startsWith(ASSETS_SCHEME)) {
+      const result = readAssetsResource(urlString);
+      event.sendReply(result);
+      console.log(
+        `on-fetch-resource: assets hit: ${urlString} (${result.data.length} bytes)`
+      );
+      return;
+    }
+
     const parsedUrl = new URL(urlString);
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
       const empty = Buffer.alloc(0);

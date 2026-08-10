@@ -117,6 +117,7 @@ browser_bundle_deps = [
   "lib/browser/api/base-window.ts",
   "lib/browser/api/dialog.ts",
   "lib/browser/api/exports/lynxtron.ts",
+  "lib/browser/api/lynx-resource-fetcher.ts",
   "lib/browser/api/lynx-template-bundle.ts",
   "lib/browser/api/lynx-template-data.ts",
   "lib/browser/api/lynx-update-meta.ts",

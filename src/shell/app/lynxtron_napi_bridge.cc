@@ -137,6 +137,13 @@ using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons,
                                int32_t device, int kind, size_t timestamp);
 SendPointerFn g_send_pointer = nullptr;
 
+// ArkUI reports mouse events with no device id and may report the primary
+// touch contact as id 0.  Lynx keys pointer state by `device`, so sharing 0
+// makes a touch Down reuse the mouse Hover pointer and prevents a tap from
+// getting its required Add -> Down -> Up sequence.
+constexpr int32_t kLynxtronMouseDeviceId = 1;
+constexpr int32_t kLynxtronTouchDeviceIdBase = 1000;
+
 using SendKeyFn = void (*)(int type, uint64_t logical, uint64_t physical,
                            double timestamp);
 using SendTextFn = void (*)(const char* text, double timestamp);
@@ -237,16 +244,17 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window) {
     default:
       return;
   }
-  // Clay orders pointer and key packets by a monotonic microsecond timestamp.
-  // OH_NativeXComponent timestamps use a platform-specific unit, so forwarding
-  // them verbatim can make a later IME commit appear older than its focus tap.
+  // Use the same microsecond clock as the other Lynx embedders. ArkUI's event
+  // timestamp uses a platform-specific unit and is not comparable to Clay's.
   const size_t timestamp = static_cast<size_t>(NowMicros());
-  ForwardPointer(phase, te.x, te.y, buttons, static_cast<int32_t>(te.deviceId),
+  const int32_t device = kLynxtronTouchDeviceIdBase +
+                         static_cast<int32_t>(te.deviceId);
+  ForwardPointer(phase, te.x, te.y, buttons, device,
                  /*touch=*/2, timestamp);
-  if (te.type == OH_NATIVEXCOMPONENT_UP || te.type == OH_NATIVEXCOMPONENT_CANCEL) {
-    ForwardPointer(5, te.x, te.y, 0, static_cast<int32_t>(te.deviceId),
-                   /*touch=*/2, timestamp);
-  }
+  // Do not emit Remove immediately after Up.  Clay maps Remove to Cancel
+  // before the Lynx event dispatcher sees it, which cancels bindtap after a
+  // valid Up.  Keep the device registered, as the desktop embedders do, and
+  // reuse it for its next touch sequence.
 }
 
 OH_NativeXComponent_Callback g_xc_callback = {
@@ -280,7 +288,7 @@ void DispatchMouseEvent(OH_NativeXComponent* component, void* window) {
     default:
       return;
   }
-  ForwardPointer(phase, me.x, me.y, buttons, /*device=*/0,
+  ForwardPointer(phase, me.x, me.y, buttons, kLynxtronMouseDeviceId,
                  /*mouse=*/1, static_cast<size_t>(NowMicros()));
 }
 
