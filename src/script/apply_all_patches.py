@@ -6,10 +6,11 @@
 import argparse
 import json
 import os
+import subprocess
 import warnings
 
 from lib import git
-from lib.patches import patch_from_dir
+from lib.patches import read_patch
 
 THREEWAY = "ELECTRON_USE_THREE_WAY_MERGE_FOR_PATCHES" in os.environ
 COLORED_GREEN_MSG = '\033[92m'
@@ -23,14 +24,28 @@ def apply_patches(target):
   patch_dir = target.get('patch_dir')
   directory = target.get('directory')
   print(f'{COLORED_GREEN_MSG}applying patches from {patch_dir} to {repo}{COLORED_PRINT_END}')
-  git.import_patches(
-    committer_email="scripts@lynxtron",
-    committer_name="Lynxtron Scripts",
-    patch_data=patch_from_dir(patch_dir),
-    repo=repo,
-    threeway=THREEWAY,
-    directory=directory,
-  )
+  with open(os.path.join(patch_dir, ".patches"), encoding="utf-8") as patches:
+    patch_names = [line.strip() for line in patches if line.strip()]
+  for patch_name in patch_names:
+    patch_data = read_patch(patch_dir, patch_name)
+    already_applied = subprocess.run(
+        ["git", "-C", repo, "apply", "--reverse", "--check"],
+        input=patch_data,
+        text=True,
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+    if already_applied:
+      print(f"skipping already-applied patch: {patch_name}")
+      continue
+    git.import_patches(
+      committer_email="scripts@lynxtron",
+      committer_name="Lynxtron Scripts",
+      patch_data=patch_data,
+      repo=repo,
+      threeway=THREEWAY,
+      directory=directory,
+    )
 
 def apply_config(config):
   for target in config:
