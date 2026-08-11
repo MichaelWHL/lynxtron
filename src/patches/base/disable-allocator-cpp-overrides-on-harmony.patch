@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:30:00 +0800
+Subject: [PATCH] Disable allocator C++ overrides on HarmonyOS
+
+The native library is loaded through the NAPI bridge.  Its static
+initializers can allocate before PartitionAlloc itself has initialized, so
+the global C++ new/delete overrides dereference an uninitialized allocator.
+Use the platform allocator for these early allocations on HarmonyOS.
+
+---
+ allocator/partition_allocator/src/partition_alloc/BUILD.gn                | 2 +-
+ allocator/partition_allocator/src/partition_alloc/build_config.h           | 17 +++++++++++++++--
+ .../shim/allocator_shim_default_dispatch_to_partition_alloc.cc             | 8 +++++---
+ .../shim/allocator_shim_override_cpp_symbols.h                             | 5 +++++
+ 4 files changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/allocator/partition_allocator/src/partition_alloc/BUILD.gn b/allocator/partition_allocator/src/partition_alloc/BUILD.gn
+index df7b1d0..40f8d20 100644
+--- a/allocator/partition_allocator/src/partition_alloc/BUILD.gn
++++ b/allocator/partition_allocator/src/partition_alloc/BUILD.gn
+@@ -871,7 +871,7 @@ if (is_clang_or_gcc) {
+       shim_sources += [ "shim/allocator_shim_default_dispatch_to_partition_alloc_with_advanced_checks.cc" ]
+       shim_headers += [ "shim/allocator_shim_default_dispatch_to_partition_alloc_with_advanced_checks.h" ]
+     }
+-    if (is_android) {
++    if (is_android || is_harmony) {
+       shim_headers += [
+         "shim/allocator_shim_override_cpp_symbols.h",
+         "shim/allocator_shim_override_linker_wrapped_symbols.h",
+diff --git a/allocator/partition_allocator/src/partition_alloc/build_config.h b/allocator/partition_allocator/src/partition_alloc/build_config.h
+index ff0580e..71e1bbd 100644
+--- a/allocator/partition_allocator/src/partition_alloc/build_config.h
++++ b/allocator/partition_allocator/src/partition_alloc/build_config.h
+@@ -22,7 +22,7 @@
+ //
+ // Operating system:
+ //   IS_IOS / IS_AIX / IS_ASMJS / IS_FREEBSD / IS_FUCHSIA / IS_LINUX / IS_MAC /
+-//   IS_NETBSD / IS_OPENBSD / IS_QNX / IS_SOLARIS / IS_WIN
++//   IS_NETBSD / IS_OPENBSD / IS_QNX / IS_SOLARIS / IS_WIN / IS_OHOS
+ //
+ // Operating system family:
+ //   IS_APPLE / IS_BSD / IS_POSIX
+@@ -84,6 +84,12 @@
+ // The IS_CHROMEOS PA_BUILDFLAG macro is defined in buildflags.h.
+ #define PA_IS_LINUX
+ #endif  // !PA_BUILDFLAG(IS_CHROMEOS)
++#if defined(__OHOS__)
++// OHOS kernel is Linux-based and advertises __linux__. Define PA_IS_OHOS
++// alongside PA_IS_LINUX so both Linux code paths and OHOS-specific guards
++// (e.g. mallopt without __THROW) work correctly.
++#define PA_IS_OHOS
++#endif
+ // Include a system header to pull in features.h for glibc/uclibc macros.
+ #include <assert.h>
+ #if defined(__GLIBC__) && !defined(__UCLIBC__)
+@@ -124,7 +130,7 @@
+ #if defined(PA_IS_AIX) || defined(PA_IS_ASMJS) || defined(PA_IS_FREEBSD) ||  \
+     defined(PA_IS_IOS) || defined(PA_IS_LINUX) || defined(PA_IS_CHROMEOS) || \
+     defined(PA_IS_MAC) || defined(PA_IS_NETBSD) || defined(PA_IS_OPENBSD) || \
+-    defined(PA_IS_QNX) || defined(PA_IS_SOLARIS) ||                          \
++    defined(PA_IS_QNX) || defined(PA_IS_SOLARIS) || defined(PA_IS_OHOS) ||     \
+     PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_CHROMEOS)
+ #define PA_IS_POSIX
+ #endif
+@@ -437,6 +443,13 @@
+ #endif
+ #undef PA_IS_IOS
+ 
++#if defined(PA_IS_OHOS)
++#define PA_BUILDFLAG_INTERNAL_IS_OHOS() (1)
++#else
++#define PA_BUILDFLAG_INTERNAL_IS_OHOS() (0)
++#endif
++#undef PA_IS_OHOS
++
+ #if defined(PA_IS_LINUX)
+ #define PA_BUILDFLAG_INTERNAL_IS_LINUX() (1)
+ #else
+diff --git a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.cc b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.cc
+index 7917845..2bc3475 100644
+--- a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.cc
++++ b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_default_dispatch_to_partition_alloc.cc
+@@ -742,7 +742,7 @@ const AllocatorDispatch AllocatorDispatch::default_dispatch =
+ 
+ extern "C" {
+ 
+-#if !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_ANDROID)
++#if !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_ANDROID) && !PA_BUILDFLAG(IS_OHOS)
+ 
+ SHIM_ALWAYS_EXPORT void malloc_stats(void) __THROW {}
+ 
+@@ -750,9 +750,11 @@ SHIM_ALWAYS_EXPORT int mallopt(int cmd, int value) __THROW {
+   return 0;
+ }
+ 
+-#endif  // !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_ANDROID)
++#endif  // !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_ANDROID) && \
++        // !PA_BUILDFLAG(IS_OHOS)
+ 
+-#if PA_BUILDFLAG(IS_LINUX) || PA_BUILDFLAG(IS_CHROMEOS)
++#if (PA_BUILDFLAG(IS_LINUX) || PA_BUILDFLAG(IS_CHROMEOS)) && \
++    !PA_BUILDFLAG(IS_OHOS)
+ SHIM_ALWAYS_EXPORT struct mallinfo mallinfo(void) __THROW {
+   partition_alloc::SimplePartitionStatsDumper allocator_dumper;
+   Allocator()->DumpStats("malloc", true, &allocator_dumper);
+diff --git a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_override_cpp_symbols.h b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_override_cpp_symbols.h
+index fd9bf4c..eb58dad 100644
+--- a/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_override_cpp_symbols.h
++++ b/allocator/partition_allocator/src/partition_alloc/shim/allocator_shim_override_cpp_symbols.h
+@@ -17,6 +17,9 @@
+ #include "partition_alloc/buildflags.h"
+ 
+ #if PA_BUILDFLAG(USE_ALLOCATOR_SHIM)
++// The NAPI bridge dlopens this library before PartitionAlloc is initialized.
++// Keep the global C++ allocation operators owned by the system allocator.
++#if !PA_BUILDFLAG(IS_OHOS)
+ // Preempt the default new/delete C++ symbols so they call the shim entry
+ // points. This file is strongly inspired by tcmalloc's
+ // libc_override_redefine.h.
+@@ -237,6 +241,7 @@ SHIM_CPP_SYMBOLS_EXPORT void operator delete[](void* p,
+ #endif
+ }
+ 
++#endif  // !PA_BUILDFLAG(IS_OHOS)
+ #endif  // PA_BUILDFLAG(USE_ALLOCATOR_SHIM)
+ 
+ #endif  // PARTITION_ALLOC_SHIM_ALLOCATOR_SHIM_OVERRIDE_CPP_SYMBOLS_H_
