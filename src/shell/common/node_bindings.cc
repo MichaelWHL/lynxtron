@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#endif
+
 #include "base/allocator/partition_allocator/src/partition_alloc/oom.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
@@ -429,9 +433,19 @@ void NodeBindings::Initialize(v8::Isolate* const isolate,
 
   for (const std::string& error : result->errors()) {
     std::cerr << args[0] << ": " << error << '\n';
+#if BUILDFLAG(IS_HARMONY)
+    OH_LOG_ERROR(LOG_APP,
+                 "[NodeBindings] InitializeOncePerProcess: %{public}s",
+                 error.c_str());
+#endif
   }
 
   if (result->early_return() != 0) {
+#if BUILDFLAG(IS_HARMONY)
+    OH_LOG_ERROR(LOG_APP,
+                 "[NodeBindings] InitializeOncePerProcess early return=%{public}d, exit=%{public}d",
+                 result->early_return(), result->exit_code());
+#endif
     exit(result->exit_code());
   }
 
