@@ -597,7 +597,16 @@ std::shared_ptr<node::Environment> NodeBindings::CreateEnvironment(
 }
 
 void NodeBindings::LoadEnvironment(node::Environment* env) {
-  node::LoadEnvironment(env, node::StartExecutionCallback{}, &OnNodePreload);
+  v8::TryCatch try_catch(env->isolate());
+  auto loaded =
+      node::LoadEnvironment(env, node::StartExecutionCallback{}, &OnNodePreload);
+#if BUILDFLAG(IS_HARMONY)
+  if (loaded.IsEmpty() && try_catch.HasCaught()) {
+    v8::String::Utf8Value message(env->isolate(), try_catch.Exception());
+    OH_LOG_ERROR(LOG_APP, "[NodeBindings] LoadEnvironment exception: %{public}s",
+                 *message ? *message : "<unprintable>");
+  }
+#endif
   gin_helper::EmitEvent(env->isolate(), env->process_object(), "loaded");
 }
 
