@@ -8,3 +8,4 @@ fix-clay-gles-header-on-harmony.patch
 fix-char8t-ellipsis-on-harmony.patch
 allow-vla-extension-on-harmony.patch
 exclude-embedder-fallbacks-on-harmony.patch
+link-qos-on-harmony.patch
