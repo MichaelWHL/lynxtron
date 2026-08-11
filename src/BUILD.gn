@@ -220,10 +220,28 @@ typescript_build("default_app_js") {
   tsconfig = "packages/default_app/tsconfig.json"
 }
 
+action("default_app_bundle") {
+  script = "packages/default_app/app/build.py"
+
+  inputs = [
+    "packages/default_app/app/package.json",
+    "packages/default_app/app/lynx.config.mjs",
+    "packages/default_app/app/index.tsx",
+    "packages/default_app/app/index.css",
+    "packages/default_app/app/components/Card.tsx",
+    "packages/default_app/app/components/FeatureGrid.tsx",
+    "packages/default_app/app/assets/box.png",
+    "packages/default_app/app/assets/lightning.png",
+    "packages/default_app/app/assets/panel.png",
+  ]
+
+  outputs = [ "$target_gen_default_app_js/default_app.bundle" ]
+  args = rebase_path(outputs)
+}
+
 copy("default_app_static") {
-  exec_script("packages/default_app/app/build.py")
-  sources = [
-    "packages/default_app/app/dist/default_app.bundle",
+  deps = [ ":default_app_bundle" ]
+  sources = get_target_outputs(":default_app_bundle") + [
     "packages/default_app/icon.png",
     "packages/default_app/package.json",
   ]
@@ -707,6 +725,8 @@ source_set("lynxtron_lib") {
       "shell/app/lynx_windowless_renderer_harmony.cc",
       "shell/app/lynx_windowless_renderer_harmony.h",
       "shell/app/native_window_harmony.cc",
+      "shell/app/window_creation_bridge_harmony.cc",
+      "shell/app/window_creation_bridge_harmony.h",
       "shell/app/relauncher_harmony.cc",
       "shell/app/surface_render_harmony.cc",
       "shell/common/application_info_harmony.cc",
@@ -1149,6 +1169,7 @@ if (is_harmony) {
     output_name = "lynxtron_napi"
     output_extension = "so"
     sources = [ "shell/app/lynxtron_napi_bridge.cc" ]
+    include_dirs = [ "." ]
     libs = [
       "ace_napi.z",
       "ace_ndk.z",       # OH_NativeXComponent_*

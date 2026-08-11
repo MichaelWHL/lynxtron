@@ -725,6 +725,147 @@
   text-align: center;
 }
 
+.testContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  width: 100%;
+}
+
+.testSubtitle {
+  font-size: 12px;
+  color: #aaaaaa;
+  margin-top: 6px;
+  text-align: center;
+}
+
+.testStatus {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #aaaaaa;
+  text-align: center;
+}
+
+.testStatusRunning {
+  color: #4db8ff;
+}
+
+.testSummary {
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.testSummaryPass {
+  color: #2ecc71;
+}
+
+.testSummaryFail {
+  color: #ff6b6b;
+}
+
+.testList {
+  margin-top: 20px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.testItem {
+  margin-bottom: 10px;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.testItemPass {
+  background-color: rgba(46, 204, 113, 0.15);
+}
+
+.testItemFail {
+  background-color: rgba(231, 76, 60, 0.15);
+}
+
+.testName {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.testNamePass {
+  color: #2ecc71;
+}
+
+.testNameFail {
+  color: #ff6b6b;
+}
+
+.testMessage {
+  color: #dddddd;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.testStep {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #4db8ff;
+  text-align: center;
+}
+
+.testErrorBanner {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 4px;
+  background-color: rgba(231, 76, 60, 0.2);
+  color: #ff6b6b;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.testLogContainer {
+  margin-top: 20px;
+  width: 100%;
+  max-height: 300px;
+  padding: 10px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.testLogTitle {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.testLogRow {
+  display: flex;
+  flex-direction: row;
+  margin-bottom: 4px;
+}
+
+.testLogTime {
+  color: #999999;
+  font-size: 11px;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.testLogMessage {
+  color: #eeeeee;
+  font-size: 12px;
+  flex: 1;
+}
+
+.testLogError {
+  color: #ff6b6b;
+}
+
 .modalMessage {
   color: #86868b;
   font-family: Inter;

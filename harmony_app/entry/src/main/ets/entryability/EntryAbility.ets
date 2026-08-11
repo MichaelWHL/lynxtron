@@ -1,8 +1,11 @@
 import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
+import { BusinessError } from '@ohos.base';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
+import { StatusBarManager } from '../manager/StatusBarManager';
+import { AppWindowAdapter } from '../adapter/AppWindowAdapter';
 import LogUtil from '../utils/LogUtils';
 import AppAdapter from '../adapter/AppAdapter';
 import lynxtron from 'liblynxtron_napi.so';
@@ -96,7 +99,17 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, TAG, 'setWindowId failed: %{public}s', String(e));
     }
     BridgeRegistry.registerAll(this.context);
-    windowStage.loadContent('pages/Index', (err) => {
+    // EntryAbility is the host launcher; it does not host the app window.
+    // Initialize the status-bar item, then start the real WindowAbility.
+    StatusBarManager.init(this.context)
+      .then(() => {
+        hilog.info(DOMAIN, TAG, 'StatusBarManager.init OK');
+      })
+      .catch((e: BusinessError) => {
+        hilog.error(DOMAIN, TAG, 'StatusBarManager.init failed: %{public}s', String(e));
+      });
+
+    windowStage.loadContent('pages/Entry', (err) => {
       let windoowCLass = windowStage.getMainWindowSync()
       lynxtron.setWindowObject(windoowCLass);
       // windoowCLass.setWindowDecorVisible(false);
@@ -108,6 +121,14 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(DOMAIN, TAG, 'loadContent OK');
+
+      AppWindowAdapter.createWindow({
+        context: this.context,
+        instanceKey: 'main',
+        abilityName: 'WindowAbility',
+        show: true,
+        bounds: { left: 100, top: 100, width: 800, height: 600 },
+      });
     });
   }
 

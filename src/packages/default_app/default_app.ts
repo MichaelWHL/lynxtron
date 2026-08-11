@@ -7,6 +7,290 @@
 import { app, LynxWindow, clipboard } from 'lynxtron';
 
 let mainWindow: LynxWindow | null = null;
+const recordedEvents: { type: string; ts: number }[] = [];
+let eventListenersAttached = false;
+let eventCounter = 0;
+let batch3LoadFileResult: boolean | null = null;
+let batch3ConstructorOptions: any = null;
+let batch6PreloadSetGlobalPropsResult: boolean | null = null;
+
+function attachEventRecorders(window: LynxWindow) {
+  if (eventListenersAttached) {
+    return;
+  }
+  eventListenersAttached = true;
+  const eventsToRecord = [
+    'show', 'hide', 'minimize', 'maximize', 'restore',
+    'enter-full-screen', 'leave-full-screen', 'resized',
+    'focus', 'blur', 'close', 'closed'
+  ];
+  for (const event of eventsToRecord) {
+    window.on(event as any, () => {
+      recordedEvents.push({ type: event, ts: ++eventCounter });
+      if (recordedEvents.length > 100) {
+        recordedEvents.shift();
+      }
+    });
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logResult(step: string, details: any) {
+  console.log(`[WindowManagerTest] ${step}: ${JSON.stringify(details)}`);
+}
+
+async function runBatch3Tests() {
+  console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test Start ===');
+
+  if (!mainWindow) {
+    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    return;
+  }
+
+  try {
+    // Step B3-1: verify constructor options are applied
+    const expected = batch3ConstructorOptions || {};
+    const actual = {
+      width: (mainWindow as any).getBounds?.()?.width ?? mainWindow.getSize?.()[0],
+      height: (mainWindow as any).getBounds?.()?.height ?? mainWindow.getSize?.()[1],
+      show: mainWindow.isVisible()
+    };
+    logResult('B3-STEP1 constructor options', { expected, actual });
+    const constructorPass =
+      actual.width === (expected.width || 800) &&
+      actual.height === (expected.height || 600) &&
+      actual.show === (expected.show !== undefined ? expected.show : true);
+    console.log(`[WindowManagerTest] B3-STEP1 result: ${constructorPass ? 'PASS' : 'FAIL'} (expected width=${expected.width || 800}, height=${expected.height || 600}, show=${expected.show !== undefined ? expected.show : true})`);
+
+    // Step B3-2: verify loadFile returned true
+    logResult('B3-STEP2 loadFile result', { loadFileReturned: batch3LoadFileResult });
+    console.log(`[WindowManagerTest] B3-STEP2 result: ${batch3LoadFileResult === true ? 'PASS' : 'FAIL'} (expected loadFile() to return true)`);
+
+    console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test End ===');
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during batch 3 tests: ${String(err)}`);
+  }
+}
+
+async function runBatch6Tests() {
+  console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test Start ===');
+
+  if (!mainWindow) {
+    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    return;
+  }
+
+  try {
+    const preloadProps = {
+      appName: 'default_app',
+      testBatch: 6,
+      phase: 'preload',
+      nested: { flag: true }
+    };
+    const postloadProps = {
+      appName: 'default_app',
+      testBatch: 6,
+      phase: 'postload',
+      nested: { flag: true }
+    };
+
+    console.log('[WindowManagerTest] ACTION: verifying pre-load setGlobalProps result');
+    logResult('B6-STEP1 pre-load setGlobalProps result', {
+      globalProps: preloadProps,
+      returned: batch6PreloadSetGlobalPropsResult
+    });
+    console.log(`[WindowManagerTest] B6-STEP1 result: ${batch6PreloadSetGlobalPropsResult === true ? 'PASS' : 'FAIL'} (expected pre-load setGlobalProps() to return true)`);
+
+    console.log('[WindowManagerTest] ACTION: calling post-load setGlobalProps(...)');
+    const postloadResult = mainWindow.setGlobalProps(postloadProps);
+    logResult('B6-STEP2 post-load setGlobalProps result', { globalProps: postloadProps, returned: postloadResult });
+    console.log(`[WindowManagerTest] B6-STEP2 result: ${postloadResult === true ? 'PASS' : 'FAIL'} (expected post-load setGlobalProps() to return true)`);
+
+    console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test End ===');
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during batch 6 tests: ${String(err)}`);
+  }
+}
+
+async function runBatch2Tests() {
+  console.log('[WindowManagerTest] === Batch 2 Window Event Bridge Test Start ===');
+
+  if (!mainWindow) {
+    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    return;
+  }
+
+  const win = mainWindow;
+
+  function expectEventAfter(eventName: string, action: () => void, timeoutMs = 5000) {
+    const beforeCount = recordedEvents.length;
+    action();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const found = recordedEvents
+          .slice(beforeCount)
+          .some((e) => e.type === eventName);
+        if (found) {
+          resolve();
+        } else {
+          reject(new Error(`expected event "${eventName}" was not recorded`));
+        }
+      }, timeoutMs);
+    });
+  }
+
+  try {
+    // B2-STEP1: fullscreen events
+    console.log('[WindowManagerTest] ACTION: calling setFullScreen(true)');
+    try {
+      await expectEventAfter('enter-full-screen', () => win.setFullScreen(true));
+      logResult('B2-STEP1 enter-full-screen event', { recorded: true });
+      console.log('[WindowManagerTest] B2-STEP1 result: PASS');
+    } catch (err) {
+      logResult('B2-STEP1 enter-full-screen event', { recorded: false, error: String(err) });
+      console.log('[WindowManagerTest] B2-STEP1 result: FAIL (enter-full-screen not recorded)');
+    }
+
+    await sleep(1000);
+
+    console.log('[WindowManagerTest] ACTION: calling setFullScreen(false)');
+    try {
+      await expectEventAfter('leave-full-screen', () => win.setFullScreen(false));
+      logResult('B2-STEP2 leave-full-screen event', { recorded: true });
+      console.log('[WindowManagerTest] B2-STEP2 result: PASS');
+    } catch (err) {
+      logResult('B2-STEP2 leave-full-screen event', { recorded: false, error: String(err) });
+      console.log('[WindowManagerTest] B2-STEP2 result: FAIL (leave-full-screen not recorded)');
+    }
+
+    await sleep(1000);
+
+    // B2-STEP3: resized event
+    console.log('[WindowManagerTest] ACTION: calling setSize(...)');
+    try {
+      await expectEventAfter('resized', () => win.setSize(900, 700));
+      logResult('B2-STEP3 resized event', { recorded: true });
+      console.log('[WindowManagerTest] B2-STEP3 result: PASS');
+    } catch (err) {
+      logResult('B2-STEP3 resized event', { recorded: false, error: String(err) });
+      console.log('[WindowManagerTest] B2-STEP3 result: FAIL (resized not recorded)');
+    }
+
+    console.log('[WindowManagerTest] === Batch 2 Window Event Bridge Test End ===');
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during batch 2 tests: ${String(err)}`);
+  }
+}
+
+async function runTests() {
+  console.log('[WindowManagerTest] === Batch 1 Window Manager Test Start ===');
+
+  if (!mainWindow) {
+    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    return;
+  }
+
+  const win = mainWindow;
+  recordedEvents.length = 0;
+
+  // Run batch 3 and batch 6 tests first while the window is still alive.
+  await runBatch3Tests();
+  await runBatch6Tests();
+  await runBatch2Tests();
+
+  try {
+    // Step 1: initial state (window is created with show: false)
+    let s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP1 initial state', s);
+
+    // Step 2: show (window starts hidden)
+    console.log('[WindowManagerTest] ACTION: calling show()');
+    await sleep(30000);
+    win.show();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP2 after show', s);
+    console.log(`[WindowManagerTest] STEP2 result: ${s.isVisible === true ? 'PASS' : 'FAIL'} (expected isVisible=true)`);
+
+    // Step 3: minimize (verify isMinimized state)
+    console.log('[WindowManagerTest] ACTION: calling minimize()');
+    await sleep(10000);
+    win.minimize();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP3 after minimize', s);
+    console.log(`[WindowManagerTest] STEP3 result: ${s.isMinimized === true ? 'PASS' : 'FAIL'} (expected isMinimized=true)`);
+
+    // Step 4: restore from minimized state
+    console.log('[WindowManagerTest] ACTION: calling restore()');
+    await sleep(10000);
+    win.restore();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP4 after restore', s);
+    console.log(`[WindowManagerTest] STEP4 result: ${s.isMinimized === false ? 'PASS' : 'FAIL'} (expected isMinimized=false)`);
+
+    // Step 5: maximize (verify isMaximized state)
+    console.log('[WindowManagerTest] ACTION: calling maximize()');
+    await sleep(10000);
+    win.maximize();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP5 after maximize', s);
+    console.log(`[WindowManagerTest] STEP5 result: ${s.isMaximized === true ? 'PASS' : 'FAIL'} (expected isMaximized=true)`);
+
+    // Step 6: restore from maximized state
+    console.log('[WindowManagerTest] ACTION: calling restore()');
+    await sleep(10000);
+    win.restore();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP6 after restore from maximized', s);
+    console.log(`[WindowManagerTest] STEP6 result: ${s.isMaximized === false ? 'PASS' : 'FAIL'} (expected isMaximized=false)`);
+
+    // Step 7: focus
+    console.log('[WindowManagerTest] ACTION: calling focus()');
+    await sleep(30000);
+    win.focus();
+    s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
+    logResult('STEP7 after focus', s);
+    console.log(`[WindowManagerTest] STEP7 result: ${s.isFocused === true ? 'PASS' : 'FAIL'} (expected isFocused=true)`);
+
+    // Step 8: setAlwaysOnTop true
+    console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(true)');
+    await sleep(30000);
+    win.setAlwaysOnTop(true);
+    logResult('STEP8 after setAlwaysOnTop(true)', { alwaysOnTop: true });
+    console.log('[WindowManagerTest] STEP8 result: PASS (no getter, visual check)');
+
+    // Step 9: setAlwaysOnTop false
+    console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(false)');
+    await sleep(30000);
+    win.setAlwaysOnTop(false);
+    logResult('STEP9 after setAlwaysOnTop(false)', { alwaysOnTop: false });
+    console.log('[WindowManagerTest] STEP9 result: PASS (no getter, visual check)');
+
+    // Step 10: events recorded
+    const events = recordedEvents.slice();
+    logResult('STEP10 events recorded', events);
+    console.log(`[WindowManagerTest] STEP10 result: ${events.length > 0 ? 'PASS' : 'FAIL'} (${events.length} events)`);
+
+    // Step 11: close (destroys the window, must be last)
+    // Also verifies batch 2 'close' and 'closed' events.
+    console.log('[WindowManagerTest] ACTION: calling close()');
+    const beforeCloseCount = recordedEvents.length;
+    await sleep(30000);
+    win.close();
+    await sleep(1000);
+    const closeEvents = recordedEvents.slice(beforeCloseCount);
+    const hasClose = closeEvents.some((e) => e.type === 'close');
+    const hasClosed = closeEvents.some((e) => e.type === 'closed');
+    logResult('STEP11 close events', { close: hasClose, closed: hasClosed, events: closeEvents });
+    console.log(`[WindowManagerTest] STEP11 result: ${hasClose && hasClosed ? 'PASS' : 'FAIL'} (expected close=true, closed=true)`);
+
+    console.log('[WindowManagerTest] === Batch 1 Window Manager Test End ===');
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during tests: ${String(err)}`);
+  }
+}
 
 async function createWindow() {
   app.setName("LYNXTRON-ZLL")
@@ -14,10 +298,33 @@ async function createWindow() {
     console.log("app.whenReady: is ok:",app.getName())
   });
   console.log("app.getName():",app.getName())
-  const mainWindow = new LynxWindow({
+  batch3ConstructorOptions = {
     width: 1200,
     height: 800,
-  });
+    show: false
+  };
+  mainWindow = new LynxWindow(batch3ConstructorOptions);
+
+  attachEventRecorders(mainWindow);
+
+  console.log('[default_app] main window created');
+
+  // Batch 6: call setGlobalProps before loadFile to exercise the caching path
+  // (lynx_view_ is not created yet at this point).
+  const preloadGlobalProps = {
+    appName: 'default_app',
+    testBatch: 6,
+    phase: 'preload',
+    nested: { flag: true }
+  };
+  console.log('[default_app] ACTION: calling pre-load setGlobalProps(...)');
+  batch6PreloadSetGlobalPropsResult = mainWindow.setGlobalProps(preloadGlobalProps);
+  console.log(`[default_app] pre-load setGlobalProps returned: ${batch6PreloadSetGlobalPropsResult}`);
+
+  // Run window manager tests after the window is ready.
+  setTimeout(() => {
+    runTests();
+  }, 2000);
 
   return mainWindow;
 }
@@ -80,6 +387,8 @@ function safeStringify(v: unknown): string {
 
 export const loadFile = async (appPath: string) => {
   mainWindow = await createWindow();
+  batch3LoadFileResult = mainWindow.loadFile(appPath);
+  console.log(`[default_app] loadFile returned: ${batch3LoadFileResult}`);
   mainWindow.show();
   mainWindow.loadFile(appPath);
 

@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.5.0)
 project(lynxtron_hap)
 
 set(LYNXTRON_GN_OUT_DIR
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../out/harmony_arm64_Release"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/arm64-v8a"
   CACHE PATH "Path to the lynxtron GN out directory")
 
 set(LYNXTRON_PREBUILT

@@ -50,6 +50,23 @@ declare namespace lynxtron {
    */
   function setWindowId(id: number): void;
 
+  /**
+    * Registers a callback that receives window operation requests from
+    * liblynxtron for a specific window id. The callback runs on the ArkUI
+    * thread and should call the matching ArkTS Window methods on the Ability
+    * instance that owns that window.
+    */
+  function registerWindowOpCallbackForWindow(
+    windowId: number,
+    callback: (windowId: number, op: string, value?: boolean) => void
+  ): void;
+  /**
+    * Backward-compatible overload: registers a callback for window id 0.
+    */
+  function registerWindowOpCallback(
+    callback: (op: string, value?: boolean) => void
+  ): void;
+
   /** Notifies native powerMonitor listeners that the screen was locked. */
   function notifyPowerMonitorLockScreen(): void;
 

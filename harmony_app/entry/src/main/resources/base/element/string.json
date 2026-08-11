@@ -13,6 +13,14 @@
       "value": "Lynxtron"
     },
     {
+      "name": "WindowAbility_desc",
+      "value": "Lynxtron window UIAbility"
+    },
+    {
+      "name": "WindowAbility_label",
+      "value": "Lynxtron Window"
+    },
+    {
       "name": "reason_jit",
       "value": "V8 JavaScript engine requires writable+executable memory for JIT compilation"
     }

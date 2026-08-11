@@ -158,6 +158,37 @@ std::string ToDirectoryFileUrl(const base::FilePath& path) {
   return directory_url;
 }
 
+// Resolve a bundle path the same way Electron resolves loadFile paths: relative
+// paths are looked up against the application directory. On HarmonyOS the app
+// directory is the HAP resfile path (DIR_ASSETS), so a path like
+// "resources/main.lynx.bundle" finds DIR_ASSETS/resources/main.lynx.bundle.
+base::FilePath ResolveBundlePath(const base::FilePath& path) {
+  if (path.IsAbsolute()) {
+    return path;
+  }
+
+#if BUILDFLAG(IS_HARMONY)
+  base::FilePath assets;
+  if (base::PathService::Get(base::DIR_ASSETS, &assets)) {
+    const base::FilePath kCandidates[] = {
+        assets.AppendASCII("resources").Append(path),
+        assets.Append(path),
+    };
+    for (const auto& candidate : kCandidates) {
+      if (base::PathExists(candidate)) {
+        return candidate;
+      }
+      base::FilePath asar_path, relative_path;
+      if (asar::GetAsarArchivePath(candidate, &asar_path, &relative_path)) {
+        return candidate;
+      }
+    }
+  }
+#endif
+
+  return path;
+}
+
 struct LynxContentMetrics {
   float width;
   float height;
@@ -553,7 +584,8 @@ void LynxWindow::OnWindowHide() {
 }
 
 bool LynxWindow::LoadFile(const std::string& path, gin::Arguments* args) {
-  base::FilePath local_path = base::FilePath::FromUTF8Unsafe(path.data());
+  base::FilePath local_path =
+      ResolveBundlePath(base::FilePath::FromUTF8Unsafe(path.data()));
   base::FilePath asar_path, relative_path;
   if (!base::PathExists(local_path)) {
     // if file exists in asar
@@ -728,6 +760,24 @@ bool LynxWindow::UpdateData(const gin_helper::Dictionary& data,
     global_props_ = std::move(global_props_string);
   } else {
     lynx_view_->UpdateData(data_string.value(), global_props_string.value());
+  }
+  return true;
+}
+
+bool LynxWindow::SetGlobalProps(const gin_helper::Dictionary& global_props) {
+  auto global_props_string = ConvertDictionaryToJsonString(global_props);
+  if (!global_props_string.has_value()) {
+    return false;
+  }
+
+  if (!lynx_view_) {
+    data_str_ = "";
+    global_props_ = std::move(global_props_string);
+  } else {
+    auto impl = std::make_shared<lynxtron::LynxUpdateMeta>();
+    impl->SetUpdateData("");
+    impl->SetGlobalProps(global_props_string.value());
+    lynx_view_->UpdateData(impl);
   }
   return true;
 }
@@ -928,6 +978,7 @@ void LynxWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("loadURL", &LynxWindow::LoadUrl)
       .SetMethod("loadBundle", &LynxWindow::LoadBundle)
       .SetMethod("updateMetaData", &LynxWindow::UpdateMetaData)
+      .SetMethod("setGlobalProps", &LynxWindow::SetGlobalProps)
       .SetMethod("sendGlobalEvent", &LynxWindow::SendGlobalEvent)
       .SetMethod("setFrameTimingsEnabled", &LynxWindow::SetFpsMonitorEnabled);
 }

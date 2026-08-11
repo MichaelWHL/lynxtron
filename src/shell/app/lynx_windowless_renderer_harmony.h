@@ -49,6 +49,10 @@ bool GetCurrentHarmonySurfaceSize(int* w, int* h);
 bool GetCurrentHarmonyTextInputState(float* x, float* y, float* width,
                                      float* height);
 
+// Called from surface_render_harmony.cc when the XComponent surface arrives.
+// Updates the first native window's bounds to match the actual render target.
+extern "C" void LynxtronSetHarmonySurfaceSize(int width, int height);
+
 }  // namespace lynxtron
 
 #endif  // SHELL_APP_LYNX_WINDOWLESS_RENDERER_HARMONY_H_

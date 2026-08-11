@@ -17,6 +17,8 @@
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <dlfcn.h>
 #include <hilog/log.h>
+
+#include "shell/app/window_creation_bridge_harmony.h"
 #include <inputmethod/inputmethod_attach_options_capi.h>
 #include <inputmethod/inputmethod_controller_capi.h>
 #include <inputmethod/inputmethod_cursor_info_capi.h>
@@ -44,6 +46,11 @@
 namespace {
 
 using LynxtronMainFn = int (*)(int, char**);
+using LynxtronSetWindowIdFn = void (*)(int32_t);
+using LynxtronRegisterWindowOpCallbackFn =
+    void (*)(int32_t, void (*)(int32_t, const char*, bool));
+using LynxtronGetWindowIdFn = int32_t (*)();
+using LynxtronNotifyWindowStateFn = void (*)(int32_t, const char*);
 using LynxtronHandleOpenURLFn = void (*)(const char*);
 using LynxtronHandleOpenPathFn = void (*)(const char*);
 using LynxtronQuitFn = void (*)();
@@ -213,6 +220,351 @@ napi_value Quit(napi_env env, napi_callback_info) {
   } else {
     OH_LOG_WARN(LOG_APP, "LynxtronQuit symbol not found");
   }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Window operation bridge
+//
+// ETS registers a single callback that receives window operation requests
+// (e.g. "minimize", "hide", "setAlwaysOnTop") from liblynxtron's main thread.
+// We forward them through a napi_threadsafe_function so the JS callback runs
+// on the ArkUI thread where the Window object is valid.
+// ---------------------------------------------------------------------------
+
+struct WindowOpData {
+  int32_t windowId;
+  std::string op;
+  bool value;
+};
+
+std::unordered_map<int32_t, napi_threadsafe_function> g_window_op_tsfn_map;
+std::mutex g_window_op_tsfn_mutex;
+
+void WindowOpCallJS(napi_env env, napi_value js_cb, void* context,
+                    void* data) {
+  if (!env || !js_cb || !data) return;
+  std::unique_ptr<WindowOpData> op(static_cast<WindowOpData*>(data));
+
+  napi_value argv[3];
+  napi_create_int32(env, op->windowId, &argv[0]);
+  napi_create_string_utf8(env, op->op.c_str(), op->op.length(), &argv[1]);
+  napi_get_boolean(env, op->value, &argv[2]);
+
+  napi_value undefined;
+  napi_get_undefined(env, &undefined);
+  napi_call_function(env, undefined, js_cb, 3, argv, nullptr);
+}
+
+void WindowOpNativeCallback(int32_t window_id, const char* op, bool value) {
+  if (!op) {
+    OH_LOG_WARN(LOG_APP, "[WindowOp] no op, dropping for id=%{public}d",
+                window_id);
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_window_op_tsfn_mutex);
+  auto it = g_window_op_tsfn_map.find(window_id);
+  if (it == g_window_op_tsfn_map.end() || !it->second) {
+    OH_LOG_WARN(LOG_APP,
+                "[WindowOp] no tsfn for id=%{public}d, dropping %{public}s",
+                window_id, op);
+    return;
+  }
+  auto data = std::make_unique<WindowOpData>(
+      WindowOpData{window_id, std::string(op), value});
+  napi_status status = napi_call_threadsafe_function(
+      it->second, data.release(), napi_tsfn_nonblocking);
+  OH_LOG_INFO(LOG_APP,
+              "[WindowOp] posted id=%{public}d %{public}s value=%{public}d status=%{public}d",
+              window_id, op, value, (int)status);
+}
+
+// ---------------------------------------------------------------------------
+// Window creation bridge
+//
+// liblynxtron's NativeWindowHarmony requests a new HarmonyOS window by calling
+// LynxtronCreateHarmonyWindow. We forward the request to the ArkUI thread via
+// a threadsafe function registered by AppWindowAdapter.createWindowFromCpp.
+// The ArkTS side creates the Ability/Window and invokes our completion
+// callback, which routes back to liblynxtron via LynxtronOnHarmonyWindowCreated.
+// ---------------------------------------------------------------------------
+
+struct CreateWindowRequest {
+  int32_t window_id;
+  lynxtron::HarmonyWindowCreationOptions options;
+};
+
+napi_threadsafe_function g_create_window_tsfn = nullptr;
+std::mutex g_create_window_mutex;
+
+void CreateWindowCallJS(napi_env env, napi_value js_cb, void* context,
+                        void* data) {
+  if (!env || !js_cb || !data) return;
+  std::unique_ptr<CreateWindowRequest> request(
+      static_cast<CreateWindowRequest*>(data));
+
+  // Build the options object that matches ArkTS CreateWindowOptions.
+  napi_value options;
+  napi_create_object(env, &options);
+
+  auto set_int = [&](const char* key, int32_t value) {
+    napi_value v;
+    napi_create_int32(env, value, &v);
+    napi_set_named_property(env, options, key, v);
+  };
+  auto set_bool = [&](const char* key, bool value) {
+    napi_value v;
+    napi_get_boolean(env, value, &v);
+    napi_set_named_property(env, options, key, v);
+  };
+  auto set_string = [&](const char* key, const std::string& value) {
+    napi_value v;
+    napi_create_string_utf8(env, value.c_str(), value.length(), &v);
+    napi_set_named_property(env, options, key, v);
+  };
+
+  set_int("windowId", request->window_id);
+  set_string("type", request->options.type);
+  set_int("x", request->options.x);
+  set_int("y", request->options.y);
+  set_int("width", request->options.width);
+  set_int("height", request->options.height);
+  set_bool("show", request->options.show);
+  set_bool("resizable", request->options.resizable);
+  set_bool("movable", request->options.movable);
+  set_bool("minimizable", request->options.minimizable);
+  set_bool("maximizable", request->options.maximizable);
+  set_bool("closable", request->options.closable);
+  set_bool("focusable", request->options.focusable);
+  set_bool("alwaysOnTop", request->options.always_on_top);
+  set_int("parentWindowId", request->options.parent_window_id);
+  set_int("parentHarmonyWindowId", request->options.parent_harmony_window_id);
+  set_bool("center", request->options.center);
+  set_bool("hasX", request->options.has_x);
+  set_bool("hasY", request->options.has_y);
+
+  napi_value argv[1] = {options};
+  napi_value undefined;
+  napi_get_undefined(env, &undefined);
+  napi_call_function(env, undefined, js_cb, 1, argv, nullptr);
+}
+
+void CreateHarmonyWindowFromNapi(
+    int32_t window_id,
+    const lynxtron::HarmonyWindowCreationOptions* options) {
+  if (!options) return;
+  std::lock_guard<std::mutex> lock(g_create_window_mutex);
+  if (!g_create_window_tsfn) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[CreateWindow] no tsfn registered for id=%{public}d",
+                 window_id);
+    return;
+  }
+  auto request = std::make_unique<CreateWindowRequest>();
+  request->window_id = window_id;
+  request->options = *options;
+  napi_status status = napi_call_threadsafe_function(
+      g_create_window_tsfn, request.release(), napi_tsfn_nonblocking);
+  OH_LOG_INFO(LOG_APP,
+              "[CreateWindow] posted id=%{public}d type=%{public}s status=%{public}d",
+              window_id, options->type.c_str(), (int)status);
+}
+
+napi_value RegisterCreateWindowCallback(napi_env env,
+                                        napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1] = {nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 1) {
+    napi_throw_error(env, nullptr,
+                     "registerCreateWindowCallback requires a function");
+    return nullptr;
+  }
+
+  napi_valuetype cb_type;
+  napi_typeof(env, args[0], &cb_type);
+  if (cb_type != napi_function) {
+    napi_throw_error(env, nullptr,
+                     "registerCreateWindowCallback requires a function");
+    return nullptr;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(g_create_window_mutex);
+    if (g_create_window_tsfn) {
+      napi_release_threadsafe_function(g_create_window_tsfn, napi_tsfn_release);
+      g_create_window_tsfn = nullptr;
+    }
+
+    napi_value async_name;
+    napi_create_string_utf8(env, "CreateWindowCallback", NAPI_AUTO_LENGTH,
+                            &async_name);
+
+    napi_threadsafe_function tsfn = nullptr;
+    napi_status status = napi_create_threadsafe_function(
+        env, args[0], nullptr, async_name, 0, 1, nullptr, nullptr, nullptr,
+        CreateWindowCallJS, &tsfn);
+    if (status != napi_ok) {
+      OH_LOG_ERROR(LOG_APP,
+                   "napi_create_threadsafe_function failed status=%{public}d",
+                   (int)status);
+      napi_throw_error(env, nullptr, "failed to create threadsafe function");
+      return nullptr;
+    }
+    g_create_window_tsfn = tsfn;
+  }
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  auto set_callback = reinterpret_cast<void (*)(lynxtron::CreateHarmonyWindowCallback)>(
+      dlsym(g_lynxtron_handle, "LynxtronSetCreateHarmonyWindowCallback"));
+  if (!set_callback) {
+    OH_LOG_ERROR(LOG_APP,
+                 "dlsym LynxtronSetCreateHarmonyWindowCallback FAILED: %{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr,
+                     "LynxtronSetCreateHarmonyWindowCallback not found");
+    return nullptr;
+  }
+  set_callback(CreateHarmonyWindowFromNapi);
+
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value RegisterWindowOpCallback(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2] = {nullptr, nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  int32_t window_id = -1;
+  napi_value cb = nullptr;
+
+  if (argc == 2) {
+    // registerWindowOpCallback(windowId, callback)
+    napi_get_value_int32(env, args[0], &window_id);
+    cb = args[1];
+  } else if (argc == 1) {
+    // Backward-compatible: registerWindowOpCallback(callback) -> windowId 0
+    cb = args[0];
+    window_id = 0;
+  } else {
+    napi_throw_error(env, nullptr,
+                     "registerWindowOpCallback requires (windowId, callback) "
+                     "or (callback)");
+    return nullptr;
+  }
+
+  napi_valuetype cb_type;
+  napi_typeof(env, cb, &cb_type);
+  if (cb_type != napi_function) {
+    napi_throw_error(env, nullptr,
+                     "registerWindowOpCallback requires a function");
+    return nullptr;
+  }
+
+  // Create or recreate the threadsafe function for this window id.
+  {
+    std::lock_guard<std::mutex> lock(g_window_op_tsfn_mutex);
+    auto it = g_window_op_tsfn_map.find(window_id);
+    if (it != g_window_op_tsfn_map.end() && it->second) {
+      napi_release_threadsafe_function(it->second, napi_tsfn_release);
+    }
+
+    napi_value async_name;
+    napi_create_string_utf8(env, "WindowOpCallback", NAPI_AUTO_LENGTH,
+                            &async_name);
+
+    napi_threadsafe_function tsfn = nullptr;
+    napi_status status = napi_create_threadsafe_function(
+        env, cb, nullptr, async_name, 0, 1, nullptr, nullptr, nullptr,
+        WindowOpCallJS, &tsfn);
+    if (status != napi_ok) {
+      OH_LOG_ERROR(LOG_APP,
+                   "napi_create_threadsafe_function failed status=%{public}d",
+                   (int)status);
+      napi_throw_error(env, nullptr, "failed to create threadsafe function");
+      return nullptr;
+    }
+    g_window_op_tsfn_map[window_id] = tsfn;
+  }
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  auto fn = reinterpret_cast<LynxtronRegisterWindowOpCallbackFn>(
+      dlsym(g_lynxtron_handle, "LynxtronRegisterWindowOpCallbackForWindow"));
+  if (!fn) {
+    OH_LOG_ERROR(LOG_APP,
+                 "dlsym LynxtronRegisterWindowOpCallbackForWindow FAILED: "
+                 "%{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr,
+                     "LynxtronRegisterWindowOpCallbackForWindow not found");
+    return nullptr;
+  }
+  fn(window_id, WindowOpNativeCallback);
+
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value GetWindowId(napi_env env, napi_callback_info info) {
+  int32_t id = -1;
+  if (EnsureLynxtronLoaded()) {
+    auto fn = reinterpret_cast<LynxtronGetWindowIdFn>(
+        dlsym(g_lynxtron_handle, "LynxtronGetWindowId"));
+    if (fn) {
+      id = fn();
+    } else {
+      OH_LOG_ERROR(LOG_APP, "dlsym LynxtronGetWindowId FAILED: %{public}s",
+                   dlerror());
+    }
+  }
+  napi_value result = nullptr;
+  napi_create_int32(env, id, &result);
+  return result;
+}
+
+napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value args[3] = {nullptr, nullptr, nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  int32_t window_id = -1;
+  char state[64] = {0};
+  size_t state_len = 0;
+
+  if (argc >= 2 &&
+      napi_get_value_int32(env, args[0], &window_id) == napi_ok &&
+      napi_get_value_string_utf8(env, args[1], state, sizeof(state),
+                                 &state_len) == napi_ok) {
+    if (EnsureLynxtronLoaded()) {
+      auto fn = reinterpret_cast<LynxtronNotifyWindowStateFn>(
+          dlsym(g_lynxtron_handle, "LynxtronNotifyWindowState"));
+      if (fn) {
+        fn(window_id, state);
+      } else {
+        OH_LOG_ERROR(LOG_APP,
+                     "dlsym LynxtronNotifyWindowState FAILED: %{public}s",
+                     dlerror());
+      }
+    }
+  } else {
+    napi_throw_error(env, nullptr,
+                     "notifyWindowState requires (windowId, state)");
+    return nullptr;
+  }
+
   napi_value result = nullptr;
   napi_get_undefined(env, &result);
   return result;
@@ -1542,7 +1894,7 @@ void DetachIme() {
   g_ime_proxy = nullptr;
 }
 
-// Published once from EntryAbility.onWindowStageCreate.
+// Published from BaseWindowAbility.onWindowStageCreate for each window.
 napi_value SetWindowId(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1] = {};
@@ -1554,8 +1906,53 @@ napi_value SetWindowId(napi_env env, napi_callback_info info) {
   {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
     g_window_id = id;
-  }  
+  }
+  // Also route native window operations through this window id. Without this
+  // NativeWindowHarmony::InvokeWindowOp looks up callbacks with id=-1 and
+  // drops every minimize/restore/show/focus/etc. request.
+  if (EnsureLynxtronLoaded()) {
+    auto fn = reinterpret_cast<LynxtronSetWindowIdFn>(
+        dlsym(g_lynxtron_handle, "LynxtronSetWindowId"));
+    if (fn) {
+      fn(id);
+    } else {
+      OH_LOG_ERROR(LOG_APP,
+                   "dlsym LynxtronSetWindowId FAILED: %{public}s",
+                   dlerror());
+    }
+  }
   OH_LOG_INFO(LOG_APP, "[IME] windowId=%{public}d", id);
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+// Published from BaseWindowAbility.onWindowStageCreate for each window,
+// carrying both the C++-allocated window id and the HarmonyOS origin window id.
+napi_value SetWindowIdForWindow(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2] = {};
+  int32_t cpp_window_id = -1;
+  int32_t harmony_window_id = -1;
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok &&
+      argc == 2) {
+    napi_get_value_int32(env, argv[0], &cpp_window_id);
+    napi_get_value_int32(env, argv[1], &harmony_window_id);
+  }
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] setWindowIdForWindow cpp=%{public}d harmony=%{public}d",
+              cpp_window_id, harmony_window_id);
+  if (EnsureLynxtronLoaded()) {
+    auto fn = reinterpret_cast<void (*)(int32_t, int32_t)>(
+        dlsym(g_lynxtron_handle, "LynxtronOnHarmonyWindowCreated"));
+    if (fn) {
+      fn(cpp_window_id, harmony_window_id);
+    } else {
+      OH_LOG_ERROR(LOG_APP,
+                   "dlsym LynxtronOnHarmonyWindowCreated FAILED: %{public}s",
+                   dlerror());
+    }
+  }
   napi_value result = nullptr;
   napi_get_undefined(env, &result);
   return result;
@@ -1955,6 +2352,18 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"setWindowId", nullptr, SetWindowId, nullptr, nullptr, nullptr,
        napi_default, nullptr},
+      {"setWindowIdForWindow", nullptr, SetWindowIdForWindow, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"getWindowId", nullptr, GetWindowId, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
+      {"notifyWindowState", nullptr, NotifyWindowState, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"registerWindowOpCallback", nullptr, RegisterWindowOpCallback, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"registerWindowOpCallbackForWindow", nullptr, RegisterWindowOpCallback,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"registerCreateWindowCallback", nullptr, RegisterCreateWindowCallback,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
       {"notifyPowerMonitorLockScreen", nullptr, NotifyPowerMonitorLockScreen,
        nullptr, nullptr, nullptr, napi_default, nullptr},
       {"notifyPowerMonitorUnlockScreen", nullptr,

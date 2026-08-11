@@ -177,10 +177,13 @@ LynxtronSetNativeSurface(void* window, int width, int height) {
   // at a different scale from the ArkUI XComponent.
   lynxtron::UpdateHarmonyNativeWindowSize(width, height);
 
+  // Sync the first native window's bounds to the actual surface size so the
+  // LynxView viewport matches the render target. In the one-surface model this
+  // is the only window; multi-window needs per-window surface routing later.
+  lynxtron::LynxtronSetHarmonySurfaceSize(width, height);
+
   // NOTE: no bring-up LynxView here anymore. The default_app JS creates a real
   // LynxWindow (BrowserWindow) and loads its own Lynx app; that window's
   // LynxView drives this renderer. Creating a second bring-up view here made two
   // LynxViews fight over the one surface (an 800x600 one and a 2090x1293 one).
-  // NativeWindowHarmony now sizes the window to this surface via
-  // GetCurrentHarmonySurfaceSize().
 }
