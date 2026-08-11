@@ -5,3 +5,4 @@
 0005-Change-COREPACK_ENABLE_NETWORK-to-1-form-0.patch
 0008-Route-IME-text-through-the-platform-view.patch
 fix-clay-gles-header-on-harmony.patch
+fix-char8t-ellipsis-on-harmony.patch
