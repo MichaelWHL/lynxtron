@@ -129,7 +129,6 @@ void RegisterWindowCommandHandler();
 
 napi_value Start(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP, "Start() called from ETS");
-  LogDefaultDisplayAvailableArea();
 
   // Mirrors electron_main_ohos.cc: Node.js module resolution needs NODE_PATH
   // pointing at the HAP libs directory (where bundled .so / asar deps live).
@@ -1001,11 +1000,9 @@ void* g_native_window = nullptr;
 using SetSurfaceFn = void (*)(void* window, int width, int height);
 SetSurfaceFn g_set_surface = nullptr;
 
-// The native adapter owns Lynx's pointer state machine.  Pass the full source
-// information so it can issue Add/Remove around XComponent's less complete
-// mouse/touch stream.
-using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons,
-                               int32_t device, int kind, size_t timestamp);
+// LynxtronSendPointerEvent(phase, x, y, buttons) — forwards input to the
+// LynxView's windowless renderer. phase: 0=down,1=up,2=move,3=hover.
+using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons);
 SendPointerFn g_send_pointer = nullptr;
 
 // ArkUI reports mouse events with no device id and may report the primary
@@ -1163,8 +1160,7 @@ void DispatchMouseEvent(OH_NativeXComponent* component, void* window) {
     default:
       return;
   }
-  ForwardPointer(phase, me.x, me.y, buttons, kLynxtronMouseDeviceId,
-                 /*mouse=*/1, static_cast<size_t>(NowMicros()));
+  ForwardPointer(phase, me.x, me.y, buttons);
 }
 
 void DispatchHoverEvent(OH_NativeXComponent* component, bool isHover) {}
@@ -1995,7 +1991,6 @@ napi_value Init(napi_env env, napi_value exports) {
       OH_LOG_INFO(LOG_APP, "[XC] RegisterMouseEventCallback ret=%{public}d", rm);
       int32_t rk = OH_NativeXComponent_RegisterKeyEventCallback(xc, DispatchKeyEvent);
       OH_LOG_INFO(LOG_APP, "[XC] RegisterKeyEventCallback ret=%{public}d", rk);
-    } else {
       OH_LOG_ERROR(LOG_APP, "[XC] napi_unwrap xcomponent failed");
     }
   } else {

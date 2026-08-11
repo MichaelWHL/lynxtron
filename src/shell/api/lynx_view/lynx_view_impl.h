@@ -57,6 +57,10 @@ class LynxViewImpl : public lynx::pub::LynxViewClient {
   void Close();
   void EnterForeground();
   void EnterBackground();
+  int GetNodeForLocation(int x, int y);
+  void SendTouchEvent(const std::string& name, int32_t id, float x, float y,
+                      float client_x, float client_y, float page_x,
+                      float page_y);
 
   // lynx::pub::LynxViewClient overrides
   void OnPageStart(const char* url) override;

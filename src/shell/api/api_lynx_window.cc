@@ -22,6 +22,9 @@
 #include "shell/api/lynx_view/lynx_update_meta.h"
 #include "shell/api/lynx_view/lynx_view.h"
 #include "shell/api/lynx_view/lynx_view_builder.h"
+#if BUILDFLAG(IS_HARMONY)
+#include "shell/app/lynx_bringup_harmony.h"
+#endif
 #include "shell/api/lynx_view_state_observer.h"
 #include "shell/api/lynx_window_manager.h"
 #include "shell/app/application.h"
@@ -470,6 +473,9 @@ void LynxWindow::EnsureLynxView() {
     lynx_view_state_observer_->OnPreLynxViewCreate(&builder);
   }
   lynx_view_ = builder.Build();
+#if BUILDFLAG(IS_HARMONY)
+  SetHarmonyActiveLynxView(lynx_view_.get());
+#endif
   lynx_view_->SetClient(weak_factory_.GetWeakPtr());
 
   SyncRenderActiveState();

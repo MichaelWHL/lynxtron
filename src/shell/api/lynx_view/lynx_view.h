@@ -50,6 +50,10 @@ class LynxView {
   void* GetNativeWindow();
   void EnterForeground();
   void EnterBackground();
+  int GetNodeForLocation(int x, int y);
+  void SendTouchEvent(const std::string& name, int32_t id, float x, float y,
+                      float client_x, float client_y, float page_x,
+                      float page_y);
 
  private:
   friend class LynxViewBuilder;
