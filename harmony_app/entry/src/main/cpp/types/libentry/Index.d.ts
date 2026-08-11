@@ -41,6 +41,12 @@ declare namespace lynxtron {
    */
   function setWindowId(id: number): void;
 
+  /** Notifies native powerMonitor listeners that the screen was locked. */
+  function notifyPowerMonitorLockScreen(): void;
+
+  /** Notifies native powerMonitor listeners that the screen was unlocked. */
+  function notifyPowerMonitorUnlockScreen(): void;
+
   /**
    * Registers the ArkTS handler for dialog.showOpenDialog(). The handler
    * receives a request id plus the serialized dialog settings JSON, opens

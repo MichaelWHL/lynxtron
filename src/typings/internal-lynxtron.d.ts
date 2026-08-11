@@ -14,6 +14,7 @@ import {
 import { Event as LynxtronEvent } from '../packages/lynxtron/apis/lynxtron';
 import { CommandLine as LynxtronCommandLine } from '../packages/lynxtron/apis/api/command-line';
 import { Screen as LynxtronScreen } from '../packages/lynxtron/apis/api/screen';
+import { PowerMonitor as LynxtronPowerMonitor } from '../packages/lynxtron/apis/api/power-monitor';
 import { NativeImage as LynxtronNativeImage } from '../packages/lynxtron/apis/api/native-image';
 import { Clipboard as LynxtronClipboard } from '../packages/lynxtron/apis/api/clipboard';
 import { Shell as LynxtronShell } from '../packages/lynxtron/apis/api/shell';
@@ -44,6 +45,7 @@ declare global {
     type Menu = LynxtronMenu;
     type CommandLine = LynxtronCommandLine;
     type Screen = LynxtronScreen;
+    type PowerMonitor = LynxtronPowerMonitor;
     type TouchBar = LynxtronTouchBar;
     type TouchBarConstructorOptions = LynxtronTouchBarConstructorOptions;
     type Tray = LynxtronTray;
@@ -114,6 +116,7 @@ declare module 'lynxtron' {
   export const clipboard: LynxtronClipboard;
   export const dialog: LynxtronDialog;
   export const nativeImage: typeof LynxtronNativeImage;
+  export const powerMonitor: LynxtronPowerMonitor;
   export const screen: LynxtronScreen;
   export const shell: LynxtronShell;
   export const LynxTemplateData: typeof LynxtronLynxTemplateData;
@@ -125,6 +128,7 @@ declare module 'lynxtron' {
   export type LynxUpdateMeta = LynxtronLynxUpdateMeta;
   export type Clipboard = LynxtronClipboard;
   export type NativeImage = LynxtronNativeImage;
+  export type PowerMonitor = LynxtronPowerMonitor;
   export type Screen = LynxtronScreen;
   export type Shell = LynxtronShell;
   export type LynxTemplateData = LynxtronLynxTemplateData;

@@ -80,6 +80,8 @@ class MainParts {
 
 #if BUILDFLAG(IS_WIN)
   std::unique_ptr<base::win::ScopedCOMInitializer> com_initializer_;
+#endif
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_HARMONY)
   std::unique_ptr<display::Screen> screen_;
 #endif
 

@@ -21,6 +21,7 @@ export * from './api/event';
 export * from './api/lynx-window';
 export * from './api/touch-bar';
 export * from './api/screen';
+export * from './api/power-monitor';
 export * from './api/asar';
 export * from './api/dialog';
 export * from './api/shell';

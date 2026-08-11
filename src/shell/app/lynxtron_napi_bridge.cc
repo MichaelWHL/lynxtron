@@ -1477,6 +1477,35 @@ napi_value GetTextInputState(napi_env env, napi_callback_info) {
   return result;
 }
 
+using PowerMonitorNotifyFn = void (*)();
+
+napi_value NotifyPowerMonitor(napi_env env, const char* symbol) {
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "Failed to load liblynxtron.so");
+    return nullptr;
+  }
+  auto notify = reinterpret_cast<PowerMonitorNotifyFn>(
+      dlsym(g_lynxtron_handle, symbol));
+  if (!notify) {
+    OH_LOG_ERROR(LOG_APP, "[PowerMonitor] dlsym %{public}s failed: %{public}s",
+                 symbol, dlerror());
+    napi_throw_error(env, nullptr, "powerMonitor notify symbol not found");
+    return nullptr;
+  }
+  notify();
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value NotifyPowerMonitorLockScreen(napi_env env, napi_callback_info) {
+  return NotifyPowerMonitor(env, "LynxtronPowerMonitorNotifyLockScreen");
+}
+
+napi_value NotifyPowerMonitorUnlockScreen(napi_env env, napi_callback_info) {
+  return NotifyPowerMonitor(env, "LynxtronPowerMonitorNotifyUnlockScreen");
+}
+
 napi_value Init(napi_env env, napi_value exports) {
   OH_LOG_INFO(LOG_APP, "Init() called by OHOS framework");
 
@@ -1497,6 +1526,11 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"setWindowId", nullptr, SetWindowId, nullptr, nullptr, nullptr,
        napi_default, nullptr},
+      {"notifyPowerMonitorLockScreen", nullptr, NotifyPowerMonitorLockScreen,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"notifyPowerMonitorUnlockScreen", nullptr,
+       NotifyPowerMonitorUnlockScreen, nullptr, nullptr, nullptr, napi_default,
+       nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);

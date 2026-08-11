@@ -2,6 +2,7 @@ import common from '@ohos.app.ability.common';
 import hilog from '@ohos.hilog';
 import { PlatformBridge } from './PlatformBridge';
 import { FileDialogBridge } from './FileDialogBridge';
+import { PowerMonitorBridge } from './PowerMonitorBridge';
 
 const DOMAIN = 0x0000;
 const TAG = 'BridgeRegistry';
@@ -17,7 +18,8 @@ const TAG = 'BridgeRegistry';
 export class BridgeRegistry {
   private static registrars: Array<(ctx: common.UIAbilityContext) => void> = [
     (ctx) => PlatformBridge.register(ctx),
-    (ctx) => FileDialogBridge.register(ctx)
+    (ctx) => FileDialogBridge.register(ctx),
+    (ctx) => PowerMonitorBridge.register(ctx)
   ];
 
   static registerAll(context: common.UIAbilityContext): void {

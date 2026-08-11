@@ -63,6 +63,7 @@
   V(lynxtron_lynx_window)            \
   V(lynxtron_binding_native_image)   \
   V(lynxtron_binding_notification)   \
+  V(lynxtron_binding_power_monitor)  \
   V(lynxtron_binding_screen)         \
   V(lynxtron_binding_dialog)         \
   V(lynxtron_binding_lynx_template_bundle)

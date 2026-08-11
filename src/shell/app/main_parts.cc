@@ -36,6 +36,8 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "base/win/scoped_com_initializer.h"
+#endif
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_HARMONY)
 #include "shell/ui/display/desktop_screen.h"
 #endif
 
@@ -203,7 +205,7 @@ void MainParts::Initialize() {
   MP_LOG("step 19: LynxView::SetNodePlatformEnv");
   LynxView::SetNodePlatformEnv(js_env_->platform());
 
-#if BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_HARMONY)
   if (!display::Screen::Get()) {
     screen_ = views::CreateDesktopScreen();
   }
@@ -269,8 +271,10 @@ void MainParts::Shutdown() {
   global_thread_.reset();
   base::ThreadPoolInstance::Get()->Shutdown();
 
-#if BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_HARMONY)
   screen_.reset();
+#endif
+#if BUILDFLAG(IS_WIN)
   com_initializer_.reset();
 #endif
 }

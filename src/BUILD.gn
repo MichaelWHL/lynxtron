@@ -410,6 +410,8 @@ source_set("lynxtron_lib") {
     "shell/api/api_native_image.h",
     "shell/api/api_notification.cc",
     "shell/api/api_notification.h",
+    "shell/api/api_power_monitor.cc",
+    "shell/api/api_power_monitor.h",
     "shell/api/api_screen.cc",
     "shell/api/api_screen.h",
     "shell/api/api_shell.cc",
@@ -711,6 +713,7 @@ source_set("lynxtron_lib") {
       "shell/common/node_bindings_harmony.h",
       "shell/common/platform_util_harmony.cc",
       "shell/api/api_clipboard_harmony.cc",
+      "shell/api/api_power_monitor_harmony.cc",
     ]
     # Real Lynx/Clay renderer capi, replacing lynx_capi_stubs_harmony.cc.
     #
