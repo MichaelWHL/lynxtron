@@ -96,7 +96,13 @@ and passwords must remain outside the repository.
 ```sh
 hdc install harmony_app/entry/build/default/outputs/default/lynxtron-default-signed.hap
 hdc shell aa start -a EntryAbility -b com.lynxtron.harmony
-hdc hilog -t Lynxtron
+hdc hilog -T Lynxtron,LynxtronMain,LynxtronBridge,LynxtronWLR,LynxtronRun
+```
+
+The Harmony build also writes Chromium/Lynx logs to the app sandbox:
+
+```sh
+/data/storage/el2/base/haps/entry/files/lynxtron_debug.log
 ```
 
 ## Notes

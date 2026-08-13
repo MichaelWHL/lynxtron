@@ -102,8 +102,16 @@ napi_value Start(napi_env env, napi_callback_info info) {
     std::thread([] {
       OH_LOG_INFO(LOG_APP, "LynxtronMain thread start...");
       static char argv0[] = "lynxtron";
-      char* argv[] = {argv0, nullptr};
-      int rc = g_lynxtron_main(1, argv);
+      std::string enable_logging = "--enable-logging";
+      std::string log_file_switch =
+          "--log-file=/data/storage/el2/base/haps/entry/files/"
+          "lynxtron_debug.log";
+      char* argv[] = {argv0, enable_logging.data(), log_file_switch.data(),
+                      nullptr};
+      OH_LOG_INFO(LOG_APP, "file logging enabled: %{public}s",
+                  "/data/storage/el2/base/haps/entry/files/"
+                  "lynxtron_debug.log");
+      int rc = g_lynxtron_main(3, argv);
       OH_LOG_INFO(LOG_APP, "LynxtronMain returned rc=%{public}d", rc);
       _exit(rc);
     }).detach();
@@ -438,10 +446,9 @@ void OnImeGetTextConfig(InputMethod_TextEditorProxy*,
                         InputMethod_TextConfig* config) {
   OH_TextConfig_SetInputType(config, IME_TEXT_INPUT_TYPE_TEXT);
   OH_TextConfig_SetEnterKeyType(config, IME_ENTER_KEY_DONE);
-  // Preview (pre-edit) text is off for now: Lynx's composing region semantics
-  // are not verified against repeated preview updates yet. With it off the IME
-  // only calls InsertText, with the fully committed candidate string — correct
-  // for both Latin and CJK input, just without the inline pre-edit underline.
+  // Match the proven C implementation: leave pre-edit disabled and accept only
+  // the IME's final InsertText candidate.  Replaying every pinyin preview into
+  // Lynx corrupts the editable value before the Chinese candidate is committed.
   OH_TextConfig_SetPreviewTextSupport(config, false);
   OH_TextConfig_SetSelection(config, 0, 0);
 
