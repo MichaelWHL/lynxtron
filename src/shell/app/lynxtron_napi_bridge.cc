@@ -101,8 +101,16 @@ napi_value Start(napi_env env, napi_callback_info info) {
     std::thread([] {
       OH_LOG_INFO(LOG_APP, "LynxtronMain thread start...");
       static char argv0[] = "lynxtron";
-      char* argv[] = {argv0, nullptr};
-      int rc = g_lynxtron_main(1, argv);
+      std::string enable_logging = "--enable-logging";
+      std::string log_file_switch =
+          "--log-file=/data/storage/el2/base/haps/entry/files/"
+          "lynxtron_debug.log";
+      char* argv[] = {argv0, enable_logging.data(), log_file_switch.data(),
+                      nullptr};
+      OH_LOG_INFO(LOG_APP, "file logging enabled: %{public}s",
+                  "/data/storage/el2/base/haps/entry/files/"
+                  "lynxtron_debug.log");
+      int rc = g_lynxtron_main(3, argv);
       OH_LOG_INFO(LOG_APP, "LynxtronMain returned rc=%{public}d", rc);
     }).detach();
   });
