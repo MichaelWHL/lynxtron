@@ -431,11 +431,10 @@ void OnImeGetTextConfig(InputMethod_TextEditorProxy*,
                         InputMethod_TextConfig* config) {
   OH_TextConfig_SetInputType(config, IME_TEXT_INPUT_TYPE_TEXT);
   OH_TextConfig_SetEnterKeyType(config, IME_ENTER_KEY_DONE);
-  // Preview (pre-edit) text is off for now: Lynx's composing region semantics
-  // are not verified against repeated preview updates yet. With it off the IME
-  // only calls InsertText, with the fully committed candidate string — correct
-  // for both Latin and CJK input, just without the inline pre-edit underline.
-  OH_TextConfig_SetPreviewTextSupport(config, false);
+  // CJK IMEs compose pinyin/zhuyin before committing a candidate.  Advertise
+  // pre-edit support so their candidate and composition callbacks reach the
+  // Lynx input instead of being discarded by the system input method.
+  OH_TextConfig_SetPreviewTextSupport(config, true);
   OH_TextConfig_SetSelection(config, 0, 0);
 
   {
