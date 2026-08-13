@@ -431,10 +431,10 @@ void OnImeGetTextConfig(InputMethod_TextEditorProxy*,
                         InputMethod_TextConfig* config) {
   OH_TextConfig_SetInputType(config, IME_TEXT_INPUT_TYPE_TEXT);
   OH_TextConfig_SetEnterKeyType(config, IME_ENTER_KEY_DONE);
-  // CJK IMEs compose pinyin/zhuyin before committing a candidate.  Advertise
-  // pre-edit support so their candidate and composition callbacks reach the
-  // Lynx input instead of being discarded by the system input method.
-  OH_TextConfig_SetPreviewTextSupport(config, true);
+  // Match the proven C implementation: leave pre-edit disabled and accept only
+  // the IME's final InsertText candidate.  Replaying every pinyin preview into
+  // Lynx corrupts the editable value before the Chinese candidate is committed.
+  OH_TextConfig_SetPreviewTextSupport(config, false);
   OH_TextConfig_SetSelection(config, 0, 0);
 
   {

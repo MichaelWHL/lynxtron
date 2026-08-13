@@ -43,6 +43,11 @@ LIBS_DIR=${SCRIPT_DIR}/entry/libs/arm64-v8a
 
 cd "${SCRIPT_DIR}"
 
+# A target-level clean removes these runtime files without necessarily making
+# `lynxtron_app` rebuild them.  Regenerate them before staging, rather than
+# silently packaging stale copies left in entry/src/main/resources/resfile.
+ninja -C "${GN_OUT_DIR}" icudtl.dat snapshot_blob.bin default_app_asar
+
 # Stage both .so files:
 #   liblynxtron.so       — big main library (chromium + V8 + Node + Lynx)
 #   liblynxtron_napi.so  — small OHOS NAPI bridge that ETS imports
@@ -91,7 +96,7 @@ fi
 # Build it with:
 #   lynx/tools/js_tools/build.py --platform android   (harmony uses the android
 #   flavor, same as lynx/explorer/harmony/script/build.py does)
-LYNX_CORE_JS=${LYNXTRON_ROOT}/lynx/js_libraries/lynx-core/output/lynx_core.js
+LYNX_CORE_JS=${LYNX_CORE_JS_OVERRIDE:-${LYNXTRON_ROOT}/lynx/js_libraries/lynx-core/output/lynx_core.js}
 if [ -f "${LYNX_CORE_JS}" ]; then
   cp "${LYNX_CORE_JS}" "${RESFILE_DIR}/resources/lynx_core.js"
   echo "[build_hap] staged resfile/resources/lynx_core.js ($(stat -c%s "${RESFILE_DIR}/resources/lynx_core.js") bytes)"
