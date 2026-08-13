@@ -74,17 +74,27 @@ if (typeof lynxtron !== 'undefined' && lynxtron !== null) {
 @Entry
 @Component
 struct Index {
-  @State message: string = 'Lynxtron for HarmonyOS';
+  @State message: string = 'Lynxtron HarmonyOS bring-up';
   @State lastResult: string = '(not started yet)';
   @State moduleInfo: string = moduleDesc;
   @State logLines: string[] = [];
   @State electronDebug: string = AppStorage.get<string>('electron_debug') ?? '(not set)';
+  // Keep the same-layer Web demo available, but do not place it above the
+  // native surface while exercising a Lynx input control: it would receive
+  // the touch before XComponent can focus the Lynx field.
+  @State showWebOverlay: boolean = false;
   private webNodeController: WebNodeController = new WebNodeController();
 
   aboutToAppear(): void {
     // LynxtronMain is now started from XComponent.onLoad (see build()), so the
     // native surface exists before the render pipeline spins up.
     hilog.info(DOMAIN, TAG, 'aboutToAppear — waiting for XComponent surface');
+    // Text input is owned entirely by the native side: the bridge registers an
+    // InputMethod_TextEditorProxy (inputmethod NDK) and becomes the system
+    // IME's text client directly, so no ArkUI TextInput is involved and nothing
+    // steals focus from XComponent. This tick only lets the bridge observe
+    // Lynx's focus/caret state from the ArkUI thread and attach, detach, or
+    // move the candidate window accordingly.
     setInterval(() => this.syncImeState(), 50);
   }
 
@@ -184,12 +194,14 @@ struct Index {
       .width('100%')
       .height('100%')
 
-      // Same-layer Web hosted via NodeContainer (official ArkUI mechanism).
-      NodeContainer(this.webNodeController)
-        .width(1100)
-        .height(700)
-        .margin({ top: 120, left: 120 })
-        .border({ width: 3, color: Color.Red })
+      if (this.showWebOverlay) {
+        // Same-layer Web hosted via NodeContainer (official ArkUI mechanism).
+        NodeContainer(this.webNodeController)
+          .width(1100)
+          .height(700)
+          .margin({ top: 120, left: 120 })
+          .border({ width: 3, color: Color.Red })
+      }
     }
     .width('100%')
     .height('100%')

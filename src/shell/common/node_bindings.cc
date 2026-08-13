@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#endif
+
 #include "base/allocator/partition_allocator/src/partition_alloc/oom.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
@@ -429,9 +433,19 @@ void NodeBindings::Initialize(v8::Isolate* const isolate,
 
   for (const std::string& error : result->errors()) {
     std::cerr << args[0] << ": " << error << '\n';
+#if BUILDFLAG(IS_HARMONY)
+    OH_LOG_ERROR(LOG_APP,
+                 "[NodeBindings] InitializeOncePerProcess: %{public}s",
+                 error.c_str());
+#endif
   }
 
   if (result->early_return() != 0) {
+#if BUILDFLAG(IS_HARMONY)
+    OH_LOG_ERROR(LOG_APP,
+                 "[NodeBindings] InitializeOncePerProcess early return=%{public}d, exit=%{public}d",
+                 result->early_return(), result->exit_code());
+#endif
     exit(result->exit_code());
   }
 
@@ -583,7 +597,23 @@ std::shared_ptr<node::Environment> NodeBindings::CreateEnvironment(
 }
 
 void NodeBindings::LoadEnvironment(node::Environment* env) {
-  node::LoadEnvironment(env, node::StartExecutionCallback{}, &OnNodePreload);
+#if BUILDFLAG(IS_HARMONY)
+  OH_LOG_ERROR(LOG_APP, "[NodeBindings] LoadEnvironment enter");
+#endif
+  v8::TryCatch try_catch(env->isolate());
+  auto loaded =
+      node::LoadEnvironment(env, node::StartExecutionCallback{}, &OnNodePreload);
+#if BUILDFLAG(IS_HARMONY)
+  OH_LOG_ERROR(LOG_APP, "[NodeBindings] LoadEnvironment returned empty=%{public}d",
+               loaded.IsEmpty());
+#endif
+#if BUILDFLAG(IS_HARMONY)
+  if (loaded.IsEmpty() && try_catch.HasCaught()) {
+    v8::String::Utf8Value message(env->isolate(), try_catch.Exception());
+    OH_LOG_ERROR(LOG_APP, "[NodeBindings] LoadEnvironment exception: %{public}s",
+                 *message ? *message : "<unprintable>");
+  }
+#endif
   gin_helper::EmitEvent(env->isolate(), env->process_object(), "loaded");
 }
 
@@ -722,6 +752,9 @@ void OnNodePreload(node::Environment* env,
                    v8::Local<v8::Value> process,
                    v8::Local<v8::Value> require) {
   // Set custom process properties.
+#if BUILDFLAG(IS_HARMONY)
+  OH_LOG_ERROR(LOG_APP, "[NodeBindings] OnNodePreload enter");
+#endif
   gin_helper::Dictionary dict(env->isolate(), process.As<v8::Object>());
   dict.SetReadOnly("resourcesPath", GetResourcesPath());
   gin_helper::Dictionary versions;
@@ -742,6 +775,9 @@ void OnNodePreload(node::Environment* env,
   v8::LocalVector<v8::Value> bundle_args(env->isolate(), {process, require});
   util::CompileAndCall(env->isolate(), env->context(),
                        "lynxtron/js2c/node_init", &bundle_params, &bundle_args);
+#if BUILDFLAG(IS_HARMONY)
+  OH_LOG_ERROR(LOG_APP, "[NodeBindings] OnNodePreload returned");
+#endif
 }
 
 }  // namespace lynxtron

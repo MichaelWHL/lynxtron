@@ -11,7 +11,7 @@
 
 namespace lynxtron {
 
-// A GLDirect windowless renderer whose GL
+// Render bridge (roadmap step 1): a GLDirect windowless renderer whose GL
 // callbacks drive an EGL context created on the HarmonyOS XComponent surface
 // (the OHNativeWindow handed to us via LynxtronSetNativeSurface). Clay renders
 // its composited frame directly into the EGL window's default framebuffer, so
@@ -35,10 +35,19 @@ CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height);
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 GetCurrentHarmonyWindowlessRenderer();
 
+// Called while LynxView is being built. Captures the Clay platform sequence so
+// host input can be dispatched on the same sequence later.
+void CaptureHarmonyLynxPlatformTaskRunner();
+
 // Returns the most recent XComponent surface size (physical px) into *w,*h and
 // true, or false if no surface has arrived yet. NativeWindowHarmony uses this so
 // the LynxWindow's LynxView is sized to the real surface, not a fixed default.
 bool GetCurrentHarmonySurfaceSize(int* w, int* h);
+
+// Snapshot of the cached Lynx IME request and caret rectangle.  This is used
+// by the NAPI bridge on the ArkUI UI sequence; no renderer object escapes.
+bool GetCurrentHarmonyTextInputState(float* x, float* y, float* width,
+                                     float* height);
 
 }  // namespace lynxtron
 

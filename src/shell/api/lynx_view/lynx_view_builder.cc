@@ -122,6 +122,7 @@ std::unique_ptr<LynxView> LynxViewBuilder::Build() {
   // the view is created without a renderer and can be attached later.
   if (auto renderer = GetCurrentHarmonyWindowlessRenderer()) {
     impl_->builder.SetWindowlessRenderer(renderer);
+    CaptureHarmonyLynxPlatformTaskRunner();
     LOG(INFO) << "LynxView: using HarmonyOS EGL GLDirect windowless renderer";
   } else {
     LOG(WARNING) << "LynxView: no XComponent surface yet; built without renderer";

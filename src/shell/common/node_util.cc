@@ -10,6 +10,10 @@
 
 #include <utility>
 
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#endif
+
 #include "base/compiler_specific.h"
 #include "base/containers/to_value_list.h"
 #include "base/json/json_writer.h"
@@ -60,6 +64,10 @@ v8::MaybeLocal<v8::Value> CompileAndCall(
     }
     LOG(ERROR) << "CompileAndCall failed to evaluate electron script (" << id
                << "): " << msg;
+#if BUILDFLAG(IS_HARMONY)
+    OH_LOG_ERROR(LOG_APP, "[NodeUtil] %{public}s failed: %{public}s", id,
+                 msg.c_str());
+#endif
   }
   return ret;
 }

@@ -110,7 +110,7 @@ int LynxtronMain(int argc, char* argv[]) {
   // captured. Pull with:
   //   hdc file recv /data/app/el2/100/base/com.huawei.electron/files/lynxtron-stdio.log
   {
-    const char* kStdioLog = "/data/storage/el2/base/files/lynxtron-stdio.log";
+    const char* kStdioLog = "/data/local/tmp/lynxtron-stdio.log";
     FILE* f = freopen(kStdioLog, "w", stderr);
     if (f) {
       setvbuf(stderr, nullptr, _IONBF, 0);

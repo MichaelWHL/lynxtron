@@ -26,3 +26,5 @@ fix_expose_readfilesync_override_for_modules.patch
 chore_add_missing_include_of_iterator.patch
 fix_windows_build_problem.patch
 wire-harmony-into-node.patch
+harmony-share-inspector-protocol.patch
+disable-io-uring-on-harmony.patch

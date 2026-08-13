@@ -1,3 +1,12 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lynxtron Authors <lynxtron@example.com>
+Date: Tue, 21 Jul 2026 18:40:00 +0800
+Subject: [PATCH] Exclude embedder fallbacks on HarmonyOS
+
+---
+ platform/embedder/BUILD.gn | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
 diff --git a/platform/embedder/BUILD.gn b/platform/embedder/BUILD.gn
 index 278b4a06..bf0adc70 100644
 --- a/platform/embedder/BUILD.gn
