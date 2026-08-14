@@ -28,7 +28,7 @@ export PATH=${JAVA_HOME}/bin:${PATH}
 export CLASSPATH=.:${JAVA_HOME}/lib/dt.jar:${JAVA_HOME}/lib/tools.jar
 
 # OHOS command-line tools
-export DEVECO_SDK_HOME=${OHOS_TOOLS}/${OHOS_SDK_VERSION}/command-line-tools/sdk
+export DEVECO_SDK_HOME=${DEVECO_SDK_HOME:-${OHOS_TOOLS}/${OHOS_SDK_VERSION}/command-line-tools/sdk}
 export PATH=${DEVECO_SDK_HOME}:${PATH}
 export PATH=${OHOS_TOOLS}/${OHOS_SDK_VERSION}/command-line-tools/bin:${PATH}
 export PATH=${OHOS_TOOLS}/${OHOS_SDK_VERSION}/command-line-tools/ohpm/bin:${PATH}
