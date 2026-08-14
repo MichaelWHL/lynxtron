@@ -4,128 +4,359 @@
 
 .outlineFrame {
   display: flex;
-  height:max-content;
   flex-direction: column;
-  align-items: flex-start;
-  background: #060606;
   width: 100%;
   height: 100%;
+  padding: 36px 44px;
   overflow: hidden;
-}
-.autoWrapper {
-  display: flex;
-  position: relative;
-  height: 100%;
-  width: 100%;
-  overflow: visible;
-  justify-content: center;
-  align-items: center;
-}
-.lynxtron {
-  flex-shrink: 0;
-  min-width: 69px;
-  overflow: visible;
-  line-height: 26px;
-  white-space: nowrap;
-  color: #ffffff;
-  font-family: "TikTok Sans";
-  font-size: 16px;
-  font-weight: 700;
+  grid-row-gap: 26px;
+  background: linear-gradient(180deg, #14141c 0%, #0a0a0f 100%);
 }
 
-.innerFrame {
+/* ── 页头 ── */
+.pageHeader {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  padding: 80px 160px;
-  width: 100%;
-  overflow: visible;
-  grid-row-gap: 80px;
-}
-.introduction {
-  display: flex;
-  flex-direction: column;
+  justify-content: space-between;
   flex-shrink: 0;
-  align-items: center;
-  overflow: visible;
-  grid-row-gap: 32px;
 }
 
-.lynxtronTitle {
-  flex-shrink: 0;
-  align-self: stretch;
-  overflow: visible;
-  text-align: center;
-  line-height: 72px;
+.pageHeaderLeft {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 8px;
+}
+
+.pageTitle {
   color: #ffffff;
   font-family: Inter;
-  font-size: 72px;
-  font-weight: 700;
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 54px;
+  letter-spacing: 0.5px;
 }
-.contextWrapper {
-  flex-shrink: 0;
-  width: 640px;
-  overflow: visible;
-  text-align: center;
-  line-height: 24px;
-  color: #000000;
+
+.pageTitleAccent {
+  color: #6ea8ff;
+}
+
+.pageSubtitle {
+  color: rgba(255, 255, 255, 0.5);
   font-family: Inter;
   font-size: 16px;
-}
-.contextBold {
-  overflow: visible;
   line-height: 24px;
-  color: #ffffffe5;
+}
+
+/* ── Console 开关 ── */
+.logToggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  grid-column-gap: 10px;
+  flex-shrink: 0;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: #1a1a22;
+  border: 1px solid #2c2c38;
+}
+
+.logToggle:active {
+  background: #24242e;
+  border-color: #4a6da8;
+}
+
+.logToggle-on {
+  border-color: #2e4d3a;
+}
+
+.logToggleDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #3a3a44;
+}
+
+.logToggleDot-on {
+  background: #4ade80;
+}
+
+.logToggleText {
+  color: rgba(255, 255, 255, 0.82);
   font-family: Inter;
   font-size: 16px;
   font-weight: 600;
 }
-.contextLight {
-  overflow: visible;
-  line-height: 24px;
-  color: #ffffffa6;
-  font-family: Inter;
-  font-size: 16px;
-}
-.quickStartWrapper {
+
+/* ── 测试区域 ── */
+.testArea {
   display: flex;
-  position: relative;
+  flex-direction: column;
   flex-shrink: 0;
-  width: 141px;
-  height: 40px;
-  overflow: visible;
+  grid-row-gap: 16px;
 }
-.quickStartBackground {
-  display: flex;
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: 100px;
-  background: #4ff09f;
-  width: 141px;
-  height: 40px;
-  overflow: visible;
+
+.testAreaFill {
+  flex: 1;
 }
-.maskGroup {
+
+.testSectionHeader {
   display: flex;
-  position: absolute;
-  top: 0;
-  left: 0;
+  flex-direction: row;
   align-items: center;
-  padding: 12px 33px 11px;
-  height: 40px;
-  overflow: visible;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
+  grid-column-gap: 10px;
 }
-.quickStart {
-  min-width: 76px;
-  overflow: visible;
-  line-height: 17px;
-  white-space: nowrap;
-  color: #000000;
+
+.testSectionBar {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: #6ea8ff;
+}
+
+.testSectionTitle {
+  color: rgba(255, 255, 255, 0.6);
+  font-family: Inter;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.testGrid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  grid-column-gap: 18px;
+  grid-row-gap: 18px;
+}
+
+.testAreaFill .testGrid {
+  flex: 1;
+  align-content: center;
+  justify-content: center;
+}
+
+.testCard {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 264px;
+  grid-row-gap: 10px;
+}
+
+.testButton {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  grid-column-gap: 12px;
+  height: 66px;
+  border-radius: 16px;
+  background: #1a1a22;
+  border: 1px solid #2c2c38;
+}
+
+.testButton:active {
+  background: #262630;
+  border-color: #5a7fd0;
+}
+
+.testButtonDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #6ea8ff;
+}
+
+.testButtonText {
+  color: #ffffff;
+  font-family: Inter;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.testButtonArrow {
+  color: rgba(255, 255, 255, 0.35);
+  font-family: Inter;
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.testCardDesc {
+  color: rgba(255, 255, 255, 0.45);
   font-family: Inter;
   font-size: 14px;
-  font-weight: 500;
+  line-height: 20px;
+}
+
+/* ── Console 面板 ── */
+.logPanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 220px;
+  border-radius: 16px;
+  background: #101018;
+  border: 1px solid #26262e;
+  overflow: hidden;
+}
+
+.logPanelHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 14px 20px;
+  background: #15151d;
+  border-bottom: 1px solid #26262e;
+}
+
+.logPanelTitleWrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  grid-column-gap: 10px;
+}
+
+.logPanelTitle {
+  color: #ffffff;
+  font-family: Inter;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.logCount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #23233a;
+  color: #8ab4ff;
+  font-family: Inter;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.logPanelActions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  grid-column-gap: 10px;
+}
+
+.logCopyButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: 9px;
+  background: #1d2540;
+  border: 1px solid #35487a;
+}
+
+.logCopyButton:active {
+  background: #263158;
+}
+
+.logCopyButton-done {
+  background: #16301f;
+  border-color: #2e5c3d;
+}
+
+.logCopyButton-done:active {
+  background: #1c3a26;
+}
+
+.logCopyButtonText {
+  color: #9dbdff;
+  font-family: Inter;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.logCopyButton-done .logCopyButtonText {
+  color: #6ee7a0;
+}
+
+.logClearButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: 9px;
+  background: #22222c;
+  border: 1px solid #2e2e3a;
+}
+
+.logClearButton:active {
+  background: #2e2e3a;
+}
+
+.logClearButtonText {
+  color: rgba(255, 255, 255, 0.8);
+  font-family: Inter;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.logPanelBody {
+  flex: 1;
+  height: 240px;
+  overflow: scroll;
+  padding: 12px 20px;
+}
+
+.logLine {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  grid-column-gap: 10px;
+  margin: 0 -8px 2px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.logLine:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.logTime {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: "Roboto Mono", monospace;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.logText {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "Roboto Mono", monospace;
+  font-size: 14px;
+  line-height: 20px;
+  word-break: break-all;
+}
+
+.logLine-info .logText {
+  color: #7cb3ff;
+}
+
+.logLine-warn .logText {
+  color: #ffd866;
+}
+
+.logLine-error .logText {
+  color: #ff7a7a;
+}
+
+.logEmpty {
+  color: rgba(255, 255, 255, 0.35);
+  font-family: "Roboto Mono", monospace;
+  font-size: 14px;
+  line-height: 20px;
 }

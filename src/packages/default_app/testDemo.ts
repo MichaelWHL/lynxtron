@@ -4,6 +4,9 @@
 
 import { shell, dialog, nativeImage, powerMonitor } from 'lynxtron';
 
+import * as http from 'node:http';
+import * as https from 'node:https';
+
 /** 测试 shell.openExternal 各种协议的支持情况 */
 export async function testOpenExternal() {
   const testCases: Array<{ label: string; url: string }> = [
@@ -192,7 +195,7 @@ interface ShowSaveDialogCase {
 
 const saveTestCases: ShowSaveDialogCase[] = [
   // ── 基础保存 ──
-  // { label: '默认保存', options: {} },
+  { label: '默认保存', options: {} },
 
   // ── 带 defaultPath ──
   {
@@ -357,4 +360,161 @@ export function testOnlock() {
   setTimeout(() => {
     stopPowerMonitorTest()
   }, 5 * 1000)
+}
+
+// ──────────────────────────────────────────────
+// poll() 替代 select() 回归测试
+// 背景: OHOS select() 对 uv backend fd(epoll) 漏唤醒 → 网络 IO 卡 15-26s;
+//       已改为 poll()(node_bindings_harmony.cc PollEvents)。
+// 目标: 验证无回归 —— IO 唤醒 / timeout / 并发 / 错误 / 稳定性 各路径。
+// ──────────────────────────────────────────────
+
+// 网络用例统一使用该地址(用户指定, 局域网/外网可达的静态 JSON)
+const POLL_TEST_URL = 'https://registry.npmmirror.com/jquery/3.6.4/files/package.json';
+// 卡顿回归阈值: 修复前单请求 15-26s, 修复后 1s 内; 超过 3s 视为回归
+const POLL_SLOW_MS = 3000;
+
+interface PollHttpResult {
+  status: number;
+  ms: number;
+  err?: string;
+}
+
+/** 单次 HTTP(S) GET, 记录状态码与耗时(ms); timeoutMs 兜底 destroy 防挂死 */
+function pollHttpGet(urlStr: string, timeoutMs = 10000): Promise<PollHttpResult> {
+  const startedAt = Date.now();
+  return new Promise<PollHttpResult>((resolve) => {
+    const mod = urlStr.startsWith('https:') ? https : http;
+    let settled = false;
+    const done = (r: PollHttpResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+    const req = mod.get(urlStr, (res) => {
+      res.resume(); // 消费响应体
+      res.on('end', () => {
+        done({ status: res.statusCode ?? 0, ms: Date.now() - startedAt });
+      });
+    });
+    const failTimer = setTimeout(() => {
+      req.destroy(new Error('timeout'));
+    }, timeoutMs);
+    req.on('error', (err: Error) => {
+      done({ status: 0, ms: Date.now() - startedAt, err: err.message });
+    });
+    req.on('close', () => clearTimeout(failTimer));
+  });
+}
+
+const pollSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** IO 唤醒路径: 单次 HTTPS 请求必须 < POLL_SLOW_MS(修复前会卡 15-26s) */
+export async function testPollHttpBasic() {
+  const r = await pollHttpGet(POLL_TEST_URL);
+  const ok = r.status === 200 && r.ms < POLL_SLOW_MS;
+  console.log(`[poll.basic] status=${r.status} ms=${r.ms} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.basic] 完成: ${ok ? '1 通过' : '1 失败'}`);
+  return ok;
+}
+
+/** 并发 IO: 10 个并发请求, 全部完成且不互相饿死 */
+export async function testPollHttpConcurrent() {
+  const results = await Promise.all(
+    Array.from({ length: 10 }, () => pollHttpGet(POLL_TEST_URL))
+  );
+  results.forEach((r, i) =>
+    console.log(`  [poll.concurrent] #${i} status=${r.status} ms=${r.ms}`)
+  );
+  const passed = results.filter((r) => r.status === 200 && r.ms < POLL_SLOW_MS).length;
+  const ok = passed === results.length;
+  console.log(`[poll.concurrent] 完成: ${passed}/${results.length} 通过 ${ok ? '✓' : '✗'}`);
+  return ok;
+}
+
+/** timeout 路径: setTimeout(100) 实际延迟应接近 100ms(poll 的 ms timeout 与 select 的 tv 转换等价) */
+export async function testPollTimerPrecision() {
+  const DELAY = 100;
+  const results: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const t0 = Date.now();
+    await pollSleep(DELAY);
+    results.push(Date.now() - t0);
+  }
+  const max = Math.max(...results);
+  const ok = max < 1000; // 宽松阈值: 不允许 15-26s 级别的饿死
+  console.log(`[poll.timer] delays=[${results.join(',')}] max=${max} ${ok ? '✓' : '✗'}`);
+  return ok;
+}
+
+/** timer + IO 混合: 定时器与网络请求同时活动, 两者都应及时 */
+export async function testPollTimerAndIO() {
+  let timerFiredAt = 0;
+  const timerDone = new Promise<void>((r) => {
+    setTimeout(() => {
+      timerFiredAt = Date.now();
+      r();
+    }, 200);
+  });
+  const t0 = Date.now();
+  const all = await Promise.all([pollHttpGet(POLL_TEST_URL), timerDone]);
+  const httpResult = all[0];
+  const timerMs = timerFiredAt - t0;
+  const ok =
+    httpResult.status === 200 &&
+    httpResult.ms < POLL_SLOW_MS &&
+    timerMs >= 0 &&
+    timerMs < 1000;
+  console.log(
+    `[poll.mix] http status=${httpResult.status} ms=${httpResult.ms}; timer fired at ${timerMs}ms ${ok ? '✓' : '✗'}`
+  );
+  return ok;
+}
+
+/** 错误路径: 连接拒绝必须快速失败(验证 POLLERR/POLLHUP 不会挂死) */
+export async function testPollConnectRefused() {
+  const t0 = Date.now();
+  const r = await pollHttpGet('http://127.0.0.1:9/', 5000); // 本机无监听 → ECONNREFUSED
+  const ms = Date.now() - t0;
+  const ok = !!r.err && ms < POLL_SLOW_MS;
+  console.log(`[poll.refused] err=${r.err ?? 'none'} ms=${ms} ${ok ? '✓' : '✗'}`);
+  return ok;
+}
+
+/** 超时兜底: 不可达地址 + 兜底 destroy, timer 应触发(不无限挂起) */
+export async function testPollRequestTimeout() {
+  const t0 = Date.now();
+  // TEST-NET-1(192.0.2.1) 为 IANA 保留地址, 通常不可达 → 挂起至兜底 timeout
+  const r = await pollHttpGet('http://192.0.2.1:80/', 2000);
+  const ms = Date.now() - t0;
+  const ok = !!r.err && ms < 15000; // 只要快速失败/超时, 不允许无限挂死
+  console.log(`[poll.timeout] err=${r.err ?? 'none'} ms=${ms} ${ok ? '✓' : '✗'}`);
+  return ok;
+}
+
+/** 稳定性: 20 次串行请求, 抓偶发长卡(原 bug 特征: 偶发 15-26s) */
+export async function testPollHttpLoop() {
+  const times: number[] = [];
+  let failed = 0;
+  for (let i = 0; i < 20; i++) {
+    const r = await pollHttpGet(POLL_TEST_URL);
+    times.push(r.ms);
+    if (r.status !== 200 || r.ms >= POLL_SLOW_MS) failed++;
+  }
+  const max = Math.max(...times);
+  const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+  const ok = failed === 0;
+  console.log(
+    `[poll.loop] n=20 avg=${avg}ms max=${max}ms failed=${failed} ${ok ? '✓' : '✗'}`
+  );
+  return ok;
+}
+
+/** timeout=-1 无限阻塞路径: 无 pending timer 时, IO 事件到达应立即唤醒 */
+export async function testPollNoTimerIO() {
+  await pollSleep(50); // 让 pending timer 尽量清空
+  const r = await pollHttpGet(POLL_TEST_URL);
+  const ok = r.status === 200 && r.ms < POLL_SLOW_MS;
+  console.log(`[poll.notimer] status=${r.status} ms=${r.ms} ${ok ? '✓' : '✗'}`);
+  return ok;
 }
