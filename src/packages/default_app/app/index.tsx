@@ -6,6 +6,7 @@ import { root, useEffect, useState } from '@lynx-js/react';
 import './index.css';
 import LogPanel from './LogPanel';
 import { log, logError, logInfo, logWarn } from './log';
+import { testSelectorQuery } from './selectorQueryTest';
 
 // testDemo.ts 中每个测试方法对应一个按钮
 const TEST_FUNCTIONS: Array<{ name: string; label: string; desc: string }> = [
@@ -172,6 +173,32 @@ export default function WebContainer() {
           <view className="testSectionBar" />
           <text className="testSectionTitle">API 测试</text>
         </view>
+        <view
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            padding: '12px 16px',
+          }}
+        >
+          <view
+            id="lxp-target"
+            style={{
+              width: '160px',
+              height: '64px',
+              backgroundColor: '#4f8cff',
+              borderRadius: '8px',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <text style={{ color: '#fff', fontSize: '12px' }}>#lxp-target</text>
+          </view>
+          <view className="lxp-item" style={{ width: '80px', height: '40px', backgroundColor: '#3fb96b', borderRadius: '6px', marginLeft: '8px' }} />
+          <view className="lxp-item" style={{ width: '80px', height: '40px', backgroundColor: '#3fb96b', borderRadius: '6px', marginLeft: '8px' }} />
+          <view className="lxp-item" style={{ width: '80px', height: '40px', backgroundColor: '#3fb96b', borderRadius: '6px', marginLeft: '8px' }} />
+          <text style={{ fontSize: '11px', color: '#8a8f98', marginLeft: '10px' }}>测试目标: #lxp-target + 3× .lxp-item</text>
+        </view>
         <view className={`testGrid ${showLog ? '' : 'testGridFill'}`}>
           {TEST_FUNCTIONS.map((t) => (
             <view className="testCard" key={t.name}>
@@ -189,6 +216,14 @@ export default function WebContainer() {
               <text className="testButtonText">requireModule</text>
               <text className="testButtonArrow">›</text>
             </view>
+          </view>
+             <view className="testCard">
+            <view className="testButton" bindtap={() => { testSelectorQuery(); }}>
+              <view className="testButtonDot" />
+              <text className="testButtonText">SelectorQuery</text>
+              <text className="testButtonArrow">›</text>
+            </view>
+            <text className="testCardDesc">createSelectorQuery 五个用例</text>
           </view>
         </view>
       </view>
