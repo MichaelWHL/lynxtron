@@ -57,7 +57,7 @@ index 109c340..305e066 100644
        _ext = "a"
  
 +      if (is_harmony) {
-+        clang_version = "15.0.4"
++        clang_version = "19"
 +      }
        _clang_lib_dir = "$clang_base_path/lib/clang/$clang_version/lib"
        if (is_win) {
@@ -583,6 +583,23 @@ Subject: [PATCH 3/5] Wire harmony toolchain: clang_base_path / rebase_path /
  config/compiler/BUILD.gn   | 3 ++-
  toolchain/harmony/BUILD.gn | 8 +++++---
  3 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/config/clang/clang.gni b/config/clang/clang.gni
+index 5fc58fc..ad55b48 100644
+--- a/config/clang/clang.gni
++++ b/config/clang/clang.gni
+@@ -9,6 +9,11 @@ import("//build/toolchain/toolchain.gni")
+ 
+ default_clang_base_path = "//third_party/llvm-build/Release+Asserts"
+ 
++if (is_harmony) {
++  import("//build/config/harmony/config.gni")
++  default_clang_base_path = harmony_toolchain_root
++}
++
+ declare_args() {
+   # Indicates if the build should use the Chrome-specific plugins for enforcing
+   # coding guidelines, etc. Only used when compiling with Chrome's Clang, not
 
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
 index bb00fea..bb275b7 100644
