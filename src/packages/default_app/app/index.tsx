@@ -7,6 +7,7 @@ import './index.css';
 import LogPanel from './LogPanel';
 import { log, logError, logInfo, logWarn } from './log';
 import { testSelectorQuery } from './selectorQueryTest';
+import { testJSModule } from './jsModuleTest';
 
 // testDemo.ts 中每个测试方法对应一个按钮
 const TEST_FUNCTIONS: Array<{ name: string; label: string; desc: string }> = [
@@ -108,6 +109,13 @@ export default function WebContainer() {
         emitter.off('bridge-log', handler, lynx);
       }
     };
+  }, []);
+
+  // SelectorQuery + JSModule 测试: 打开页面后自动跑(等布局就绪); 也可点下方按钮重跑
+  useEffect(() => {
+    const id1 = setTimeout(() => testSelectorQuery(), 1000);
+    const id2 = setTimeout(() => testJSModule(), 1200);
+    return () => { clearTimeout(id1); clearTimeout(id2); };
   }, []);
 
   // 桥接主线程: 调用 Node 主进程中的 testDemo 测试方法
@@ -223,7 +231,15 @@ export default function WebContainer() {
               <text className="testButtonText">SelectorQuery</text>
               <text className="testButtonArrow">›</text>
             </view>
-            <text className="testCardDesc">createSelectorQuery 五个用例</text>
+            <text className="testCardDesc">createSelectorQuery 六个用例</text>
+          </view>
+             <view className="testCard">
+            <view className="testButton" bindtap={() => { testJSModule(); }}>
+              <view className="testButtonDot" />
+              <text className="testButtonText">JSModule</text>
+              <text className="testButtonArrow">›</text>
+            </view>
+            <text className="testCardDesc">getJSModule/registerModule 四个用例</text>
           </view>
         </view>
       </view>
