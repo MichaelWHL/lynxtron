@@ -42,6 +42,7 @@ const TEST_FN_NAMES = [
   'testPollRequestTimeout',
   'testPollHttpLoop',
   'testPollNoTimerIO',
+  'testGetPrimaryDisplay',
 ] as const;
 
 let testFns: Record<string, TestFn> | null = null;

@@ -30,13 +30,38 @@ display::Display MakeDisplayFromOHOS(
   d.set_bounds(gfx::Rect(0, 0,
                          static_cast<int>(info->width / scale),
                          static_cast<int>(info->height / scale)));
-  d.set_work_area(gfx::Rect(0, 0,
-                            static_cast<int>(info->availableWidth / scale),
-                            static_cast<int>(info->availableHeight / scale)));
+  // Use OH_NativeDisplayManager_CreateAvailableArea (since API 20) to get the
+  // real available area with its origin offset (status bar, cutout, etc).
+  NativeDisplayManager_Rect* area = nullptr;
+  if (OH_NativeDisplayManager_CreateAvailableArea(info->id, &area) ==
+          DISPLAY_MANAGER_OK &&
+      area) {
+    d.set_work_area(gfx::Rect(static_cast<int>(area->left / scale),
+                              static_cast<int>(area->top / scale),
+                              static_cast<int>(area->width / scale),
+                              static_cast<int>(area->height / scale)));
+    OH_NativeDisplayManager_DestroyAvailableArea(area);
+  } else {
+    // Fallback: keep the legacy full-area behavior.
+    d.set_work_area(gfx::Rect(0, 0,
+                              static_cast<int>(info->availableWidth / scale),
+                              static_cast<int>(info->availableHeight / scale)));
+  }
   d.set_device_scale_factor(scale);
   d.set_display_frequency(static_cast<float>(info->refreshRate));
   d.set_rotation(static_cast<display::Display::Rotation>(info->rotation));
   return d;
+}
+
+// Determine whether a display is the internal panel by its source mode
+// (DISPLAY_SOURCE_MODE_MAIN == built-in main screen, since API 20).
+bool IsInternalDisplay(uint64_t display_id) {
+  NativeDisplayManager_SourceMode mode;
+  if (OH_NativeDisplayManager_GetDisplaySourceMode(display_id, &mode) !=
+      DISPLAY_MANAGER_OK) {
+    return false;
+  }
+  return mode == DISPLAY_SOURCE_MODE_MAIN;
 }
 
 }  // namespace
@@ -135,9 +160,11 @@ class DesktopScreenHarmony : public display::Screen {
                    << static_cast<int>(ret);
       return display::Display::GetDefaultDisplay();
     }
-    // Default: mark primary as internal.
-    display::SetInternalDisplayIds(
-        base::flat_set<int64_t>({static_cast<int64_t>(info->id)}));
+    // Mark primary as internal only when its source mode is MAIN.
+    if (IsInternalDisplay(info->id)) {
+      display::SetInternalDisplayIds(
+          base::flat_set<int64_t>({static_cast<int64_t>(info->id)}));
+    }
     display::Display d = MakeDisplayFromOHOS(info);
     OH_NativeDisplayManager_DestroyDisplay(info);
     return d;
@@ -172,8 +199,8 @@ class DesktopScreenHarmony : public display::Screen {
     for (uint32_t i = 0; i < count; ++i) {
       const auto* di = &info->displaysInfo[i];
       displays_.push_back(MakeDisplayFromOHOS(di));
-      // Default all alive displays as internal.
-      if (di->isAlive) {
+      // Only displays in MAIN source mode are internal.
+      if (di->isAlive && IsInternalDisplay(di->id)) {
         internal_ids.insert(static_cast<int64_t>(di->id));
         LOG(INFO) << "[LynxtronScreen] display id=" << di->id
                   << " name=" << di->name << " internal=true";

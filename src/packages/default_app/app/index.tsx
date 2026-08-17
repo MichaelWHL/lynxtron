@@ -46,6 +46,11 @@ const TEST_FUNCTIONS: Array<{ name: string; label: string; desc: string }> = [
     label: 'PowerMonitor',
     desc: 'powerMonitor 锁屏事件监听',
   },
+  {
+    name:"testGetPrimaryDisplay",
+    label:"testGetPrimaryDisplay",
+    desc:"获取主屏幕信息"
+  }
   // ── poll() 替代 select() 回归测试 (node_bindings_harmony.cc PollEvents) ──
   // {
   //   name: 'testPollHttpBasic',
@@ -112,11 +117,6 @@ export default function WebContainer() {
   }, []);
 
   // SelectorQuery + JSModule 测试: 打开页面后自动跑(等布局就绪); 也可点下方按钮重跑
-  useEffect(() => {
-    const id1 = setTimeout(() => testSelectorQuery(), 1000);
-    const id2 = setTimeout(() => testJSModule(), 1200);
-    return () => { clearTimeout(id1); clearTimeout(id2); };
-  }, []);
 
   // 桥接主线程: 调用 Node 主进程中的 testDemo 测试方法
   const runTest = (name: string) => {
@@ -145,11 +145,11 @@ export default function WebContainer() {
     }
     try {
       const mod: any = lynx.requireModule('https://registry.npmmirror.com/jquery/3.6.4/files/package.json')
-      logInfo('ZZFF', '成功加载, md5 = ' + mod.md5);
-      if (mod.md5) {
-        logInfo('ZZFF', mod.md5);
+      logInfo('ZZFF', '成功加载, name = ' + mod.name);
+      if (mod.name) {
+        logInfo('ZZFF', mod.name);
       } else {
-        logInfo('ZZFF', 'md5 为空');
+        logInfo('ZZFF', 'name 为空');
       }
     } catch (e) {
       logInfo('ZZFF', '报错: ' + String(e));

@@ -2,7 +2,7 @@
 // shell.openExternal 测试用例
 // ──────────────────────────────────────────────
 
-import { shell, dialog, nativeImage, powerMonitor } from 'lynxtron';
+import { shell, dialog, nativeImage, powerMonitor, screen } from 'lynxtron';
 
 import * as http from 'node:http';
 import * as https from 'node:https';
@@ -178,6 +178,18 @@ export async function testShowOpenDialog() {
     }
   }
   console.log(`[dialog.showOpenDialog] 完成: ${passed} 通过, ${failed} 失败`);
+}
+
+/** 选择字体文件: 返回 {filePaths, canceled} 给 UI 侧 addFont 测试用 */
+export async function pickFontFile() {
+  const result = await dialog.showOpenDialog({
+    title: '选择字体文件',
+    properties: ['openFile'],
+    filters: [
+      { name: '字体文件', extensions: ['ttf', 'otf', 'ttc', 'woff', 'woff2'] },
+    ],
+  });
+  return { filePaths: result.filePaths ?? [], canceled: result.canceled };
 }
 
 // ──────────────────────────────────────────────
@@ -517,4 +529,9 @@ export async function testPollNoTimerIO() {
   const ok = r.status === 200 && r.ms < POLL_SLOW_MS;
   console.log(`[poll.notimer] status=${r.status} ms=${r.ms} ${ok ? '✓' : '✗'}`);
   return ok;
+}
+
+export function testGetPrimaryDisplay() {
+  const res = screen.getPrimaryDisplay()
+  console.log('[screen]', JSON.stringify(res, null, 2))
 }
