@@ -12,6 +12,40 @@ import lynxtron from 'liblynxtron_napi.so';
 import { AbilityManager } from '../common/AbilityManager';
 import { WindowBounds } from '../adapter/AppWindowAdapter';
 
+// JSON payloads received from the C++ window operation bridge.
+interface BoundsPayload {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface PositionPayload {
+  x: number;
+  y: number;
+}
+
+interface SizePayload {
+  width: number;
+  height: number;
+}
+
+interface TitlePayload {
+  title: string;
+}
+
+interface WindowLimitsPayload {
+  minWidth: number;
+  minHeight: number;
+  maxWidth: number;
+  maxHeight: number;
+}
+
+interface WindowBorders {
+  leftBorder: number;
+  topBorder: number;
+}
+
 const DOMAIN = 0x0000;
 const TAG = 'BaseWindowAbility';
 
@@ -446,16 +480,17 @@ export default abstract class BaseWindowAbility extends UIAbility {
             }
             break;
           case 'show':
-            win.showWindow()
-              .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showWindow'))
-              .catch((e: BusinessError) => {
-                BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showWindow:${BaseWindowAbility.errText(e)}`);
-                if (showAbility) {
-                  showAbility()
-                    .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showAbility-fallback'))
-                    .catch((e2: BusinessError) => BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showAbility:${BaseWindowAbility.errText(e2)}`));
-                }
-              });
+            // Main Ability windows that were hidden via hideAbility() must be
+            // re-shown via showAbility(); subwindows use showWindow().
+            if (showAbility) {
+              showAbility()
+                .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showAbility'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showAbility:${BaseWindowAbility.errText(e)}`));
+            } else {
+              win.showWindow()
+                .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showWindow'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showWindow:${BaseWindowAbility.errText(e)}`));
+            }
             break;
           case 'close':
             // For subwindows win.destroyWindow() closes just the subwindow;
@@ -496,54 +531,69 @@ export default abstract class BaseWindowAbility extends UIAbility {
             break;
           }
           case 'hide':
-            win.hideWindow()
-              .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK'))
-              .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', String(e)));
+            // Main Ability windows are hidden via the Ability context; subwindows
+            // do not have a separate hide API, so minimize them instead.
+            if (showAbility) {
+              context.hideAbility()
+                .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK', 'hideAbility'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', `hideAbility:${BaseWindowAbility.errText(e)}`));
+            } else {
+              win.minimize()
+                .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK', 'minimize-fallback'))
+                .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', String(e)));
+            }
             break;
           case 'setBounds': {
-            const bounds = args ? JSON.parse(args) as { x: number; y: number; width: number; height: number } : undefined;
+            const bounds = args ? JSON.parse(args) as BoundsPayload : undefined;
             if (!bounds) {
               BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', 'missing-args');
               break;
             }
-            win.moveWindowToAsync(bounds.x, bounds.y)
-              .then(() => win.resizeAsync(bounds.width, bounds.height))
+            const adjusted = BaseWindowAbility.adjustBoundsForWindow(bounds, win);
+            win.moveWindowToAsync(adjusted.x, adjusted.y)
+              .then(() => win.resizeAsync(adjusted.width, adjusted.height))
               .then(() => BaseWindowAbility.recordWindowOpResult('setBounds', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', BaseWindowAbility.errText(e)));
             break;
           }
           case 'setPosition': {
-            const pos = args ? JSON.parse(args) as { x: number; y: number } : undefined;
+            const pos = args ? JSON.parse(args) as PositionPayload : undefined;
             if (!pos) {
               BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', 'missing-args');
               break;
             }
-            win.moveWindowToAsync(pos.x, pos.y)
+            const borders = BaseWindowAbility.getWindowBorders(win);
+            win.moveWindowToAsync(pos.x - borders.leftBorder, pos.y - borders.topBorder)
               .then(() => BaseWindowAbility.recordWindowOpResult('setPosition', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', BaseWindowAbility.errText(e)));
             break;
           }
           case 'setSize': {
-            const size = args ? JSON.parse(args) as { width: number; height: number } : undefined;
+            const size = args ? JSON.parse(args) as SizePayload : undefined;
             if (!size) {
               BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', 'missing-args');
               break;
             }
-            win.resizeAsync(size.width, size.height)
+            const borders = BaseWindowAbility.getWindowBorders(win);
+            win.resizeAsync(size.width + borders.leftBorder + borders.leftBorder,
+                            size.height + borders.topBorder + borders.leftBorder)
               .then(() => BaseWindowAbility.recordWindowOpResult('setSize', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', BaseWindowAbility.errText(e)));
             break;
           }
           case 'center': {
-            const rect = args ? JSON.parse(args) as { width: number; height: number } : undefined;
+            const rect = args ? JSON.parse(args) as SizePayload : undefined;
             if (!rect) {
               BaseWindowAbility.recordWindowOpResult('center', 'ERR', 'missing-args');
               break;
             }
             try {
               const disp = display.getDefaultDisplaySync();
-              const left = Math.round((disp.width - rect.width) / 2);
-              const top = Math.round((disp.height - rect.height) / 2);
+              const borders = BaseWindowAbility.getWindowBorders(win);
+              const totalWidth = rect.width + borders.leftBorder + borders.leftBorder;
+              const totalHeight = rect.height + borders.topBorder + borders.leftBorder;
+              const left = Math.round((disp.width - totalWidth) / 2);
+              const top = Math.round((disp.height - totalHeight) / 2);
               win.moveWindowToAsync(left, top)
                 .then(() => BaseWindowAbility.recordWindowOpResult('center', 'OK'))
                 .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('center', 'ERR', BaseWindowAbility.errText(e)));
@@ -553,7 +603,7 @@ export default abstract class BaseWindowAbility extends UIAbility {
             break;
           }
           case 'setTitle': {
-            const titlePayload = args ? JSON.parse(args) as { title: string } : undefined;
+            const titlePayload = args ? JSON.parse(args) as TitlePayload : undefined;
             const title = titlePayload?.title ?? '';
             try {
               win.setWindowTitle(title);
@@ -564,21 +614,17 @@ export default abstract class BaseWindowAbility extends UIAbility {
             break;
           }
           case 'setWindowLimits': {
-            const limits = args ? JSON.parse(args) as {
-              minWidth: number;
-              minHeight: number;
-              maxWidth: number;
-              maxHeight: number;
-            } : undefined;
+            const limits = args ? JSON.parse(args) as WindowLimitsPayload : undefined;
             if (!limits) {
               BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', 'missing-args');
               break;
             }
+            const borders = BaseWindowAbility.getWindowBorders(win);
             win.setWindowLimits({
-              minWidth: limits.minWidth ?? 0,
-              minHeight: limits.minHeight ?? 0,
-              maxWidth: limits.maxWidth ?? 0,
-              maxHeight: limits.maxHeight ?? 0,
+              minWidth: limits.minWidth === 0 ? 0 : limits.minWidth + borders.leftBorder + borders.leftBorder,
+              minHeight: limits.minHeight === 0 ? 0 : limits.minHeight + borders.topBorder + borders.leftBorder,
+              maxWidth: limits.maxWidth === 0 ? 0 : limits.maxWidth + borders.leftBorder + borders.leftBorder,
+              maxHeight: limits.maxHeight === 0 ? 0 : limits.maxHeight + borders.topBorder + borders.leftBorder,
             })
               .then(() => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', BaseWindowAbility.errText(e)));
@@ -599,5 +645,23 @@ export default abstract class BaseWindowAbility extends UIAbility {
 
   private static recordWindowOpResult(op: string, result: string, detail?: string): void {
     hilog.info(DOMAIN, TAG, 'windowOp %{public}s %{public}s %{public}s', op, result, detail ?? '');
+  }
+
+  private static getWindowBorders(win: window.Window): WindowBorders {
+    const drawable = win.getWindowProperties()?.drawableRect;
+    return {
+      leftBorder: drawable?.left ?? 0,
+      topBorder: drawable?.top ?? 0,
+    };
+  }
+
+  private static adjustBoundsForWindow(bounds: BoundsPayload, win: window.Window): BoundsPayload {
+    const borders = BaseWindowAbility.getWindowBorders(win);
+    return {
+      x: bounds.x - borders.leftBorder,
+      y: bounds.y - borders.topBorder,
+      width: bounds.width + borders.leftBorder + borders.leftBorder,
+      height: bounds.height + borders.topBorder + borders.leftBorder,
+    };
   }
 }

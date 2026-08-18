@@ -286,6 +286,116 @@ async function runBatch7Tests() {
   console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test End ===');
 }
 
+async function runBatch8Tests() {
+  console.log('[WindowManagerTest] === Batch 8 Cross-Layer Window Property Ops Test Start ===');
+
+  const cleanupWindows: LynxWindow[] = [];
+
+  try {
+    console.log('[WindowManagerTest] ACTION: creating property-test window');
+    const win = new LynxWindow({ width: 600, height: 400, show: true });
+    cleanupWindows.push(win);
+    await sleep(1500);
+
+    // B8-STEP1: setTitle
+    console.log('[WindowManagerTest] ACTION: calling setTitle(...)');
+    win.setTitle('batch8-test-title');
+    await sleep(500);
+    const title = win.getTitle();
+    logResult('B8-STEP1 setTitle', { title });
+    console.log(`[WindowManagerTest] B8-STEP1 result: ${title === 'batch8-test-title' ? 'PASS' : 'FAIL'} (expected title='batch8-test-title')`);
+
+    await sleep(500);
+
+    // B8-STEP2: setBounds
+    console.log('[WindowManagerTest] ACTION: calling setBounds(...)');
+    win.setBounds({ x: 100, y: 100, width: 500, height: 350 });
+    await sleep(1000);
+    const bounds = win.getBounds();
+    logResult('B8-STEP2 setBounds', bounds);
+    const boundsPass = bounds.x === 100 && bounds.y === 100 && bounds.width === 500 && bounds.height === 350;
+    console.log(`[WindowManagerTest] B8-STEP2 result: ${boundsPass ? 'PASS' : 'FAIL'} (expected x=100,y=100,w=500,h=350)`);
+
+    await sleep(500);
+
+    // B8-STEP3: setPosition
+    console.log('[WindowManagerTest] ACTION: calling setPosition(...)');
+    win.setPosition(120, 130);
+    await sleep(1000);
+    const pos = win.getPosition();
+    logResult('B8-STEP3 setPosition', { pos });
+    const posPass = pos[0] === 120 && pos[1] === 130;
+    console.log(`[WindowManagerTest] B8-STEP3 result: ${posPass ? 'PASS' : 'FAIL'} (expected x=120,y=130)`);
+
+    await sleep(500);
+
+    // B8-STEP4: setSize
+    console.log('[WindowManagerTest] ACTION: calling setSize(...)');
+    win.setSize(520, 360);
+    await sleep(1000);
+    const size = win.getSize();
+    logResult('B8-STEP4 setSize', { size });
+    const sizePass = size[0] === 520 && size[1] === 360;
+    console.log(`[WindowManagerTest] B8-STEP4 result: ${sizePass ? 'PASS' : 'FAIL'} (expected 520x360)`);
+
+    await sleep(500);
+
+    // B8-STEP5: center
+    console.log('[WindowManagerTest] ACTION: calling center()');
+    const beforeCenter = win.getPosition();
+    win.center();
+    await sleep(1000);
+    const afterCenter = win.getPosition();
+    logResult('B8-STEP5 center', { before: beforeCenter, after: afterCenter });
+    const centerPass = afterCenter[0] !== beforeCenter[0] || afterCenter[1] !== beforeCenter[1];
+    console.log(`[WindowManagerTest] B8-STEP5 result: ${centerPass ? 'PASS' : 'FAIL'} (expected position changed)`);
+
+    await sleep(500);
+
+    // B8-STEP6: hide / show
+    console.log('[WindowManagerTest] ACTION: calling hide()');
+    win.hide();
+    await sleep(1000);
+    const hiddenVisible = win.isVisible();
+    console.log('[WindowManagerTest] ACTION: calling show()');
+    win.show();
+    await sleep(1000);
+    const shownVisible = win.isVisible();
+    logResult('B8-STEP6 hide/show', { hiddenVisible, shownVisible });
+    console.log(`[WindowManagerTest] B8-STEP6 result: ${hiddenVisible === false && shownVisible === true ? 'PASS' : 'FAIL'} (expected hidden=false, shown=true)`);
+
+    await sleep(500);
+
+    // B8-STEP7: focus false / true + blur event
+    console.log('[WindowManagerTest] ACTION: calling focus(false)');
+    const blurEvents: string[] = [];
+    win.on('blur' as any, () => blurEvents.push('blur'));
+    win.focus();
+    await sleep(500);
+    win.focus(false);
+    await sleep(1000);
+    const blurred = !win.isFocused();
+    console.log('[WindowManagerTest] ACTION: calling focus()');
+    win.focus();
+    await sleep(1000);
+    const focused = win.isFocused();
+    logResult('B8-STEP7 focus/blur', { blurred, focused, events: blurEvents });
+    console.log(`[WindowManagerTest] B8-STEP7 result: ${blurred && focused ? 'PASS' : 'FAIL'} (expected blurred=true, focused=true)`);
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
+  } finally {
+    for (const win of cleanupWindows) {
+      try {
+        win.close();
+      } catch (e) {
+        // ignore cleanup errors
+      }
+    }
+  }
+
+  console.log('[WindowManagerTest] === Batch 8 Cross-Layer Window Property Ops Test End ===');
+}
+
 async function runTests() {
   console.log('[WindowManagerTest] === Batch 1 Window Manager Test Start ===');
 
@@ -319,6 +429,10 @@ async function runTests() {
     // sub/panel/dialog OS-level parent relationship, modal). Run while the
     // main window is visible so parent references are valid.
     await runBatch7Tests();
+
+    // Batch 8: exercise cross-layer property operations (setBounds/setPosition/
+    // setSize/center/setTitle/hide/show/focus-false).
+    await runBatch8Tests();
 
     // Step 3: minimize (verify isMinimized state)
     console.log('[WindowManagerTest] ACTION: calling minimize()');

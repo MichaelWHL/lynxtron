@@ -343,6 +343,17 @@ export class AppWindowAdapter {
           }
         }
 
+        // Subwindow focus behavior aligned with libelectron: keep the soft
+        // keyboard usable but start non-focused so the parent keeps focus.
+        try {
+          subWindow.keepKeyboardOnFocus(true);
+        } catch (e) {
+          hilog.error(DOMAIN, TAG, 'subWindow keepKeyboardOnFocus failed: %{public}s', String(e));
+        }
+        subWindow.setWindowFocusable(false)
+          .then(() => hilog.info(DOMAIN, TAG, 'subWindow setWindowFocusable(false) OK'))
+          .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow setWindowFocusable(false) failed: %{public}s', JSON.stringify(e)));
+
         // Bind C++ window id to the subwindow's HarmonyOS window id.
         lynxtron.setWindowIdForWindow(options.windowId, originWindowId);
 
