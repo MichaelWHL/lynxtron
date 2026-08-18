@@ -190,7 +190,7 @@ export class AppWindowAdapter {
     };
 
     const startOptions: StartOptions = {
-      processMode: contextConstant.ProcessMode.NEW_PROCESS_ATTACH_TO_STATUS_BAR_ITEM,
+      processMode: contextConstant.ProcessMode.ATTACH_TO_STATUS_BAR_ITEM,
       startupVisibility: (options.show ?? true)
         ? contextConstant.StartupVisibility.STARTUP_SHOW
         : contextConstant.StartupVisibility.STARTUP_HIDE,
@@ -234,7 +234,7 @@ export class AppWindowAdapter {
 
     const bounds: WindowBounds = param.bounds ?? { left: 100, top: 100, width: 800, height: 600 };
     const options: StartOptions = {
-      processMode: contextConstant.ProcessMode.NEW_PROCESS_ATTACH_TO_STATUS_BAR_ITEM,
+      processMode: contextConstant.ProcessMode.ATTACH_TO_STATUS_BAR_ITEM,
       startupVisibility: param.show
         ? contextConstant.StartupVisibility.STARTUP_SHOW
         : contextConstant.StartupVisibility.STARTUP_HIDE,
@@ -259,6 +259,8 @@ export class AppWindowAdapter {
       title: options.title ?? '',
       decorEnabled: true,
       isModal: options.modal ?? false,
+      maximizeSupported: options.maximizable ?? true,
+      outlineEnabled: false,
     };
     parentStage.createSubWindowWithOptions(name, subWindowOptions)
       .then((subWindow) => {

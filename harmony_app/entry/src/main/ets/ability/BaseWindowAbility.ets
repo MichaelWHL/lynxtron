@@ -549,6 +549,9 @@ export default abstract class BaseWindowAbility extends UIAbility {
               BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', 'missing-args');
               break;
             }
+            if (BaseWindowAbility.skipIfImmersive(win, 'setBounds')) {
+              break;
+            }
             const adjusted = BaseWindowAbility.adjustBoundsForWindow(bounds, win);
             win.moveWindowToAsync(adjusted.x, adjusted.y)
               .then(() => win.resizeAsync(adjusted.width, adjusted.height))
@@ -560,6 +563,9 @@ export default abstract class BaseWindowAbility extends UIAbility {
             const pos = args ? JSON.parse(args) as PositionPayload : undefined;
             if (!pos) {
               BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', 'missing-args');
+              break;
+            }
+            if (BaseWindowAbility.skipIfImmersive(win, 'setPosition')) {
               break;
             }
             const borders = BaseWindowAbility.getWindowBorders(win);
@@ -574,6 +580,9 @@ export default abstract class BaseWindowAbility extends UIAbility {
               BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', 'missing-args');
               break;
             }
+            if (BaseWindowAbility.skipIfImmersive(win, 'setSize')) {
+              break;
+            }
             const borders = BaseWindowAbility.getWindowBorders(win);
             win.resizeAsync(size.width + borders.leftBorder + borders.leftBorder,
                             size.height + borders.topBorder + borders.leftBorder)
@@ -585,6 +594,9 @@ export default abstract class BaseWindowAbility extends UIAbility {
             const rect = args ? JSON.parse(args) as SizePayload : undefined;
             if (!rect) {
               BaseWindowAbility.recordWindowOpResult('center', 'ERR', 'missing-args');
+              break;
+            }
+            if (BaseWindowAbility.skipIfImmersive(win, 'center')) {
               break;
             }
             try {
@@ -641,6 +653,17 @@ export default abstract class BaseWindowAbility extends UIAbility {
 
   private static errText(e: BusinessError): string {
     return e ? `${e.code} ${e.message}` : 'unknown error';
+  }
+
+  private static skipIfImmersive(win: window.Window, op: string): boolean {
+    const status = win.getWindowStatus();
+    if (status === window.WindowStatusType.FULL_SCREEN ||
+        status === window.WindowStatusType.MAXIMIZE ||
+        status === window.WindowStatusType.MINIMIZE) {
+      BaseWindowAbility.recordWindowOpResult(op, 'SKIPPED', `status=${status}`);
+      return true;
+    }
+    return false;
   }
 
   private static recordWindowOpResult(op: string, result: string, detail?: string): void {
