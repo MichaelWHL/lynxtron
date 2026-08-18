@@ -194,14 +194,12 @@ struct Index {
       .width('100%')
       .height('100%')
 
-      if (this.showWebOverlay) {
-        // Same-layer Web hosted via NodeContainer (official ArkUI mechanism).
-        NodeContainer(this.webNodeController)
-          .width(1100)
-          .height(700)
-          .margin({ top: 120, left: 120 })
-          .border({ width: 3, color: Color.Red })
-      }
+      // Same-layer Web hosted via NodeContainer (official ArkUI mechanism).
+      // NodeContainer(this.webNodeController)
+      //   .width(1100)
+      //   .height(700)
+      //   .margin({ top: 120, left: 120 })
+      //   .border({ width: 3, color: Color.Red })
     }
     .width('100%')
     .height('100%')

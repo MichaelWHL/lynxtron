@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "base/cancelable_callback.h"
 #include "base/files/file_path.h"
 #include "shell/api/api_base_window.h"
 #include "shell/api/lynx_view/lynx_view.h"
@@ -54,7 +55,8 @@ class LynxWindow : public BaseWindow, public lynxtron::LynxViewClient {
   bool ConfigJSBase(const LynxView* lynx_view, const std::string& bid);
   bool CustomReport(const LynxView* lynx_view, const std::string& custom_data);
 
-  void SetFpsMonitorEnabled(bool enabled, uint32_t sample_interval_millis);
+  void SetFpsMonitorEnabled(bool enabled,
+                            std::optional<uint32_t> sample_interval_millis);
 
  protected:
   LynxWindow(gin::Arguments* args, const gin_helper::Dictionary& options);
@@ -161,6 +163,7 @@ class LynxWindow : public BaseWindow, public lynxtron::LynxViewClient {
   bool enable_fps_monitor_ = false;
   int sample_interval_millis_ = 1000;
   std::vector<std::vector<int64_t>> last_frame_timings_;
+  base::CancelableOnceClosure fps_monitor_task_;
   bool last_render_active_ = false;
   base::WeakPtrFactory<LynxWindow> weak_factory_{this};
   std::unique_ptr<LynxViewStateObserver> lynx_view_state_observer_;

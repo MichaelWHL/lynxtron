@@ -41,9 +41,22 @@
 namespace {
 
 using LynxtronMainFn = int (*)(int, char**);
+using LynxtronHandleOpenURLFn = void (*)(const char*);
+using LynxtronHandleOpenPathFn = void (*)(const char*);
+using LynxtronQuitFn = void (*)();
 
 void* g_lynxtron_handle = nullptr;
 LynxtronMainFn g_lynxtron_main = nullptr;
+LynxtronHandleOpenURLFn g_handle_open_url = nullptr;
+LynxtronHandleOpenPathFn g_handle_open_path = nullptr;
+LynxtronQuitFn g_quit = nullptr;
+
+// Thread-safe bridge from the detached LynxtronMain thread back to the ArkUI
+// main thread. When LynxtronMain returns, we must NOT call exit()/_exit()
+// (appspawn_server aborts the process with SIGABRT on that), so we post the
+// exit code through this; the ArkUI thread then calls terminateSelf() on the
+// stored ability context (see ExitCallJS). Event-driven, no polling.
+napi_threadsafe_function g_exit_tsfn = nullptr;
 
 bool EnsureLynxtronLoaded() {
   if (g_lynxtron_main) return true;
@@ -77,6 +90,9 @@ bool EnsureLynxtronLoaded() {
   return true;
 }
 
+// Defined further down; registers WindowCommandFromNative into liblynxtron.so.
+void RegisterWindowCommandHandler();
+
 napi_value Start(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP, "Start() called from ETS");
 
@@ -92,6 +108,11 @@ napi_value Start(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Failed to load liblynxtron.so");
     return nullptr;
   }
+
+  // The main library is now loaded; wire up window-decor dispatch so
+  // setWindowButtonVisibility flows from NativeWindowHarmony to the OHOS
+  // window.Window.
+  RegisterWindowCommandHandler();
 
   // LynxtronMain runs chromium's blocking run_loop->Run(). The OHOS UIAbility
   // main (ETS) thread must keep pumping the ArkUI event loop, so running
@@ -113,12 +134,53 @@ napi_value Start(napi_env env, napi_callback_info info) {
                   "lynxtron_debug.log");
       int rc = g_lynxtron_main(3, argv);
       OH_LOG_INFO(LOG_APP, "LynxtronMain returned rc=%{public}d", rc);
-      _exit(rc);
+      // Do NOT exit()/_exit() here — appspawn_server aborts on that. Post the
+      // exit code to the ArkUI main thread through the thread-safe function;
+      // ExitCallJS runs there, frees the heap-allocated code, and calls
+      // terminateSelf() on the ability context.
+      if (g_exit_tsfn) {
+        int* prc = new int(rc);
+        napi_status s = napi_call_threadsafe_function(g_exit_tsfn, prc,
+                                                       napi_tsfn_nonblocking);
+        if (s != napi_ok) {
+          delete prc;
+          OH_LOG_ERROR(LOG_APP, "napi_call_threadsafe_function failed: %{public}d",
+                       static_cast<int>(s));
+        }
+        napi_release_threadsafe_function(g_exit_tsfn, napi_tsfn_release);
+        g_exit_tsfn = nullptr;
+      } else {
+        OH_LOG_ERROR(LOG_APP, "exit tsfn missing — cannot terminate ability");
+      }
     }).detach();
   });
 
   napi_value result = nullptr;
   napi_create_int32(env, 0, &result);
+  return result;
+}
+
+// Mirrors electron_ohos's kAppQuit command: the ArkTS/Ability side asks the
+// browser to exit gracefully (Application::Quit) instead of force-killing the
+// process. After the graceful quit completes, LynxtronMain returns, the exit
+// code is posted through the thread-safe function and ArkUI terminates the
+// ability.
+napi_value Quit(napi_env env, napi_callback_info) {
+  if (!g_quit) {
+    EnsureLynxtronLoaded();
+    if (g_lynxtron_handle) {
+      g_quit = reinterpret_cast<LynxtronQuitFn>(
+          dlsym(g_lynxtron_handle, "LynxtronQuit"));
+    }
+  }
+  if (g_quit) {
+    g_quit();
+    OH_LOG_INFO(LOG_APP, "quit() dispatched to LynxtronQuit");
+  } else {
+    OH_LOG_WARN(LOG_APP, "LynxtronQuit symbol not found");
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
   return result;
 }
 
@@ -159,11 +221,13 @@ using SendKeyFn = void (*)(int type, uint64_t logical, uint64_t physical,
 using SendTextFn = void (*)(const char* text, double timestamp);
 using GetTextInputStateFn = bool (*)(float*, float*, float*, float*);
 using GetTitleFn = const char* (*)();
+using SetWindowCommandHandlerFn = void (*)(void (*)(int));
 SendKeyFn g_send_key = nullptr;
 SendTextFn g_send_text = nullptr;
 SendTextFn g_send_composing_text = nullptr;
 GetTextInputStateFn g_get_text_input_state = nullptr;
 GetTitleFn g_get_title = nullptr;
+SetWindowCommandHandlerFn g_set_window_command_handler = nullptr;
 
 // Lynx logical key ids (see ToLynxLogicalKey below for the full mapping).
 constexpr uint64_t kLogicalBackspace = 0x00100000008ULL;
@@ -389,6 +453,64 @@ int32_t g_window_id = -1;
 
 napi_ref g_ability_context_ref = nullptr;
 std::string g_last_synced_title;
+
+// Reference to the OHOS window.Window object (the main window), published from
+// EntryAbility via setWindowObject. Used to drive window-decor visibility.
+napi_ref g_window_ref = nullptr;
+
+// Thread-safe function carrying native window-decor commands from the Lynx UI
+// thread to the ArkUI main thread, where the OHOS window.Window verbs run.
+// Created in setWindowObject.
+napi_threadsafe_function g_window_cmd_tsfn = nullptr;
+
+// Runs on the ArkUI main thread (invoked by the thread-safe function). The
+// detached LynxtronMain thread has finished; call terminateSelf() on the stored
+// ability context so the framework tears down the ability and the process ends
+// gracefully — exit()/_exit() are forbidden on OpenHarmony (appspawn aborts).
+void ExitCallJS(napi_env env, napi_value, void*, void* data) {
+  int rc = 0;
+  if (data) {
+    rc = *static_cast<int*>(data);
+    delete static_cast<int*>(data);  // owned by the caller (heap-allocated)
+  }
+  OH_LOG_INFO(LOG_APP, "[Exit] LynxtronMain finished (rc=%{public}d), "
+              "calling terminateSelf", rc);
+  if (!g_ability_context_ref) {
+    OH_LOG_ERROR(LOG_APP, "[Exit] no ability context ref — cannot terminate");
+    return;
+  }
+  napi_value ability_ctx = nullptr;
+  if (napi_get_reference_value(env, g_ability_context_ref, &ability_ctx) !=
+          napi_ok ||
+      !ability_ctx) {
+    OH_LOG_ERROR(LOG_APP, "[Exit] cannot resolve ability context");
+    return;
+  }
+  napi_value terminate_self = nullptr;
+  if (napi_get_named_property(env, ability_ctx, "terminateSelf",
+                              &terminate_self) != napi_ok ||
+      !terminate_self) {
+    OH_LOG_ERROR(LOG_APP, "[Exit] no terminateSelf on ability context");
+    return;
+  }
+  napi_call_function(env, ability_ctx, terminate_self, 0, nullptr, nullptr);
+}
+
+// Creates the thread-safe function once, on the ArkUI main thread (the env it
+// binds to). Called from SetAbilityContext after the context ref is stored.
+void EnsureExitThreadsafeFunction(napi_env env) {
+  if (g_exit_tsfn) return;
+  napi_value resource_name = nullptr;
+  napi_create_string_utf8(env, "lynxtron-exit", NAPI_AUTO_LENGTH,
+                          &resource_name);
+  napi_create_threadsafe_function(
+      env, /*func=*/nullptr, /*async_resource=*/nullptr, resource_name,
+      /*max_queue_size=*/0, /*initial_thread_count=*/1,
+      /*thread_finalize_data=*/nullptr, /*thread_finalize_cb=*/nullptr,
+      /*context=*/nullptr, ExitCallJS, &g_exit_tsfn);
+  OH_LOG_INFO(LOG_APP, "[Exit] threadsafe function created: %{public}p",
+              (void*)g_exit_tsfn);
+}
 
 void ForwardKey(uint64_t logical) {
   if (!g_send_key && g_lynxtron_handle) {
@@ -637,7 +759,7 @@ napi_value SetWindowId(napi_env env, napi_callback_info info) {
   {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
     g_window_id = id;
-  }
+  }  
   OH_LOG_INFO(LOG_APP, "[IME] windowId=%{public}d", id);
   napi_value result = nullptr;
   napi_get_undefined(env, &result);
@@ -654,6 +776,103 @@ napi_value SetAbilityContext(napi_env env, napi_callback_info info) {
     }
     napi_create_reference(env, argv[0], 1, &g_ability_context_ref);
     OH_LOG_INFO(LOG_APP, "abilityContext stored");
+    EnsureExitThreadsafeFunction(env);
+
+    napi_value files_dir = nullptr;
+    if (napi_get_named_property(env, argv[0], "filesDir", &files_dir) ==
+            napi_ok &&
+        files_dir != nullptr) {
+      size_t len = 0;
+      napi_get_value_string_utf8(env, files_dir, nullptr, 0, &len);
+      std::string path(len, '\0');
+      napi_get_value_string_utf8(env, files_dir, &path[0], len + 1, &len);
+      setenv("LYNXTRON_FILES_DIR", path.c_str(), 1);
+      OH_LOG_INFO(LOG_APP, "LYNXTRON_FILES_DIR set to: %{public}s",
+                  path.c_str());
+    }
+
+    napi_value temp_dir = nullptr;
+    if (napi_get_named_property(env, argv[0], "tempDir", &temp_dir) ==
+            napi_ok &&
+        temp_dir != nullptr) {
+      size_t len = 0;
+      napi_get_value_string_utf8(env, temp_dir, nullptr, 0, &len);
+      std::string path(len, '\0');
+      napi_get_value_string_utf8(env, temp_dir, &path[0], len + 1, &len);
+      setenv("TMPDIR", path.c_str(), 1);
+      OH_LOG_INFO(LOG_APP, "TMPDIR set to: %{public}s", path.c_str());
+    }
+
+    napi_value resource_dir = nullptr;
+    if (napi_get_named_property(env, argv[0], "resourceDir", &resource_dir) ==
+            napi_ok &&
+        resource_dir != nullptr) {
+      size_t len = 0;
+      napi_get_value_string_utf8(env, resource_dir, nullptr, 0, &len);
+      std::string path(len, '\0');
+      napi_get_value_string_utf8(env, resource_dir, &path[0], len + 1, &len);
+      setenv("LYNXTRON_EXE_PATH", path.c_str(), 1);
+      OH_LOG_INFO(LOG_APP, "LYNXTRON_EXE_PATH set to: %{public}s",
+                  path.c_str());
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value OpenUrl(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok &&
+      argc == 1 && argv[0] != nullptr) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    std::string url(len, '\0');
+    napi_get_value_string_utf8(env, argv[0], &url[0], len + 1, &len);
+
+    if (!g_handle_open_url) {
+      EnsureLynxtronLoaded();
+      if (g_lynxtron_handle) {
+        g_handle_open_url = reinterpret_cast<LynxtronHandleOpenURLFn>(
+            dlsym(g_lynxtron_handle, "LynxtronHandleOpenURL"));
+      }
+    }
+    if (g_handle_open_url) {
+      g_handle_open_url(url.c_str());
+      OH_LOG_INFO(LOG_APP, "openUrl dispatched: %{public}s", url.c_str());
+    } else {
+      OH_LOG_WARN(LOG_APP, "LynxtronHandleOpenURL symbol not found");
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value OpenPath(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok &&
+      argc == 1 && argv[0] != nullptr) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    std::string file_path(len, '\0');
+    napi_get_value_string_utf8(env, argv[0], &file_path[0], len + 1, &len);
+
+    if (!g_handle_open_path) {
+      EnsureLynxtronLoaded();
+      if (g_lynxtron_handle) {
+        g_handle_open_path = reinterpret_cast<LynxtronHandleOpenPathFn>(
+            dlsym(g_lynxtron_handle, "LynxtronHandleOpenPath"));
+      }
+    }
+    if (g_handle_open_path) {
+      g_handle_open_path(file_path.c_str());
+      OH_LOG_INFO(LOG_APP, "openPath dispatched: %{public}s", file_path.c_str());
+    } else {
+      OH_LOG_WARN(LOG_APP, "LynxtronHandleOpenPath symbol not found");
+    }
   }
   napi_value result = nullptr;
   napi_get_undefined(env, &result);
@@ -714,6 +933,119 @@ void SyncWindowTitle(napi_env env) {
   napi_create_string_utf8(env, title, NAPI_AUTO_LENGTH, &label);
   napi_call_function(env, context, setMissionLabel, 1, &label, nullptr);
   OH_LOG_INFO(LOG_APP, "[Title] setMissionLabel dispatched");
+}
+
+// Invokes a single-bool-arg method on the stored OHOS window.Window object.
+void CallWindowBoolMethod(napi_env env, const char* method, bool value) {
+  if (!g_window_ref) return;
+  napi_value window = nullptr;
+  if (napi_get_reference_value(env, g_window_ref, &window) != napi_ok || !window)
+    return;
+  napi_value fn = nullptr;
+  if (napi_get_named_property(env, window, method, &fn) != napi_ok || !fn)
+    return;
+  napi_value arg = nullptr;
+  napi_get_boolean(env, value, &arg);
+  napi_call_function(env, window, fn, 1, &arg, nullptr);
+}
+
+// setWindowTitleButtonVisible(isMaximizeButtonVisible, isMinimizeButtonVisible,
+// isCloseButtonVisible).
+void CallWindowTitleButtonVisible(napi_env env, bool max, bool min, bool close) {
+  if (!g_window_ref) return;
+  napi_value window = nullptr;
+  if (napi_get_reference_value(env, g_window_ref, &window) != napi_ok || !window)
+    return;
+  napi_value fn = nullptr;
+  if (napi_get_named_property(env, window, "setWindowTitleButtonVisible", &fn) !=
+          napi_ok ||
+      !fn)
+    return;
+  napi_value args[3];
+  napi_get_boolean(env, max, &args[0]);
+  napi_get_boolean(env, min, &args[1]);
+  napi_get_boolean(env, close, &args[2]);
+  napi_call_function(env, window, fn, 3, args, nullptr);
+}
+
+// Runs on the ArkUI main thread (the env the tsfn was created on). Maps the
+// native decor command to the OHOS window.Window verbs.
+void WindowCommandCallJS(napi_env env, napi_value, void*, void* data) {
+  int cmd = data ? *static_cast<int*>(data) : 0;
+  delete static_cast<int*>(data);
+  bool visible;
+  switch (cmd) {
+    case 1:  // kWinCmdShowDecor
+      visible = true;
+      break;
+    case 2:  // kWinCmdHideDecor
+      visible = false;
+      break;
+    default:
+      return;
+  }
+  CallWindowBoolMethod(env, "setWindowDecorVisible", visible);
+  CallWindowTitleButtonVisible(env, visible, visible, visible);
+  OH_LOG_INFO(LOG_APP, "[Window] decor visibility %{public}d dispatched", cmd);
+}
+
+// Handler registered into liblynxtron.so via LynxtronSetWindowCommandHandler.
+// Called on the Lynx UI thread; posts the command to the ArkUI main thread.
+void WindowCommandFromNative(int cmd) {
+  if (!g_window_cmd_tsfn) return;
+  int* pcmd = new int(cmd);
+  napi_call_threadsafe_function(g_window_cmd_tsfn, pcmd, napi_tsfn_nonblocking);
+}
+
+// Registers WindowCommandFromNative into liblynxtron.so. Idempotent; no-op
+// until the main library is dlopen'd. Called from both setWindowObject and
+// start to cover either order.
+void RegisterWindowCommandHandler() {
+  if (g_set_window_command_handler) return;
+  if (!g_lynxtron_handle) return;
+  g_set_window_command_handler = reinterpret_cast<SetWindowCommandHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetWindowCommandHandler"));
+  if (g_set_window_command_handler) {
+    g_set_window_command_handler(WindowCommandFromNative);
+    OH_LOG_INFO(LOG_APP, "[Window] command handler registered");
+  } else {
+    OH_LOG_ERROR(LOG_APP,
+                 "[Window] LynxtronSetWindowCommandHandler not found: %{public}s",
+                 dlerror());
+  }
+}
+
+napi_value SetWindowObject(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok &&
+      argc == 1 && argv[0] != nullptr) {
+    if (g_window_ref) {
+      napi_delete_reference(env, g_window_ref);
+    }
+    napi_create_reference(env, argv[0], 1, &g_window_ref);
+    OH_LOG_INFO(LOG_APP, "[Window] window object stored");
+
+    // Create the tsfn once so native window-decor commands can be posted
+    // straight to the ArkUI main thread (no polling).
+    if (!g_window_cmd_tsfn) {
+      napi_value resource_name = nullptr;
+      napi_create_string_utf8(env, "lynxtron-window-cmd", NAPI_AUTO_LENGTH,
+                              &resource_name);
+      napi_create_threadsafe_function(
+          env, /*func=*/nullptr, /*async_resource=*/nullptr, resource_name,
+          /*max_queue_size=*/0, /*initial_thread_count=*/1,
+          /*thread_finalize_data=*/nullptr, /*thread_finalize_cb=*/nullptr,
+          /*context=*/nullptr, WindowCommandCallJS, &g_window_cmd_tsfn);
+      OH_LOG_INFO(LOG_APP, "[Window] command tsfn created: %{public}p",
+                  (void*)g_window_cmd_tsfn);
+    }
+
+    RegisterWindowCommandHandler();
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
 }
 
 napi_value SyncIme(napi_env env, napi_callback_info) {
@@ -783,6 +1115,8 @@ napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
       {"start", nullptr, Start, nullptr, nullptr, nullptr, napi_default,
        nullptr},
+      {"quit", nullptr, Quit, nullptr, nullptr, nullptr, napi_default,
+       nullptr},
       {"sendText", nullptr, SendText, nullptr, nullptr, nullptr, napi_default,
        nullptr},
       {"getTextInputState", nullptr, GetTextInputState, nullptr, nullptr,
@@ -791,10 +1125,16 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"setWindowId", nullptr, SetWindowId, nullptr, nullptr, nullptr,
        napi_default, nullptr},
+      {"setWindowObject", nullptr, SetWindowObject, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
       {"getWindowTitle", nullptr, GetWindowTitle, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"setAbilityContext", nullptr, SetAbilityContext, nullptr, nullptr,
        nullptr, napi_default, nullptr},
+      {"openUrl", nullptr, OpenUrl, nullptr, nullptr, nullptr, napi_default,
+       nullptr},
+      {"openPath", nullptr, OpenPath, nullptr, nullptr, nullptr, napi_default,
+       nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);

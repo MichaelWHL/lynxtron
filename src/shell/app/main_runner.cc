@@ -70,6 +70,14 @@ int MainRunner::Run() {
   main_parts_->Initialize();
   LYNX_LOG("MainParts::Initialize done");
 
+  {
+    auto* cmd = base::CommandLine::ForCurrentProcess();
+    LYNX_LOG("[PROBE] after JS init: hasSwitch(lynxtron-rw)=%{public}s "
+             "value=\"%{public}s\"",
+             cmd->HasSwitch("lynxtron-rw") ? "true" : "false",
+             cmd->GetSwitchValueASCII("lynxtron-rw").c_str());
+  }
+
   auto run_loop =
       std::make_unique<base::RunLoop>(base::RunLoop::Type::kDefault);
   LYNX_LOG("calling WillRunMainMessageLoop...");
@@ -77,6 +85,15 @@ int MainRunner::Run() {
   LYNX_LOG("entering run_loop->Run() (blocking event loop)...");
   run_loop->Run();
   LYNX_LOG("run_loop->Run() returned, calling PostMainMessageLoopRun");
+
+  {
+    auto* cmd = base::CommandLine::ForCurrentProcess();
+    LYNX_LOG("[PROBE] after run loop: hasSwitch(lynxtron-rw)=%{public}s "
+             "value=\"%{public}s\"",
+             cmd->HasSwitch("lynxtron-rw") ? "true" : "false",
+             cmd->GetSwitchValueASCII("lynxtron-rw").c_str());
+  }
+
   main_parts_->PostMainMessageLoopRun();
   int code = main_parts_->GetExitCode();
   LYNX_LOG("MainRunner::Run returning code=%{public}d", code);

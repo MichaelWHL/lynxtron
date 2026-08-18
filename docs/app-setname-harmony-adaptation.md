@@ -2,7 +2,7 @@
 
 ## 背景
 
-Lynxtron 的 `app.setName` 在 macOS/Windows 上通过原生窗口标题栏显示名称，但 HarmonyOS 没有原生标题栏（全 Lynx 渲染），需要单独适配。
+Lynxtron 的 `app.setName` 在 macOS/Windows 上通过原生窗口标题栏显示名称。
 
 ## 核心改动（已实施，保留）
 

@@ -320,4 +320,12 @@ export declare class LynxWindow extends BaseWindow {
    * `(...args) => { }`
    */
   sendGlobalEvent(eventName: string, ...args: any[]): boolean;
+  /**
+   * Enables or disables periodic `frame-timings` reporting.
+   *
+   * When enabled, the window emits a `frame-timings` event every
+   * `sampleIntervalMs` (default `1000`) with an array of `[startNs, finishNs]`
+   * pairs collected since the previous emission.
+   */
+  setFrameTimingsEnabled(enabled: boolean, sampleIntervalMs?: number): void;
 }

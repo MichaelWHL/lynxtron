@@ -39,6 +39,11 @@
             ],
             "actions": [
               "action.system.home"
+            ],
+            "uris": [
+              {
+                "scheme": "lynxtron"
+              }
             ]
           }
         ]

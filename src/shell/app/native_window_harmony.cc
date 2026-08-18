@@ -19,6 +19,24 @@ namespace lynxtron {
 
 static std::string g_harmony_window_title;
 
+// Window-decor commands dispatched to the NAPI bridge's handler (registered via
+// LynxtronSetWindowCommandHandler). The handler posts them to the ArkUI main
+// thread through a thread-safe function and invokes the matching OHOS
+// window.Window verb there. Keep in sync with the bridge switch.
+enum HarmonyWindowCommand {
+  kWinCmdShowDecor = 1,  // window.setWindowDecorVisible(true) + 三键显示
+  kWinCmdHideDecor = 2,  // window.setWindowDecorVisible(false) + 三键隐藏
+};
+
+using WindowCommandHandler = void (*)(int);
+static WindowCommandHandler g_window_command_handler = nullptr;
+
+static void DispatchWindowCommand(int cmd) {
+  if (g_window_command_handler) {
+    g_window_command_handler(cmd);
+  }
+}
+
 // HarmonyOS NativeWindow — minimal concrete implementation.
 //
 // The window lifecycle and observer bookkeeping live in the NativeWindow base
@@ -167,6 +185,15 @@ class NativeWindowHarmony : public NativeWindow {
   bool IsFocusable() const override { return is_focusable_; }
   void SetParentWindow(NativeWindow* parent) override {}
 
+  // --- window button (decor + three-button) visibility ---
+  void SetWindowButtonVisibility(bool visible) override {
+    is_window_buttons_visible_ = visible;
+    DispatchWindowCommand(visible ? kWinCmdShowDecor : kWinCmdHideDecor);
+  }
+  bool GetWindowButtonVisibility() const override {
+    return is_window_buttons_visible_;
+  }
+
   // --- native handles (GetNativeWindow is MAC-only) ---
   NativeWindowHandle GetNativeWindowHandle() const override {
     return surface_;
@@ -179,8 +206,9 @@ class NativeWindowHarmony : public NativeWindow {
                                  bool skipTransformProcessType) override {}
   bool IsVisibleOnAllWorkspaces() override { return false; }
 
-  // Traffic Light / window button APIs are MAC-only (guarded by
-  // BUILDFLAG(IS_MAC) in native_window.h), so no overrides needed here.
+  // Traffic Light position / tabbing APIs remain MAC-only (guarded by
+  // BUILDFLAG(IS_MAC) in native_window.h). Window button visibility is
+  // shared with HarmonyOS and implemented above.
 
  protected:
   // No window chrome on harmony yet — content bounds == window bounds.
@@ -213,6 +241,7 @@ class NativeWindowHarmony : public NativeWindow {
   bool is_active_ = false;
   bool is_focusable_ = true;
   bool has_shadow_ = true;
+  bool is_window_buttons_visible_ = true;
   double opacity_ = 1.0;
   float device_pixel_ratio_ = 1.0f;
   ui::ZOrderLevel z_order_ = ui::ZOrderLevel::kNormal;
@@ -229,4 +258,12 @@ NativeWindow* NativeWindow::Create(const gin_helper::Dictionary& options,
 extern "C" __attribute__((visibility("default")))
 const char* LynxtronGetWindowTitle() {
   return lynxtron::g_harmony_window_title.c_str();
+}
+
+// Registers the bridge's command handler. Called once by the NAPI bridge after
+// the OHOS window object is available; NativeWindowHarmony then dispatches
+// window-decor visibility changes straight to it (no polling).
+extern "C" __attribute__((visibility("default")))
+void LynxtronSetWindowCommandHandler(lynxtron::WindowCommandHandler handler) {
+  lynxtron::g_window_command_handler = handler;
 }

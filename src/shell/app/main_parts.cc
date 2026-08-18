@@ -51,6 +51,10 @@
 #define MP_LOG(fmt, ...) (void)0
 #endif
 
+#if BUILDFLAG(IS_HARMONY)
+extern "C" void LynxtronFlushPendingOpenURLs();
+#endif
+
 namespace lynxtron {
 
 namespace {
@@ -236,6 +240,11 @@ void MainParts::Initialize() {
 
   MP_LOG("step 26: Application::PreMainMessageLoopRun");
   Application::Get()->PreMainMessageLoopRun();
+
+#if BUILDFLAG(IS_HARMONY)
+  LynxtronFlushPendingOpenURLs();
+#endif
+
   MP_LOG("step 27: Initialize finished");
 }
 

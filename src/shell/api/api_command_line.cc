@@ -10,8 +10,25 @@
 
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/node_includes.h"
+
+#if BUILDFLAG(IS_HARMONY)
+#include <hilog/log.h>
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0000
+#define LOG_TAG "LynxtronRun"
+#define CMD_LOG(fmt, ...) \
+  OH_LOG_INFO(LOG_APP, "[CmdLine] " fmt, ##__VA_ARGS__)
+#else
+#define CMD_LOG(fmt, ...) (void)0
+#endif
+
+#if BUILDFLAG(IS_WIN)
+#include "base/strings/utf_string_conversions.h"
+#endif
 
 namespace {
 bool HasSwitch(const std::string& switch_string) {
@@ -37,8 +54,18 @@ void AppendSwitch(const std::string& switch_string,
   base::CommandLine::StringType value;
   if (args->GetNext(&value)) {
     command_line->AppendSwitchNative(switch_str, value);
+    std::string value_utf8;
+#if BUILDFLAG(IS_WIN)
+    value_utf8 = base::WideToUTF8(value);
+#else
+    value_utf8 = value;
+#endif
+    CMD_LOG("[PROBE] appendSwitch received: %{public}s value=%{public}s",
+            switch_str.c_str(), value_utf8.c_str());
   } else {
     command_line->AppendSwitch(switch_str);
+    CMD_LOG("[PROBE] appendSwitch received: %{public}s (no value)",
+            switch_str.c_str());
   }
 }
 

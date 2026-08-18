@@ -12,6 +12,15 @@ declare namespace lynxtron {
    */
   function start(): number;
 
+  /**
+   * Asks the browser to exit gracefully (Application::Quit), the same path as
+   * JS app.quit(). Mirrors electron_ohos's kAppQuit command. After the graceful
+   * quit completes, the bridge posts the exit code to the ArkUI thread through
+   * a thread-safe function and calls terminateSelf() on the ability context —
+   * no polling and no exit() (which appspawn would abort on).
+   */
+  function quit(): void;
+
   /** Sends one final UTF-8 IME/text commit to the focused Lynx editable. */
   function sendText(text: string): void;
 

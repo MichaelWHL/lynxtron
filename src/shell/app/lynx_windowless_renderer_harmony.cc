@@ -21,6 +21,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "shell/common/global_thread.h"
+#include "shell/app/application.h"
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -541,4 +542,85 @@ LynxtronSendComposingText(const char* text, double timestamp) {
 extern "C" __attribute__((visibility("default"))) bool LynxtronGetTextInputState(
     float* x, float* y, float* width, float* height) {
   return lynxtron::GetCurrentHarmonyTextInputState(x, y, width, height);
+}
+
+namespace {
+std::mutex g_pending_mutex;
+std::vector<std::string> g_pending_urls;
+std::vector<std::string> g_pending_file_paths;
+
+void DispatchOpenURL(const std::string& u) {
+  if (auto* app = lynxtron::Application::Get()) {
+    app->OpenURL(u);
+  }
+}
+
+void DispatchOpenFile(const std::string& fp) {
+  if (auto* app = lynxtron::Application::Get()) {
+    app->OpenFile(fp);
+  }
+}
+
+void DispatchQuit() {
+  if (auto* app = lynxtron::Application::Get()) {
+    app->Quit();
+  }
+}
+}  // namespace
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronHandleOpenURL(const char* url) {
+  if (!url || !*url) return;
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (runner) {
+    runner->PostTask(FROM_HERE, base::BindOnce(&DispatchOpenURL,
+                                               std::string(url)));
+  } else {
+    std::lock_guard<std::mutex> lock(g_pending_mutex);
+    g_pending_urls.emplace_back(url);
+  }
+}
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronHandleOpenPath(const char* file_path) {
+  if (!file_path || !*file_path) return;
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (runner) {
+    runner->PostTask(FROM_HERE, base::BindOnce(&DispatchOpenFile,
+                                               std::string(file_path)));
+  } else {
+    std::lock_guard<std::mutex> lock(g_pending_mutex);
+    g_pending_file_paths.emplace_back(file_path);
+  }
+}
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronFlushPendingOpenURLs() {
+  std::vector<std::string> urls;
+  std::vector<std::string> file_paths;
+  {
+    std::lock_guard<std::mutex> lock(g_pending_mutex);
+    urls.swap(g_pending_urls);
+    file_paths.swap(g_pending_file_paths);
+  }
+  for (const auto& u : urls) {
+    DispatchOpenURL(u);
+  }
+  for (const auto& fp : file_paths) {
+    DispatchOpenFile(fp);
+  }
+}
+
+// Exported for the NAPI bridge. Mirrors electron_ohos's ExecuteCommandSingleton
+// kAppQuit command: the OHOS system side (ArkTS/Ability) asks the browser to
+// exit through the SAME graceful path (before-quit → close windows → ... →
+// message loop exit), never a force-kill. The exit code is published by the
+// bridge once LynxtronMain returns, and ArkUI then calls terminateSelf().
+extern "C" __attribute__((visibility("default"))) void LynxtronQuit() {
+  auto runner = lynxtron::GetUIThreadTaskRunner();
+  if (runner) {
+    runner->PostTask(FROM_HERE, base::BindOnce(&DispatchQuit));
+  } else {
+    WLR_ERR("LynxtronQuit: no UI thread task runner available");
+  }
 }
