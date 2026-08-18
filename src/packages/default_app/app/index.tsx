@@ -8,6 +8,7 @@ import LogPanel from './LogPanel';
 import { log, logError, logInfo, logWarn } from './log';
 import { testSelectorQuery } from './selectorQueryTest';
 import { testJSModule } from './jsModuleTest';
+import { testModuleLoader } from './moduleLoaderTest';
 import { testAddFont } from './fontTest';
 
 // testDemo.ts 中每个测试方法对应一个按钮
@@ -120,6 +121,13 @@ export default function WebContainer() {
         emitter.off('bridge-log', handler, lynx);
       }
     };
+  }, []);
+
+  // ModuleLoader 测试: 打开页面后自动跑一次(原生模块在 .so 加载早期即注册, 无需等布局);
+  // 也可点下方 “ModuleLoader” 按钮重跑。
+  useEffect(() => {
+    const t = setTimeout(() => { testModuleLoader(); }, 1200);
+    return () => { clearTimeout(t); };
   }, []);
 
   // SelectorQuery + JSModule 测试: 打开页面后自动跑(等布局就绪); 也可点下方按钮重跑
@@ -255,6 +263,14 @@ export default function WebContainer() {
               <text className="testButtonArrow">›</text>
             </view>
             <text className="testCardDesc">getJSModule/registerModule 四个用例</text>
+          </view>
+          <view className="testCard">
+            <view className="testButton" bindtap={() => { testModuleLoader(); }}>
+              <view className="testButtonDot" />
+              <text className="testButtonText">ModuleLoader</text>
+              <text className="testButtonArrow">›</text>
+            </view>
+            <text className="testCardDesc">getModuleLoader().load() 原生模块六个用例</text>
           </view>
           <view className="testCard">
             <view className="testButton" bindtap={() => { testAddFont(() => enableFontTest()); }}>
