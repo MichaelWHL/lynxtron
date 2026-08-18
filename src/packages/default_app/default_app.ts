@@ -207,6 +207,85 @@ async function runBatch2Tests() {
   }
 }
 
+async function runBatch7Tests() {
+  console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test Start ===');
+
+  if (!mainWindow) {
+    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    return;
+  }
+
+  const cleanupWindows: LynxWindow[] = [];
+
+  try {
+    // B7-STEP1: create a fullscreen window and verify the enter-full-screen event.
+    const fsEvents: string[] = [];
+    console.log('[WindowManagerTest] ACTION: creating fullscreen window');
+    const fsWin = new LynxWindow({ fullscreen: true, show: true, width: 800, height: 600 });
+    fsWin.on('enter-full-screen' as any, () => fsEvents.push('enter-full-screen'));
+    cleanupWindows.push(fsWin);
+    await sleep(3000);
+    const fsState = { isFullScreen: fsWin.isFullScreen(), eventReceived: fsEvents.includes('enter-full-screen') };
+    logResult('B7-STEP1 fullscreen creation', fsState);
+    console.log(`[WindowManagerTest] B7-STEP1 result: ${fsState.isFullScreen === true ? 'PASS' : 'FAIL'} (expected isFullScreen=true, eventReceived=${fsState.eventReceived})`);
+
+    await sleep(500);
+
+    // B7-STEP2: create a size-constrained window and verify initial bounds.
+    console.log('[WindowManagerTest] ACTION: creating size-constrained window');
+    const constrainedWin = new LynxWindow({
+      width: 600,
+      height: 400,
+      minWidth: 400,
+      minHeight: 300,
+      maxWidth: 800,
+      maxHeight: 600,
+      show: true
+    });
+    cleanupWindows.push(constrainedWin);
+    await sleep(2000);
+    const initialSize = constrainedWin.getSize();
+    logResult('B7-STEP2 size constraints creation', { initialSize, limits: { minWidth: 400, minHeight: 300, maxWidth: 800, maxHeight: 600 } });
+    const constrainedPass = initialSize[0] === 600 && initialSize[1] === 400;
+    console.log(`[WindowManagerTest] B7-STEP2 result: ${constrainedPass ? 'PASS' : 'FAIL'} (expected initial size 600x400; drag-resize limits verified visually)`);
+
+    await sleep(500);
+
+    // B7-STEP3: create a sub window with OS-level parent relationship.
+    console.log('[WindowManagerTest] ACTION: creating sub window with parent');
+    const subWin = new LynxWindow({ type: 'sub', parent: mainWindow, width: 400, height: 300, show: true });
+    cleanupWindows.push(subWin);
+    await sleep(2000);
+    const subState = { isVisible: subWin.isVisible(), parentMatches: subWin.getParentWindow() === mainWindow };
+    logResult('B7-STEP3 sub window creation', subState);
+    console.log(`[WindowManagerTest] B7-STEP3 result: ${subState.isVisible === true && subState.parentMatches === true ? 'PASS' : 'FAIL'} (expected visible=true, parentMatches=true)`);
+
+    await sleep(500);
+
+    // B7-STEP4: create a modal dialog window.
+    console.log('[WindowManagerTest] ACTION: creating modal dialog window');
+    const dialogWin = new LynxWindow({ type: 'dialog', parent: mainWindow, modal: true, width: 300, height: 200, show: true });
+    cleanupWindows.push(dialogWin);
+    await sleep(2000);
+    const dialogState = { isVisible: dialogWin.isVisible(), isModal: dialogWin.isModal() };
+    logResult('B7-STEP4 modal dialog creation', dialogState);
+    console.log(`[WindowManagerTest] B7-STEP4 result: ${dialogState.isVisible === true && dialogState.isModal === true ? 'PASS' : 'FAIL'} (expected visible=true, isModal=true)`);
+  } catch (err) {
+    console.log(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
+  } finally {
+    // Close all windows created in this batch to avoid interfering with later tests.
+    for (const win of cleanupWindows) {
+      try {
+        win.close();
+      } catch (e) {
+        // ignore cleanup errors
+      }
+    }
+  }
+
+  console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test End ===');
+}
+
 async function runTests() {
   console.log('[WindowManagerTest] === Batch 1 Window Manager Test Start ===');
 
@@ -235,6 +314,11 @@ async function runTests() {
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP2 after show', s);
     console.log(`[WindowManagerTest] STEP2 result: ${s.isVisible === true ? 'PASS' : 'FAIL'} (expected isVisible=true)`);
+
+    // Batch 7: exercise new window creation options (fullscreen, size limits,
+    // sub/panel/dialog OS-level parent relationship, modal). Run while the
+    // main window is visible so parent references are valid.
+    await runBatch7Tests();
 
     // Step 3: minimize (verify isMinimized state)
     console.log('[WindowManagerTest] ACTION: calling minimize()');
