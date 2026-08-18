@@ -600,6 +600,7 @@ index 5fc58fc..ad55b48 100644
  declare_args() {
    # Indicates if the build should use the Chrome-specific plugins for enforcing
    # coding guidelines, etc. Only used when compiling with Chrome's Clang, not
+
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
 index bb00fea..bb275b7 100644
 --- a/config/compiler/BUILD.gn
