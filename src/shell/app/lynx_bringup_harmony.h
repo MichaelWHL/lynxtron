@@ -5,7 +5,10 @@
 #ifndef SHELL_APP_LYNX_BRINGUP_HARMONY_H_
 #define SHELL_APP_LYNX_BRINGUP_HARMONY_H_
 
+#include <cstdint>
+
 namespace lynxtron {
+class LynxView;
 
 // Roadmap step 2 bring-up shortcut: once the XComponent surface exists, build a
 // LynxView (which attaches the GLDirect windowless renderer from step 1) and
@@ -17,6 +20,15 @@ namespace lynxtron {
 // Safe to call multiple times (surface created/changed); only the first call
 // builds and loads. Posts the work onto the UI thread task runner.
 void LynxtronStartLynxBringup(void* window, int width, int height);
+
+// Delivers an XComponent touch packet to the currently active LynxView (the
+// view owned by the focused Harmony window). The active view is maintained by
+// SetHarmonyActiveLynxView below.
+void DispatchHarmonyLynxTouch(int phase, double x, double y, int32_t id);
+
+// Sets the active LynxView for HarmonyOS input routing. This should track the
+// focused window: set on focus and cleared on blur.
+void SetHarmonyActiveLynxView(LynxView* view);
 
 }  // namespace lynxtron
 

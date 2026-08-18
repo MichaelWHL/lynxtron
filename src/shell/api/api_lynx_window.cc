@@ -478,10 +478,16 @@ void LynxWindow::Focus() {
   if (lynx_view_) {
     lynx_view_->Focus();
   }
+#if BUILDFLAG(IS_HARMONY)
+  SetHarmonyActiveLynxView(lynx_view_.get());
+#endif
   BaseWindow::Focus();
 }
 
 void LynxWindow::Blur() {
+#if BUILDFLAG(IS_HARMONY)
+  SetHarmonyActiveLynxView(nullptr);
+#endif
   BaseWindow::Blur();
 }
 
@@ -505,7 +511,12 @@ void LynxWindow::EnsureLynxView() {
   }
   lynx_view_ = builder.Build();
 #if BUILDFLAG(IS_HARMONY)
-  SetHarmonyActiveLynxView(lynx_view_.get());
+  // Only adopt the newly created view as the active HarmonyOS input target if
+  // this window already has focus. Otherwise a background window would steal
+  // input from the actual focused window.
+  if (IsFocused()) {
+    SetHarmonyActiveLynxView(lynx_view_.get());
+  }
 #endif
   lynx_view_->SetClient(weak_factory_.GetWeakPtr());
 

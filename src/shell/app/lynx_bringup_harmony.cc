@@ -37,6 +37,14 @@ std::unique_ptr<LynxView>& BringupView() {
   return view;
 }
 
+// Holds the currently focused LynxView for HarmonyOS input routing. Only
+// touched on the UI thread. In a multi-window setup this tracks the focused
+// window, not the last-created window.
+LynxView*& ActiveView() {
+  static LynxView* view = nullptr;
+  return view;
+}
+
 // Runs on the UI thread: builds a LynxView (attaches the GLDirect windowless
 // renderer via the harmony branch of LynxViewBuilder::Build) and loads the
 // staged test bundle.
@@ -100,6 +108,32 @@ void LynxtronStartLynxBringup(void* window, int width, int height) {
       BU_ERR("UI thread task runner never became ready; bring-up aborted");
     }).detach();
   });
+}
+
+void SetHarmonyActiveLynxView(LynxView* view) {
+  ActiveView() = view;
+}
+
+void DispatchHarmonyLynxTouch(int phase, double x, double y, int32_t id) {
+  LynxView* view = ActiveView();
+  if (!view) {
+    BU_ERR("touch dropped: no active LynxView");
+    return;
+  }
+  if (phase != 1) {
+    return;
+  }
+  const int tag =
+      view->GetNodeForLocation(static_cast<int>(x), static_cast<int>(y));
+  if (tag <= 0) {
+    BU_ERR("tap dropped: no node at %{public}f,%{public}f", x, y);
+    return;
+  }
+  BU_LOG("tap tag=%{public}d x=%{public}f y=%{public}f", tag, x, y);
+  view->SendTouchEvent("tap", tag, static_cast<float>(x),
+                       static_cast<float>(y), static_cast<float>(x),
+                       static_cast<float>(y), static_cast<float>(x),
+                       static_cast<float>(y));
 }
 
 }  // namespace lynxtron

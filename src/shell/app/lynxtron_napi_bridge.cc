@@ -58,7 +58,7 @@ struct LynxtronWindowBounds {
 using LynxtronMainFn = int (*)(int, char**);
 using LynxtronSetWindowIdFn = void (*)(int32_t);
 using LynxtronRegisterWindowOpCallbackFn =
-    void (*)(int32_t, void (*)(int32_t, const char*, bool));
+    void (*)(int32_t, void (*)(int32_t, const char*, const char*));
 using LynxtronGetWindowIdFn = int32_t (*)();
 using LynxtronNotifyWindowStateFn =
     void (*)(int32_t, const char*, const LynxtronWindowBounds*);
@@ -248,7 +248,7 @@ napi_value Quit(napi_env env, napi_callback_info) {
 struct WindowOpData {
   int32_t windowId;
   std::string op;
-  bool value;
+  std::string args;
 };
 
 std::unordered_map<int32_t, napi_threadsafe_function> g_window_op_tsfn_map;
@@ -262,14 +262,14 @@ void WindowOpCallJS(napi_env env, napi_value js_cb, void* context,
   napi_value argv[3];
   napi_create_int32(env, op->windowId, &argv[0]);
   napi_create_string_utf8(env, op->op.c_str(), op->op.length(), &argv[1]);
-  napi_get_boolean(env, op->value, &argv[2]);
+  napi_create_string_utf8(env, op->args.c_str(), op->args.length(), &argv[2]);
 
   napi_value undefined;
   napi_get_undefined(env, &undefined);
   napi_call_function(env, undefined, js_cb, 3, argv, nullptr);
 }
 
-void WindowOpNativeCallback(int32_t window_id, const char* op, bool value) {
+void WindowOpNativeCallback(int32_t window_id, const char* op, const char* args) {
   if (!op) {
     OH_LOG_WARN(LOG_APP, "[WindowOp] no op, dropping for id=%{public}d",
                 window_id);
@@ -284,12 +284,12 @@ void WindowOpNativeCallback(int32_t window_id, const char* op, bool value) {
     return;
   }
   auto data = std::make_unique<WindowOpData>(
-      WindowOpData{window_id, std::string(op), value});
+      WindowOpData{window_id, std::string(op), args ? args : ""});
   napi_status status = napi_call_threadsafe_function(
       it->second, data.release(), napi_tsfn_nonblocking);
   OH_LOG_INFO(LOG_APP,
-              "[WindowOp] posted id=%{public}d %{public}s value=%{public}d status=%{public}d",
-              window_id, op, value, (int)status);
+              "[WindowOp] posted id=%{public}d %{public}s args=%{public}s status=%{public}d",
+              window_id, op, args ? args : "(null)", (int)status);
 }
 
 // ---------------------------------------------------------------------------

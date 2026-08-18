@@ -4,6 +4,7 @@ import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
+import display from '@ohos.display';
 import backgroundTaskManager from '@ohos.backgroundTaskManager';
 import bundleManager from '@ohos.bundle.bundleManager';
 import { BusinessError } from '@ohos.base';
@@ -391,8 +392,8 @@ export default abstract class BaseWindowAbility extends UIAbility {
     onMinimize?: () => void,
     showAbility?: () => Promise<void>
   ): void {
-    lynxtron.registerWindowOpCallbackForWindow(windowId, (_id: number, op: string, value?: boolean) => {
-      hilog.info(DOMAIN, TAG, 'windowOp %{public}s value=%{public}s', op, String(value));
+    lynxtron.registerWindowOpCallbackForWindow(windowId, (_id: number, op: string, args?: string) => {
+      hilog.info(DOMAIN, TAG, 'windowOp %{public}s args=%{public}s', op, args ?? '');
       try {
         const windowStatus = win.getWindowStatus();
         const isMinimized = windowStatus === window.WindowStatusType.MINIMIZE;
@@ -469,24 +470,120 @@ export default abstract class BaseWindowAbility extends UIAbility {
                 .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('close', 'ERR', `destroyWindow:${String(e)}`));
             }
             break;
-          case 'focus':
-            if (value === false) {
-              BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'no-op-blur');
+          case 'focus': {
+            const focusValue = args ? JSON.parse(args) as boolean : true;
+            if (focusValue === false) {
+              win.setWindowFocusable(false)
+                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'setWindowFocusable-false'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `setWindowFocusable-false:${BaseWindowAbility.errText(e)}`));
             } else if (showAbility) {
               showAbility()
                 .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'showAbility'))
                 .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `showAbility:${BaseWindowAbility.errText(e)}`));
             } else {
-              win.showWindow()
-                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'showWindow'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `showWindow:${BaseWindowAbility.errText(e)}`));
+              win.setWindowFocusable(true)
+                .then(() => win.showWindow())
+                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'setWindowFocusable-true-showWindow'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `focus-true:${BaseWindowAbility.errText(e)}`));
             }
             break;
-          case 'setAlwaysOnTop':
-            win.setWindowTopmost(value ?? false)
+          }
+          case 'setAlwaysOnTop': {
+            const onTopValue = args ? JSON.parse(args) as boolean : false;
+            win.setWindowTopmost(onTopValue)
               .then(() => BaseWindowAbility.recordWindowOpResult('setAlwaysOnTop', 'OK'))
               .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('setAlwaysOnTop', 'ERR', String(e)));
             break;
+          }
+          case 'hide':
+            win.hideWindow()
+              .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK'))
+              .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', String(e)));
+            break;
+          case 'setBounds': {
+            const bounds = args ? JSON.parse(args) as { x: number; y: number; width: number; height: number } : undefined;
+            if (!bounds) {
+              BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', 'missing-args');
+              break;
+            }
+            win.moveWindowToAsync(bounds.x, bounds.y)
+              .then(() => win.resizeAsync(bounds.width, bounds.height))
+              .then(() => BaseWindowAbility.recordWindowOpResult('setBounds', 'OK'))
+              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', BaseWindowAbility.errText(e)));
+            break;
+          }
+          case 'setPosition': {
+            const pos = args ? JSON.parse(args) as { x: number; y: number } : undefined;
+            if (!pos) {
+              BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', 'missing-args');
+              break;
+            }
+            win.moveWindowToAsync(pos.x, pos.y)
+              .then(() => BaseWindowAbility.recordWindowOpResult('setPosition', 'OK'))
+              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', BaseWindowAbility.errText(e)));
+            break;
+          }
+          case 'setSize': {
+            const size = args ? JSON.parse(args) as { width: number; height: number } : undefined;
+            if (!size) {
+              BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', 'missing-args');
+              break;
+            }
+            win.resizeAsync(size.width, size.height)
+              .then(() => BaseWindowAbility.recordWindowOpResult('setSize', 'OK'))
+              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', BaseWindowAbility.errText(e)));
+            break;
+          }
+          case 'center': {
+            const rect = args ? JSON.parse(args) as { width: number; height: number } : undefined;
+            if (!rect) {
+              BaseWindowAbility.recordWindowOpResult('center', 'ERR', 'missing-args');
+              break;
+            }
+            try {
+              const disp = display.getDefaultDisplaySync();
+              const left = Math.round((disp.width - rect.width) / 2);
+              const top = Math.round((disp.height - rect.height) / 2);
+              win.moveWindowToAsync(left, top)
+                .then(() => BaseWindowAbility.recordWindowOpResult('center', 'OK'))
+                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('center', 'ERR', BaseWindowAbility.errText(e)));
+            } catch (e) {
+              BaseWindowAbility.recordWindowOpResult('center', 'ERR', String(e));
+            }
+            break;
+          }
+          case 'setTitle': {
+            const titlePayload = args ? JSON.parse(args) as { title: string } : undefined;
+            const title = titlePayload?.title ?? '';
+            try {
+              win.setWindowTitle(title);
+              BaseWindowAbility.recordWindowOpResult('setTitle', 'OK');
+            } catch (e) {
+              BaseWindowAbility.recordWindowOpResult('setTitle', 'ERR', String(e));
+            }
+            break;
+          }
+          case 'setWindowLimits': {
+            const limits = args ? JSON.parse(args) as {
+              minWidth: number;
+              minHeight: number;
+              maxWidth: number;
+              maxHeight: number;
+            } : undefined;
+            if (!limits) {
+              BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', 'missing-args');
+              break;
+            }
+            win.setWindowLimits({
+              minWidth: limits.minWidth ?? 0,
+              minHeight: limits.minHeight ?? 0,
+              maxWidth: limits.maxWidth ?? 0,
+              maxHeight: limits.maxHeight ?? 0,
+            })
+              .then(() => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'OK'))
+              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', BaseWindowAbility.errText(e)));
+            break;
+          }
           default:
             hilog.warn(DOMAIN, TAG, 'unknown windowOp %{public}s', op);
         }

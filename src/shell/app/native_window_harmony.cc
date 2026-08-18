@@ -78,7 +78,7 @@ std::mutex g_window_op_mutex;
 std::mutex g_harmony_window_mutex;
 base::WeakPtr<NativeWindowHarmony> g_harmony_window;
 
-using WindowOpCallback = void (*)(int32_t window_id, const char* op, bool value);
+using WindowOpCallback = void (*)(int32_t window_id, const char* op, const char* args);
 std::unordered_map<int32_t, WindowOpCallback> g_window_op_callbacks;
 
 // C++-allocated window id and per-instance lookup table.
@@ -87,14 +87,14 @@ static std::unordered_map<int32_t, NativeWindowHarmony*> g_id_to_window;
 static std::unordered_map<int32_t, NativeWindowHarmony*> g_harmony_id_to_window;
 static std::mutex g_window_map_mutex;
 
-void InvokeWindowOp(int32_t window_id, const char* op, bool value = false) {
+void InvokeWindowOp(int32_t window_id, const char* op, const char* args = nullptr) {
   if (!op) return;
-  OH_LOG_INFO(LOG_APP, "[LynxtronWindow] InvokeWindowOp %{public}s value=%{public}d id=%{public}d",
-              op, static_cast<int>(value), window_id);
+  OH_LOG_INFO(LOG_APP, "[LynxtronWindow] InvokeWindowOp %{public}s args=%{public}s id=%{public}d",
+              op, args ? args : "(null)", window_id);
   std::lock_guard<std::mutex> lock(g_window_op_mutex);
   auto it = g_window_op_callbacks.find(window_id);
   if (it != g_window_op_callbacks.end() && it->second) {
-    it->second(window_id, op, value);
+    it->second(window_id, op, args ? args : "");
   } else {
     OH_LOG_WARN(LOG_APP, "[LynxtronWindow] no callback registered for id=%{public}d", window_id);
   }
@@ -327,7 +327,7 @@ class NativeWindowHarmony : public NativeWindow {
   void Focus(bool focus) override {
     is_focused_ = focus;
     OH_LOG_INFO(LOG_APP, "[Window] Focus(%{public}d)", static_cast<int>(focus));
-    InvokeWindowOp(harmony_window_id_, "focus", focus);
+    InvokeWindowOp(harmony_window_id_, "focus", focus ? "true" : "false");
     if (focus) {
       NotifyWindowFocus();
     } else {
@@ -348,6 +348,7 @@ class NativeWindowHarmony : public NativeWindow {
   void Hide() override {
     is_visible_ = false;
     OH_LOG_INFO(LOG_APP, "[Window] Hide");
+    InvokeWindowOp(harmony_window_id_, "hide");
     NotifyWindowHide();
   }
   bool IsVisible() override { return is_visible_; }
@@ -405,12 +406,35 @@ class NativeWindowHarmony : public NativeWindow {
   // --- geometry ---
   void SetBounds(const gfx::Rect& bounds, bool animate) override {
     bounds_ = bounds;
+    InvokeWindowOp(harmony_window_id_, "setBounds", RectToJson(bounds).c_str());
     NotifyWindowResize();
     NotifyWindowMove();
+  }
+  void SetPosition(const gfx::Point& position, bool animate) override {
+    bounds_.set_origin(position);
+    InvokeWindowOp(harmony_window_id_, "setPosition", PointToJson(position).c_str());
+    NotifyWindowMove();
+  }
+  void SetSize(const gfx::Size& size, bool animate) override {
+    bounds_.set_size(size);
+    InvokeWindowOp(harmony_window_id_, "setSize", SizeToJson(size).c_str());
+    NotifyWindowResize();
   }
   gfx::Rect GetBounds() const override { return bounds_; }
   float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
   gfx::Rect GetNormalBounds() const override { return bounds_; }
+
+  // --- size constraints ---
+  void SetSizeConstraints(const SizeConstraints& window_constraints) override {
+    NativeWindow::SetSizeConstraints(window_constraints);
+    InvokeWindowOp(harmony_window_id_, "setWindowLimits",
+                   SizeConstraintsToJson(window_constraints).c_str());
+  }
+  void SetContentSizeConstraints(const SizeConstraints& size_constraints) override {
+    NativeWindow::SetContentSizeConstraints(size_constraints);
+    InvokeWindowOp(harmony_window_id_, "setWindowLimits",
+                   SizeConstraintsToJson(size_constraints).c_str());
+  }
 
   // --- resizable / movable ---
   void SetResizable(bool resizable) override { is_resizable_ = resizable; }
@@ -431,12 +455,22 @@ class NativeWindowHarmony : public NativeWindow {
   void SetAlwaysOnTop(ui::ZOrderLevel z_order,
                       const std::string& level,
                       int relativeLevel) override {
+    bool old_on_top = (z_order_ != ui::ZOrderLevel::kNormal);
     z_order_ = z_order;
+    bool on_top = (z_order != ui::ZOrderLevel::kNormal);
+    OH_LOG_INFO(LOG_APP, "[Window] SetAlwaysOnTop %{public}d", static_cast<int>(on_top));
+    InvokeWindowOp(harmony_window_id_, "setAlwaysOnTop", on_top ? "true" : "false");
+    if (old_on_top != on_top) {
+      NotifyWindowAlwaysOnTopChanged();
+    }
   }
   ui::ZOrderLevel GetZOrderLevel() const override { return z_order_; }
-  void Center() override {}
+  void Center() override {
+    InvokeWindowOp(harmony_window_id_, "center", SizeToJson(bounds_.size()).c_str());
+  }
   void SetTitle(const std::string& title) override {
     title_ = title;
+    InvokeWindowOp(harmony_window_id_, "setTitle", TitleToJson(title).c_str());
     g_harmony_window_title = title;
   }
   std::string GetTitle() const override { return title_; }
@@ -557,6 +591,42 @@ class NativeWindowHarmony : public NativeWindow {
   }
 
  private:
+  static std::string RectToJson(const gfx::Rect& r) {
+    return "{\"x\":" + std::to_string(r.x()) +
+           ",\"y\":" + std::to_string(r.y()) +
+           ",\"width\":" + std::to_string(r.width()) +
+           ",\"height\":" + std::to_string(r.height()) + "}";
+  }
+  static std::string PointToJson(const gfx::Point& p) {
+    return "{\"x\":" + std::to_string(p.x()) +
+           ",\"y\":" + std::to_string(p.y()) + "}";
+  }
+  static std::string SizeToJson(const gfx::Size& s) {
+    return "{\"width\":" + std::to_string(s.width()) +
+           ",\"height\":" + std::to_string(s.height()) + "}";
+  }
+  static std::string TitleToJson(const std::string& title) {
+    std::string escaped;
+    escaped.reserve(title.size() + 2);
+    escaped.push_back('"');
+    for (char c : title) {
+      if (c == '\\' || c == '"') {
+        escaped.push_back('\\');
+      }
+      escaped.push_back(c);
+    }
+    escaped.push_back('"');
+    return "{\"title\":" + escaped + "}";
+  }
+  static std::string SizeConstraintsToJson(const SizeConstraints& constraints) {
+    gfx::Size min_size = constraints.GetMinimumSize();
+    gfx::Size max_size = constraints.GetMaximumSize();
+    return "{\"minWidth\":" + std::to_string(min_size.width()) +
+           ",\"minHeight\":" + std::to_string(min_size.height()) +
+           ",\"maxWidth\":" + std::to_string(max_size.width()) +
+           ",\"maxHeight\":" + std::to_string(max_size.height()) + "}";
+  }
+
   gfx::Rect bounds_;
   std::string title_;
   void* surface_ = nullptr;  // OHOS XComponent surface, set by HAP later.
