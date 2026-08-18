@@ -56,8 +56,13 @@ JS: new BaseWindow(options)
 
 - C++ 通过 `InvokeWindowOp` 下发 `minimize/maximize/restore/show/focus/close/setAlwaysOnTop/enter-full-screen/leave-full-screen`。
 - ArkTS 通过 `notifyWindowState` 上报 `foreground/background/minimize/restore/maximize/enter-full-screen/leave-full-screen/show/hide/resized/closed`。
-- 状态变化会触发对应的 JS 事件（`minimize`, `restore`, `maximize`, `enter-full-screen`, `leave-full-screen`, `show`, `hide`, `resized`, `focus`, `blur`, `always-on-top-changed` 等）。
+- `notifyWindowState` 支持第三个可选参数 `bounds: { left, top, width, height }`，仅 `will-resize` 使用。
+- `windowRectChange` 事件映射：
+  - `DRAG_START` → `will-resize`，携带目标 bounds。
+  - `DRAG_END / RECOVER / MAXIMIZE` → `resized`，不携带 bounds。
+- 状态变化会触发对应的 JS 事件（`minimize`, `restore`, `maximize`, `enter-full-screen`, `leave-full-screen`, `show`, `hide`, `resized`, `will-resize`, `focus`, `blur`, `always-on-top-changed` 等）。
 - `close` 事件仅在 CPP 发起关闭时触发（可 `preventDefault`）；手动关闭触发 `closed` 事件。
+- HarmonyOS `windowRectChange` 为异步回调，因此 `will-resize` 暂不支持 `event.preventDefault()`。
 
 ## 关键文件
 

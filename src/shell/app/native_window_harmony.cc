@@ -17,6 +17,7 @@
 #include <cstring>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #include "shell/app/native_window_harmony.h"
@@ -25,6 +26,8 @@
 #include "shell/app/window_list.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/options_switches.h"
+#include "shell/ui/gfx/geometry/rect.h"
+#include "shell/ui/gfx/geometry/resize_utils.h"
 #include "shell/common/global_thread.h"
 
 #undef LOG_DOMAIN
@@ -33,6 +36,15 @@
 #define LOG_TAG "LynxtronWindow"
 
 namespace lynxtron {
+
+// Plain C struct matching the NAPI bridge's LynxtronWindowBounds, used to pass
+// optional bounds for will-resize events across the dlopen boundary.
+struct LynxtronWindowBounds {
+  double left;
+  double top;
+  double width;
+  double height;
+};
 
 static std::string g_harmony_window_title;
 
@@ -99,7 +111,8 @@ extern "C" __attribute__((visibility("default"))) void LynxtronRegisterWindowOpC
 extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId();
 extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
     int32_t harmony_window_id,
-    const char* state);
+    const char* state,
+    const LynxtronWindowBounds* bounds);
 
 // Called from lynxtron_napi_bridge.cc when the ArkTS side has finished creating
 // the HarmonyOS window for a C++-allocated window id. This binds the two ids
@@ -160,6 +173,21 @@ class NativeWindowHarmony : public NativeWindow {
 
     bool always_on_top = false;
     options.Get(options::kAlwaysOnTop, &always_on_top);
+
+    bool fullscreen = false;
+    options.Get(options::kFullscreen, &fullscreen);
+
+    int min_width = 0;
+    int min_height = 0;
+    int max_width = 0;
+    int max_height = 0;
+    options.Get(options::kMinWidth, &min_width);
+    options.Get(options::kMinHeight, &min_height);
+    options.Get(options::kMaxWidth, &max_width);
+    options.Get(options::kMaxHeight, &max_height);
+
+    bool modal = false;
+    options.Get("modal", &modal);
 
     std::string type = "main";
     options.Get(options::kType, &type);
@@ -230,6 +258,13 @@ class NativeWindowHarmony : public NativeWindow {
     create_options.has_y = has_y;
     create_options.parent_window_id = parent ? parent_harmony->window_id() : -1;
     create_options.parent_harmony_window_id = parent_harmony_id;
+    create_options.title = title;
+    create_options.fullscreen = fullscreen;
+    create_options.min_width = min_width;
+    create_options.min_height = min_height;
+    create_options.max_width = max_width;
+    create_options.max_height = max_height;
+    create_options.modal = modal;
     LynxtronCreateHarmonyWindow(window_id_, &create_options);
 
     InitFromOptions(options);
@@ -694,7 +729,30 @@ extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId() 
 // update observers.
 namespace {
 
-void DispatchHarmonyWindowState(int32_t harmony_window_id, const std::string& state) {
+// Infer which resize edge moved by comparing the current bounds with the new
+// bounds reported by ArkTS. Defaults to kBottomRight when no edge changed.
+gfx::ResizeEdge InferResizeEdge(const gfx::Rect& old_bounds,
+                                const gfx::Rect& new_bounds) {
+  const bool left_moved = old_bounds.x() != new_bounds.x();
+  const bool top_moved = old_bounds.y() != new_bounds.y();
+  const bool right_moved = old_bounds.right() != new_bounds.right();
+  const bool bottom_moved = old_bounds.bottom() != new_bounds.bottom();
+
+  if (left_moved && top_moved) return gfx::ResizeEdge::kTopLeft;
+  if (right_moved && top_moved) return gfx::ResizeEdge::kTopRight;
+  if (left_moved && bottom_moved) return gfx::ResizeEdge::kBottomLeft;
+  if (right_moved && bottom_moved) return gfx::ResizeEdge::kBottomRight;
+  if (left_moved) return gfx::ResizeEdge::kLeft;
+  if (right_moved) return gfx::ResizeEdge::kRight;
+  if (top_moved) return gfx::ResizeEdge::kTop;
+  if (bottom_moved) return gfx::ResizeEdge::kBottom;
+  return gfx::ResizeEdge::kBottomRight;
+}
+
+void DispatchHarmonyWindowState(
+    int32_t harmony_window_id,
+    const std::string& state,
+    const std::optional<LynxtronWindowBounds>& bounds) {
   NativeWindowHarmony* window = nullptr;
   {
     std::lock_guard<std::mutex> lock(g_window_map_mutex);
@@ -734,6 +792,16 @@ void DispatchHarmonyWindowState(int32_t harmony_window_id, const std::string& st
     window->OnHarmonyHide();
   } else if (state == "resized") {
     window->NotifyWindowResized();
+  } else if (state == "will-resize") {
+    if (bounds) {
+      gfx::Rect new_bounds(static_cast<int>(bounds->left),
+                           static_cast<int>(bounds->top),
+                           static_cast<int>(bounds->width),
+                           static_cast<int>(bounds->height));
+      gfx::ResizeEdge edge = InferResizeEdge(window->GetBounds(), new_bounds);
+      bool prevent_default = false;
+      window->NotifyWindowWillResize(new_bounds, edge, prevent_default);
+    }
   } else if (state == "closed") {
     window->OnHarmonyClosed();
   } else {
@@ -745,7 +813,8 @@ void DispatchHarmonyWindowState(int32_t harmony_window_id, const std::string& st
 
 extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
     int32_t harmony_window_id,
-    const char* state) {
+    const char* state,
+    const LynxtronWindowBounds* bounds) {
   if (!state || harmony_window_id <= 0) return;
 
   // ArkTS lifecycle callbacks run inside the ArkUI / NAPI runtime. The window
@@ -761,13 +830,19 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
     return;
   }
 
+  std::optional<LynxtronWindowBounds> captured_bounds;
+  if (bounds) {
+    captured_bounds = *bounds;
+  }
+
   GlobalThread::GetUIThreadTaskRunner()->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](int32_t id, const std::string& state) {
-            DispatchHarmonyWindowState(id, state);
+          [](int32_t id, const std::string& state,
+             const std::optional<LynxtronWindowBounds>& b) {
+            DispatchHarmonyWindowState(id, state, b);
           },
-          harmony_window_id, std::string(state)));
+          harmony_window_id, std::string(state), captured_bounds));
 }
 
 void UpdateHarmonyNativeWindowSize(int width, int height) {

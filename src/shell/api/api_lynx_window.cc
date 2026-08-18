@@ -771,7 +771,9 @@ bool LynxWindow::SetGlobalProps(const gin_helper::Dictionary& global_props) {
   }
 
   if (!lynx_view_) {
-    data_str_ = "";
+    if (!data_str_.has_value()) {
+      data_str_ = "";
+    }
     global_props_ = std::move(global_props_string);
   } else {
     auto impl = std::make_shared<lynxtron::LynxUpdateMeta>();

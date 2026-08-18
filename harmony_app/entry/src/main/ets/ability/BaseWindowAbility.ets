@@ -9,6 +9,7 @@ import bundleManager from '@ohos.bundle.bundleManager';
 import { BusinessError } from '@ohos.base';
 import lynxtron from 'liblynxtron_napi.so';
 import { AbilityManager } from '../common/AbilityManager';
+import { WindowBounds } from '../adapter/AppWindowAdapter';
 
 const DOMAIN = 0x0000;
 const TAG = 'BaseWindowAbility';
@@ -32,6 +33,12 @@ interface WindowLaunchOptions {
   alwaysOnTop?: boolean;
   parentWindowId?: number;
   parentHarmonyWindowId?: number;
+  fullscreen?: boolean;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  modal?: boolean;
 }
 
 export default abstract class BaseWindowAbility extends UIAbility {
@@ -60,6 +67,12 @@ export default abstract class BaseWindowAbility extends UIAbility {
       alwaysOnTop: params?.['alwaysOnTop'] === undefined ? false : Boolean(params?.['alwaysOnTop']),
       parentWindowId: params?.['parentWindowId'] !== undefined ? Number(params?.['parentWindowId']) : undefined,
       parentHarmonyWindowId: params?.['parentHarmonyWindowId'] !== undefined ? Number(params?.['parentHarmonyWindowId']) : undefined,
+      fullscreen: params?.['fullscreen'] === undefined ? false : Boolean(params?.['fullscreen']),
+      minWidth: params?.['minWidth'] !== undefined ? Number(params?.['minWidth']) : undefined,
+      minHeight: params?.['minHeight'] !== undefined ? Number(params?.['minHeight']) : undefined,
+      maxWidth: params?.['maxWidth'] !== undefined ? Number(params?.['maxWidth']) : undefined,
+      maxHeight: params?.['maxHeight'] !== undefined ? Number(params?.['maxHeight']) : undefined,
+      modal: params?.['modal'] === undefined ? false : Boolean(params?.['modal']),
     };
 
     hilog.info(DOMAIN, TAG,
@@ -206,6 +219,29 @@ export default abstract class BaseWindowAbility extends UIAbility {
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'setSupportedWindowModes failed: %{public}s', String(e));
     }
+
+    // Initial fullscreen.
+    if (opts.fullscreen) {
+      mainWindow.maximize(window.MaximizePresentation.ENTER_IMMERSIVE)
+        .then(() => hilog.info(DOMAIN, TAG, 'enter-full-screen OK'))
+        .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'enter-full-screen failed: %{public}s', JSON.stringify(e)));
+    }
+
+    // Size constraints. 0 means no limit on that dimension.
+    if (opts.minWidth || opts.minHeight || opts.maxWidth || opts.maxHeight) {
+      try {
+        mainWindow.setWindowLimits({
+          minWidth: opts.minWidth ?? 0,
+          minHeight: opts.minHeight ?? 0,
+          maxWidth: opts.maxWidth ?? 0,
+          maxHeight: opts.maxHeight ?? 0,
+        })
+          .then(() => hilog.info(DOMAIN, TAG, 'setWindowLimits OK'))
+          .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'setWindowLimits failed: %{public}s', JSON.stringify(e)));
+      } catch (e) {
+        hilog.error(DOMAIN, TAG, 'setWindowLimits failed: %{public}s', String(e));
+      }
+    }
   }
 
   // Keep the Ability alive long enough to perform window operations (especially
@@ -309,10 +345,28 @@ export default abstract class BaseWindowAbility extends UIAbility {
 
     // Forward resize completion to C++ so JS 'resized' fires. DRAG_END means
     // the user has finished a drag-resize; RECOVER/MAXIMIZE cover restore and
-    // maximize transitions that also change the window size.
+    // maximize transitions that also change the window size. DRAG_START is
+    // forwarded as 'will-resize' with the target bounds so JS can observe the
+    // resize before it completes.
     try {
       win.on('windowRectChange', (option: window.RectChangeOptions) => {
         const reason = option.reason;
+        const rect = option.rect;
+        const bounds: WindowBounds | undefined = rect ? {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        } : undefined;
+
+        if (reason === window.RectChangeReason.DRAG_START && bounds) {
+          hilog.info(DOMAIN, TAG,
+            'windowRectChange windowId=%{public}d reason=%{public}d will-resize',
+            windowId, reason);
+          lynxtron.notifyWindowState(windowId, 'will-resize', bounds);
+          return;
+        }
+
         if (reason !== window.RectChangeReason.DRAG_END &&
             reason !== window.RectChangeReason.RECOVER &&
             reason !== window.RectChangeReason.MAXIMIZE) {

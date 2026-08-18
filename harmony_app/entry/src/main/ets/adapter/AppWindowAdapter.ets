@@ -50,6 +50,12 @@ export interface CreateWindowOptions {
   center?: boolean;
   hasX?: boolean;
   hasY?: boolean;
+  fullscreen?: boolean;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  modal?: boolean;
 }
 
 // Legacy param used by EntryAbility to launch the first WindowAbility.
@@ -117,7 +123,7 @@ export class AppWindowAdapter {
       options.y = bounds.top;
     }
 
-    if (options.type === 'sub') {
+    if (options.type === 'sub' || options.type === 'panel' || options.type === 'dialog') {
       const parentHarmonyId = options.parentHarmonyWindowId ?? -1;
       let parent = parentHarmonyId > 0 ? AbilityManager.get(parentHarmonyId) : undefined;
       if (!parent && options.parentWindowId && options.parentWindowId > 0) {
@@ -128,8 +134,8 @@ export class AppWindowAdapter {
         return;
       }
       hilog.warn(DOMAIN, TAG,
-        'sub window parent not found (parentHarmonyWindowId=%{public}d, parentWindowId=%{public}d), fallback to SubWindowAbility',
-        parentHarmonyId, options.parentWindowId ?? -1);
+        '%{public}s window parent not found (parentHarmonyWindowId=%{public}d, parentWindowId=%{public}d), fallback to ability',
+        options.type, parentHarmonyId, options.parentWindowId ?? -1);
     }
 
     const context = AppWindowAdapter.getActiveContext();
@@ -174,6 +180,12 @@ export class AppWindowAdapter {
         center: options.center ?? false,
         hasX: options.hasX ?? false,
         hasY: options.hasY ?? false,
+        fullscreen: options.fullscreen ?? false,
+        minWidth: options.minWidth ?? 0,
+        minHeight: options.minHeight ?? 0,
+        maxWidth: options.maxWidth ?? 0,
+        maxHeight: options.maxHeight ?? 0,
+        modal: options.modal ?? false,
       },
     };
 
@@ -243,12 +255,13 @@ export class AppWindowAdapter {
     const name = `lynxtron-sub-${options.windowId}`;
     hilog.info(DOMAIN, TAG, 'createSubWindowFromCpp name=%{public}s', name);
 
-    parentStage.createSubWindow(name, (err, subWindow) => {
-      if (err || !subWindow) {
-        hilog.error(DOMAIN, TAG, 'createSubWindow failed: %{public}s', JSON.stringify(err) ?? '');
-        return;
-      }
-      try {
+    const subWindowOptions: window.SubWindowOptions = {
+      title: options.title ?? '',
+      decorEnabled: true,
+      isModal: options.modal ?? false,
+    };
+    parentStage.createSubWindowWithOptions(name, subWindowOptions)
+      .then((subWindow) => {
         const originWindowId = subWindow.getWindowProperties().id;
         AbilityManager.register(options.windowId, originWindowId, originWindowId, parentContext, parentStage);
 
@@ -307,6 +320,29 @@ export class AppWindowAdapter {
             .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow setWindowTopmost failed: %{public}s', JSON.stringify(e)));
         }
 
+        // Initial fullscreen.
+        if (options.fullscreen) {
+          subWindow.maximize(window.MaximizePresentation.ENTER_IMMERSIVE)
+            .then(() => hilog.info(DOMAIN, TAG, 'subWindow enter-full-screen OK'))
+            .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow enter-full-screen failed: %{public}s', JSON.stringify(e)));
+        }
+
+        // Size constraints.
+        if (options.minWidth || options.minHeight || options.maxWidth || options.maxHeight) {
+          try {
+            subWindow.setWindowLimits({
+              minWidth: options.minWidth ?? 0,
+              minHeight: options.minHeight ?? 0,
+              maxWidth: options.maxWidth ?? 0,
+              maxHeight: options.maxHeight ?? 0,
+            })
+              .then(() => hilog.info(DOMAIN, TAG, 'subWindow setWindowLimits OK'))
+              .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow setWindowLimits failed: %{public}s', JSON.stringify(e)));
+          } catch (e) {
+            hilog.error(DOMAIN, TAG, 'subWindow setWindowLimits failed: %{public}s', String(e));
+          }
+        }
+
         // Bind C++ window id to the subwindow's HarmonyOS window id.
         lynxtron.setWindowIdForWindow(options.windowId, originWindowId);
 
@@ -329,9 +365,9 @@ export class AppWindowAdapter {
               .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow showWindow failed: %{public}s', JSON.stringify(e)));
           }
         });
-      } catch (e) {
-        hilog.error(DOMAIN, TAG, 'createSubWindowFromCpp setup failed: %{public}s', String(e));
-      }
+    })
+    .catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'createSubWindowWithOptions failed: %{public}s', JSON.stringify(err) ?? '');
     });
   }
 

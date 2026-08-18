@@ -1,6 +1,6 @@
 // TypeScript declaration for the lynxtron NAPI module.
 // Matches the napi_property_descriptor exported from
-// src/shell/app/main_harmony.cc::Init.
+// src/shell/app/lynxtron_napi_bridge.cc::Init.
 
 declare namespace lynxtron {
   /**
@@ -49,6 +49,22 @@ declare namespace lynxtron {
    * onWindowStageCreate, before any editable can take focus.
    */
   function setWindowId(id: number): void;
+
+  /** Binds a C++-allocated window id to its HarmonyOS origin window id. */
+  function setWindowIdForWindow(cppWindowId: number, harmonyWindowId: number): void;
+
+  /** Returns the first native window id in this process. */
+  function getWindowId(): number;
+
+  /**
+   * Notifies liblynxtron of a window lifecycle/state change. The optional
+   * |bounds| parameter (left/top/width/height) is used by 'will-resize'.
+   */
+  function notifyWindowState(
+    windowId: number,
+    state: string,
+    bounds?: { left: number; top: number; width: number; height: number }
+  ): void;
 
   /**
     * Registers a callback that receives window operation requests from

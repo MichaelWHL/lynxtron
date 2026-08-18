@@ -52,6 +52,23 @@ struct HarmonyWindowCreationOptions {
   // decide whether to honor them or apply centering.
   bool has_x = false;
   bool has_y = false;
+
+  // Window title. Forwarded to ArkTS so the initial title can be applied
+  // during window creation.
+  std::string title;
+
+  // Whether the window should start in fullscreen.
+  bool fullscreen = false;
+
+  // Size constraints in pixels. 0 means no limit. Only meaningful when the
+  // underlying HarmonyOS window supports size limits (e.g. free-form windows).
+  int32_t min_width = 0;
+  int32_t min_height = 0;
+  int32_t max_width = 0;
+  int32_t max_height = 0;
+
+  // Whether the window is modal. Used for sub/panel/dialog types.
+  bool modal = false;
 };
 
 }  // namespace lynxtron

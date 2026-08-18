@@ -13,6 +13,9 @@ let eventCounter = 0;
 let batch3LoadFileResult: boolean | null = null;
 let batch3ConstructorOptions: any = null;
 let batch6PreloadSetGlobalPropsResult: boolean | null = null;
+let batch6UpdateMetaResult: boolean | null = null;
+let batch6FirstPropsResult: boolean | null = null;
+let batch6EmptyPropsResult: boolean | null = null;
 
 function attachEventRecorders(window: LynxWindow) {
   if (eventListenersAttached) {
@@ -97,17 +100,36 @@ async function runBatch6Tests() {
       nested: { flag: true }
     };
 
-    console.log('[WindowManagerTest] ACTION: verifying pre-load setGlobalProps result');
-    logResult('B6-STEP1 pre-load setGlobalProps result', {
+    console.log('[WindowManagerTest] ACTION: verifying pre-load updateMetaData + setGlobalProps results');
+
+    logResult('B6-STEP1 updateMetaData cache result', {
+      meta: { updateData: { from: 'updateMetaData' }, globalProps: { from: 'updateMetaData' } },
+      returned: batch6UpdateMetaResult
+    });
+    console.log(`[WindowManagerTest] B6-STEP1 result: ${batch6UpdateMetaResult === true ? 'PASS' : 'FAIL'} (expected pre-load updateMetaData() to return true)`);
+
+    logResult('B6-STEP2 first pre-load setGlobalProps result', {
+      globalProps: { step: 'first' },
+      returned: batch6FirstPropsResult
+    });
+    console.log(`[WindowManagerTest] B6-STEP2 result: ${batch6FirstPropsResult === true ? 'PASS' : 'FAIL'} (expected first pre-load setGlobalProps() to return true)`);
+
+    logResult('B6-STEP3 empty pre-load setGlobalProps result', {
+      globalProps: {},
+      returned: batch6EmptyPropsResult
+    });
+    console.log(`[WindowManagerTest] B6-STEP3 result: ${batch6EmptyPropsResult === true ? 'PASS' : 'FAIL'} (expected empty pre-load setGlobalProps({}) to return true)`);
+
+    logResult('B6-STEP4 final pre-load setGlobalProps result', {
       globalProps: preloadProps,
       returned: batch6PreloadSetGlobalPropsResult
     });
-    console.log(`[WindowManagerTest] B6-STEP1 result: ${batch6PreloadSetGlobalPropsResult === true ? 'PASS' : 'FAIL'} (expected pre-load setGlobalProps() to return true)`);
+    console.log(`[WindowManagerTest] B6-STEP4 result: ${batch6PreloadSetGlobalPropsResult === true ? 'PASS' : 'FAIL'} (expected final pre-load setGlobalProps() to return true)`);
 
     console.log('[WindowManagerTest] ACTION: calling post-load setGlobalProps(...)');
     const postloadResult = mainWindow.setGlobalProps(postloadProps);
-    logResult('B6-STEP2 post-load setGlobalProps result', { globalProps: postloadProps, returned: postloadResult });
-    console.log(`[WindowManagerTest] B6-STEP2 result: ${postloadResult === true ? 'PASS' : 'FAIL'} (expected post-load setGlobalProps() to return true)`);
+    logResult('B6-STEP5 post-load setGlobalProps result', { globalProps: postloadProps, returned: postloadResult });
+    console.log(`[WindowManagerTest] B6-STEP5 result: ${postloadResult === true ? 'PASS' : 'FAIL'} (expected post-load setGlobalProps() to return true)`);
 
     console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test End ===');
   } catch (err) {
@@ -309,17 +331,32 @@ async function createWindow() {
 
   console.log('[default_app] main window created');
 
-  // Batch 6: call setGlobalProps before loadFile to exercise the caching path
-  // (lynx_view_ is not created yet at this point).
+  // Batch 6: exercise setGlobalProps caching path before lynx_view_ is created.
+  const updateMeta = {
+    updateData: { from: 'updateMetaData' },
+    globalProps: { from: 'updateMetaData' }
+  };
+  console.log('[default_app] ACTION: calling pre-load updateMetaData(...)');
+  batch6UpdateMetaResult = mainWindow.updateMetaData(updateMeta);
+  console.log(`[default_app] pre-load updateMetaData returned: ${batch6UpdateMetaResult}`);
+
+  console.log('[default_app] ACTION: calling first pre-load setGlobalProps(...)');
+  batch6FirstPropsResult = mainWindow.setGlobalProps({ step: 'first' });
+  console.log(`[default_app] first pre-load setGlobalProps returned: ${batch6FirstPropsResult}`);
+
+  console.log('[default_app] ACTION: calling pre-load setGlobalProps({})');
+  batch6EmptyPropsResult = mainWindow.setGlobalProps({});
+  console.log(`[default_app] empty pre-load setGlobalProps returned: ${batch6EmptyPropsResult}`);
+
   const preloadGlobalProps = {
     appName: 'default_app',
     testBatch: 6,
     phase: 'preload',
     nested: { flag: true }
   };
-  console.log('[default_app] ACTION: calling pre-load setGlobalProps(...)');
+  console.log('[default_app] ACTION: calling final pre-load setGlobalProps(...)');
   batch6PreloadSetGlobalPropsResult = mainWindow.setGlobalProps(preloadGlobalProps);
-  console.log(`[default_app] pre-load setGlobalProps returned: ${batch6PreloadSetGlobalPropsResult}`);
+  console.log(`[default_app] final pre-load setGlobalProps returned: ${batch6PreloadSetGlobalPropsResult}`);
 
   // Run window manager tests after the window is ready.
   setTimeout(() => {

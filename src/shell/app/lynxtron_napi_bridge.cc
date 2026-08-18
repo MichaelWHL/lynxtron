@@ -45,12 +45,23 @@
 
 namespace {
 
+// Optional bounds carried by ArkTS for will-resize events. Passed as a plain
+// C struct across the dlopen boundary so the NAPI bridge and liblynxtron.so
+// do not share C++ headers.
+struct LynxtronWindowBounds {
+  double left;
+  double top;
+  double width;
+  double height;
+};
+
 using LynxtronMainFn = int (*)(int, char**);
 using LynxtronSetWindowIdFn = void (*)(int32_t);
 using LynxtronRegisterWindowOpCallbackFn =
     void (*)(int32_t, void (*)(int32_t, const char*, bool));
 using LynxtronGetWindowIdFn = int32_t (*)();
-using LynxtronNotifyWindowStateFn = void (*)(int32_t, const char*);
+using LynxtronNotifyWindowStateFn =
+    void (*)(int32_t, const char*, const LynxtronWindowBounds*);
 using LynxtronHandleOpenURLFn = void (*)(const char*);
 using LynxtronHandleOpenPathFn = void (*)(const char*);
 using LynxtronQuitFn = void (*)();
@@ -344,6 +355,13 @@ void CreateWindowCallJS(napi_env env, napi_value js_cb, void* context,
   set_bool("center", request->options.center);
   set_bool("hasX", request->options.has_x);
   set_bool("hasY", request->options.has_y);
+  set_string("title", request->options.title);
+  set_bool("fullscreen", request->options.fullscreen);
+  set_int("minWidth", request->options.min_width);
+  set_int("minHeight", request->options.min_height);
+  set_int("maxWidth", request->options.max_width);
+  set_int("maxHeight", request->options.max_height);
+  set_bool("modal", request->options.modal);
 
   napi_value argv[1] = {options};
   napi_value undefined;
@@ -535,6 +553,23 @@ napi_value GetWindowId(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// Reads a numeric property from |object|. Returns true and writes the value
+// when the property exists and is a number; otherwise returns false.
+bool GetObjectDoubleProperty(napi_env env,
+                             napi_value object,
+                             const char* key,
+                             double* out) {
+  napi_value value = nullptr;
+  if (napi_get_named_property(env, object, key, &value) != napi_ok) {
+    return false;
+  }
+  napi_valuetype type;
+  if (napi_typeof(env, value, &type) != napi_ok || type != napi_number) {
+    return false;
+  }
+  return napi_get_value_double(env, value, out) == napi_ok;
+}
+
 napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value args[3] = {nullptr, nullptr, nullptr};
@@ -548,11 +583,25 @@ napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
       napi_get_value_int32(env, args[0], &window_id) == napi_ok &&
       napi_get_value_string_utf8(env, args[1], state, sizeof(state),
                                  &state_len) == napi_ok) {
+    LynxtronWindowBounds bounds;
+    const LynxtronWindowBounds* bounds_ptr = nullptr;
+    if (argc >= 3) {
+      napi_valuetype arg2_type;
+      if (napi_typeof(env, args[2], &arg2_type) == napi_ok &&
+          arg2_type == napi_object &&
+          GetObjectDoubleProperty(env, args[2], "left", &bounds.left) &&
+          GetObjectDoubleProperty(env, args[2], "top", &bounds.top) &&
+          GetObjectDoubleProperty(env, args[2], "width", &bounds.width) &&
+          GetObjectDoubleProperty(env, args[2], "height", &bounds.height)) {
+        bounds_ptr = &bounds;
+      }
+    }
+
     if (EnsureLynxtronLoaded()) {
       auto fn = reinterpret_cast<LynxtronNotifyWindowStateFn>(
           dlsym(g_lynxtron_handle, "LynxtronNotifyWindowState"));
       if (fn) {
-        fn(window_id, state);
+        fn(window_id, state, bounds_ptr);
       } else {
         OH_LOG_ERROR(LOG_APP,
                      "dlsym LynxtronNotifyWindowState FAILED: %{public}s",
@@ -561,7 +610,7 @@ napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
     }
   } else {
     napi_throw_error(env, nullptr,
-                     "notifyWindowState requires (windowId, state)");
+                     "notifyWindowState requires (windowId, state, [bounds])");
     return nullptr;
   }
 
