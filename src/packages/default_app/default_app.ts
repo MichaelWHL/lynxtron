@@ -42,7 +42,9 @@ const TEST_FN_NAMES = [
   'testPollRequestTimeout',
   'testPollHttpLoop',
   'testPollNoTimerIO',
+  //
   'testGetPrimaryDisplay',
+  "testClipboardWriteText"
 ] as const;
 
 let testFns: Record<string, TestFn> | null = null;

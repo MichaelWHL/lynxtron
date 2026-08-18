@@ -2,7 +2,7 @@
 // shell.openExternal 测试用例
 // ──────────────────────────────────────────────
 
-import { shell, dialog, nativeImage, powerMonitor, screen } from 'lynxtron';
+import { shell, dialog, nativeImage, powerMonitor, screen,clipboard } from 'lynxtron';
 
 import * as http from 'node:http';
 import * as https from 'node:https';
@@ -534,4 +534,8 @@ export async function testPollNoTimerIO() {
 export function testGetPrimaryDisplay() {
   const res = screen.getPrimaryDisplay()
   console.log('[screen]', JSON.stringify(res, null, 2))
+}
+export function testClipboardWriteText(){
+  clipboard.writeText('hello world')
+  console.log('[clipboard]', clipboard.readText())
 }

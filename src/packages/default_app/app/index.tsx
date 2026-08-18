@@ -8,6 +8,7 @@ import LogPanel from './LogPanel';
 import { log, logError, logInfo, logWarn } from './log';
 import { testSelectorQuery } from './selectorQueryTest';
 import { testJSModule } from './jsModuleTest';
+import { testAddFont } from './fontTest';
 
 // testDemo.ts 中每个测试方法对应一个按钮
 const TEST_FUNCTIONS: Array<{ name: string; label: string; desc: string }> = [
@@ -47,9 +48,14 @@ const TEST_FUNCTIONS: Array<{ name: string; label: string; desc: string }> = [
     desc: 'powerMonitor 锁屏事件监听',
   },
   {
-    name:"testGetPrimaryDisplay",
-    label:"testGetPrimaryDisplay",
-    desc:"获取主屏幕信息"
+    name: "testGetPrimaryDisplay",
+    label: "testGetPrimaryDisplay",
+    desc: "获取主屏幕信息"
+  },
+  {
+    name: "testClipboardWriteText",
+    label: "ClipboardWriteText",
+    desc: "Clipboard 写入文本"
   }
   // ── poll() 替代 select() 回归测试 (node_bindings_harmony.cc PollEvents) ──
   // {
@@ -157,6 +163,9 @@ export default function WebContainer() {
   }
   // Console 面板显隐
   const [showLog, setShowLog] = useState(true);
+  const [fontReady, setFontReady] = useState(false);
+  // 先注册后声明: addFont 成功后才让 #ft-custom 元素出现(fontReady->true)
+  const enableFontTest = () => setFontReady(true);
 
   return (
     <view clip-radius="true" className="outlineFrame">
@@ -206,6 +215,12 @@ export default function WebContainer() {
           <view className="lxp-item" style={{ width: '80px', height: '40px', backgroundColor: '#3fb96b', borderRadius: '6px', marginLeft: '8px' }} />
           <view className="lxp-item" style={{ width: '80px', height: '40px', backgroundColor: '#3fb96b', borderRadius: '6px', marginLeft: '8px' }} />
           <text style={{ fontSize: '11px', color: '#8a8f98', marginLeft: '10px' }}>测试目标: #lxp-target + 3× .lxp-item</text>
+          {fontReady ? (
+            <text id="ft-custom" style={{ fontFamily: 'sq-font', fontSize: '28px', color: '#e8e9ea', marginLeft: '16px', backgroundColor: '#2c2e34', padding: '4px 8px', borderRadius: '6px' }}>The quick brown fox jumps over the lazy dog 0123456789</text>
+          ) : (
+            <text style={{ fontFamily: 'sq-font', fontSize: '28px', color: '#6d7178', marginLeft: '16px', backgroundColor: '#1e2024', padding: '4px 8px', borderRadius: '6px' }}>#ft-custom 待 addFont 后出现</text>
+          )}
+          <text id="ft-default" style={{ fontSize: '28px', color: '#e8e9ea', marginLeft: '8px', backgroundColor: '#2c2e34', padding: '4px 8px', borderRadius: '6px' }}>The quick brown fox jumps over the lazy dog 0123456789</text>
         </view>
         <view className={`testGrid ${showLog ? '' : 'testGridFill'}`}>
           {TEST_FUNCTIONS.map((t) => (
@@ -218,14 +233,14 @@ export default function WebContainer() {
               <text className="testCardDesc">{t.desc}</text>
             </view>
           ))}
-             <view className="testCard">
+          <view className="testCard">
             <view className="testButton" bindtap={() => { test() }}>
               <view className="testButtonDot" />
               <text className="testButtonText">requireModule</text>
               <text className="testButtonArrow">›</text>
             </view>
           </view>
-             <view className="testCard">
+          <view className="testCard">
             <view className="testButton" bindtap={() => { testSelectorQuery(); }}>
               <view className="testButtonDot" />
               <text className="testButtonText">SelectorQuery</text>
@@ -233,13 +248,21 @@ export default function WebContainer() {
             </view>
             <text className="testCardDesc">createSelectorQuery 六个用例</text>
           </view>
-             <view className="testCard">
+          <view className="testCard">
             <view className="testButton" bindtap={() => { testJSModule(); }}>
               <view className="testButtonDot" />
               <text className="testButtonText">JSModule</text>
               <text className="testButtonArrow">›</text>
             </view>
             <text className="testCardDesc">getJSModule/registerModule 四个用例</text>
+          </view>
+          <view className="testCard">
+            <view className="testButton" bindtap={() => { testAddFont(() => enableFontTest()); }}>
+              <view className="testButtonDot" />
+              <text className="testButtonText">AddFont验证</text>
+              <text className="testButtonArrow">›</text>
+            </view>
+            <text className="testCardDesc">addFont(data URI) 字体加载 + 轮询宽度测量</text>
           </view>
         </view>
       </view>
