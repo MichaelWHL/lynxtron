@@ -83,12 +83,18 @@ struct Index {
   // native surface while exercising a Lynx input control: it would receive
   // the touch before XComponent can focus the Lynx field.
   @State showWebOverlay: boolean = false;
+  @State xcomponentId: string = 'lynxtron_surface_-1';
   private webNodeController: WebNodeController = new WebNodeController();
 
   aboutToAppear(): void {
     // LynxtronMain is now started from XComponent.onLoad (see build()), so the
     // native surface exists before the render pipeline spins up.
     hilog.info(DOMAIN, TAG, 'aboutToAppear — waiting for XComponent surface');
+    let originWindowId = AppStorage.get<number>('current_origin_window_id');
+    if (originWindowId === undefined || originWindowId <= 0) {
+      originWindowId = -1;
+    }
+    this.xcomponentId = 'lynxtron_surface_' + originWindowId;
     // Text input is owned entirely by the native side: the bridge registers an
     // InputMethod_TextEditorProxy (inputmethod NDK) and becomes the system
     // IME's text client directly, so no ArkUI TextInput is involved and nothing
@@ -166,12 +172,6 @@ struct Index {
   }
 
   build() {
-    let originWindowId = AppStorage.get<number>('current_origin_window_id');
-    if (originWindowId === undefined || originWindowId <= 0) {
-      originWindowId = -1;
-    }
-    const xcomponentId = 'lynxtron_surface_' + originWindowId;
-
     Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         // XComponent produces a native surface; its onLoad NAPI callback in
@@ -180,7 +180,7 @@ struct Index {
         // The id encodes the origin window id so C++ can route surface updates
         // per-window instead of assuming a single window per thread.
         XComponent({
-          id: xcomponentId,
+          id: this.xcomponentId,
           type: XComponentType.SURFACE,
           libraryname: 'lynxtron_napi'
         })
