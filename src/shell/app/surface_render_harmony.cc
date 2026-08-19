@@ -27,6 +27,7 @@
 #include "include/gpu/gl/GrGLAssembleInterface.h"
 #include "include/gpu/gl/GrGLInterface.h"
 #include "include/gpu/gl/GrGLTypes.h"
+#include "shell/app/native_window_harmony.h"
 #include "shell/app/lynx_windowless_renderer_harmony.h"
 
 #undef LOG_DOMAIN
@@ -170,6 +171,11 @@ LynxtronSetNativeSurface(void* window, int width, int height) {
   // made Clay's OnGLMakeCurrent fail with EGL_BAD_ACCESS (0x3002). The card is
   // removed now that Clay renders the real Lynx bundle here.
   lynxtron::CreateHarmonyWindowlessRenderer(window, width, height);
+  // The same OHNativeWindow is retained across a full-screen transition, so
+  // tell the existing NativeWindow/LynxView about every size change. Without
+  // this its viewport stays at the prior size and pointer coordinates hit-test
+  // at a different scale from the ArkUI XComponent.
+  lynxtron::UpdateHarmonyNativeWindowSize(width, height);
 
   // NOTE: no bring-up LynxView here anymore. The default_app JS creates a real
   // LynxWindow (BrowserWindow) and loads its own Lynx app; that window's

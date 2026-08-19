@@ -4,10 +4,16 @@
 
 #include "shell/app/native_window.h"
 
+#include <mutex>
+
+#include "base/memory/weak_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include <hilog/log.h>
 
+#include "shell/app/native_window_harmony.h"
 #include "shell/app/lynx_windowless_renderer_harmony.h"
 #include "shell/common/gin_helper/dictionary.h"
+#include "shell/common/global_thread.h"
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -15,6 +21,15 @@
 #define LOG_TAG "LynxtronWindow"
 
 namespace lynxtron {
+
+class NativeWindowHarmony;
+
+namespace {
+
+std::mutex g_harmony_window_mutex;
+base::WeakPtr<NativeWindowHarmony> g_harmony_window;
+
+}  // namespace
 
 // HarmonyOS NativeWindow — minimal concrete implementation.
 //
@@ -43,10 +58,30 @@ class NativeWindowHarmony : public NativeWindow {
                 w, h);
     bounds_ = gfx::Rect(0, 0, w, h);
     InitFromOptions(options);
+    std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
+    g_harmony_window = weak_factory_.GetWeakPtr();
   }
 
   ~NativeWindowHarmony() override {
     OH_LOG_INFO(LOG_APP, "[Window] NativeWindowHarmony destroyed");
+    std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
+    if (g_harmony_window.get() == this) {
+      g_harmony_window.reset();
+    }
+  }
+
+  void OnSurfaceSizeChanged(int width, int height) {
+    if (width <= 0 || height <= 0 ||
+        (bounds_.width() == width && bounds_.height() == height)) {
+      return;
+    }
+    OH_LOG_INFO(LOG_APP,
+                "[Window] XComponent size %{public}dx%{public}d -> "
+                "%{public}dx%{public}d",
+                bounds_.width(), bounds_.height(), width, height);
+    bounds_.set_size(gfx::Size(width, height));
+    NotifyWindowResize();
+    NotifyWindowResized();
   }
 
   // --- lifecycle ---
@@ -209,7 +244,34 @@ class NativeWindowHarmony : public NativeWindow {
   double opacity_ = 1.0;
   float device_pixel_ratio_ = 1.0f;
   ui::ZOrderLevel z_order_ = ui::ZOrderLevel::kNormal;
+  base::WeakPtrFactory<NativeWindowHarmony> weak_factory_{this};
 };
+
+void UpdateHarmonyNativeWindowSize(int width, int height) {
+  base::WeakPtr<NativeWindowHarmony> window;
+  {
+    std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
+    window = g_harmony_window;
+  }
+  if (!window || width <= 0 || height <= 0) {
+    return;
+  }
+
+  auto runner = GetUIThreadTaskRunner();
+  if (!runner) {
+    OH_LOG_ERROR(LOG_APP, "[Window] no UI runner for XComponent size update");
+    return;
+  }
+  runner->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](base::WeakPtr<NativeWindowHarmony> window, int width, int height) {
+            if (window) {
+              window->OnSurfaceSizeChanged(width, height);
+            }
+          },
+          std::move(window), width, height));
+}
 
 // static
 NativeWindow* NativeWindow::Create(const gin_helper::Dictionary& options,
