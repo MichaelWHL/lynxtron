@@ -4,7 +4,7 @@
 
 
 
-import { app, LynxWindow, clipboard } from 'lynxtron';
+import { app, LynxWindow, clipboard, LynxTemplateData } from 'lynxtron';
 
 let mainWindow: LynxWindow | null = null;
 const recordedEvents: { type: string; ts: number }[] = [];
@@ -151,7 +151,7 @@ async function runBatch2Tests() {
     const beforeCount = recordedEvents.length;
     action();
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      setTimeout(() => {
         const found = recordedEvents
           .slice(beforeCount)
           .some((e) => e.type === eventName);
@@ -372,7 +372,7 @@ async function runBatch8Tests() {
     win.on('blur' as any, () => blurEvents.push('blur'));
     win.focus();
     await sleep(500);
-    win.focus(false);
+    win.blur();
     await sleep(1000);
     const blurred = !win.isFocused();
     console.log('[WindowManagerTest] ACTION: calling focus()');
@@ -531,8 +531,8 @@ async function createWindow() {
 
   // Batch 6: exercise setGlobalProps caching path before lynx_view_ is created.
   const updateMeta = {
-    updateData: { from: 'updateMetaData' },
-    globalProps: { from: 'updateMetaData' }
+    updateData: new LynxTemplateData({ from: 'updateMetaData' }),
+    globalProps: new LynxTemplateData({ from: 'updateMetaData' })
   };
   console.log('[default_app] ACTION: calling pre-load updateMetaData(...)');
   batch6UpdateMetaResult = mainWindow.updateMetaData(updateMeta);
