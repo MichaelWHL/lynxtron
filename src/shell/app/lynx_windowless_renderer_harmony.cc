@@ -367,7 +367,13 @@ CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height) {
   // call base::UIThread::Init() and claim the (never-pumped) fml loop.
   EnsureGlobalUiTaskRunner();
   std::lock_guard<std::mutex> lock(g_mutex);
+  // ArkUI reuses the same OHNativeWindow across full-screen transitions. Keep
+  // these dimensions current even when no renderer must be recreated; they
+  // seed native-window geometry and must match incoming XComponent coordinates.
+  g_surface_w = width;
+  g_surface_h = height;
   if (g_current && g_current->window() == egl_window) {
+    WLR_LOG("XComponent surface resized %{public}dx%{public}d", width, height);
     return g_current;
   }
 
@@ -378,8 +384,6 @@ CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height) {
   // must run after the shared_ptr owns the object.
   renderer->InitIfNeeded();
   g_current = renderer;
-  g_surface_w = width;
-  g_surface_h = height;
   WLR_LOG("Windowless GLDirect renderer created %{public}dx%{public}d "
           "(EGL deferred to gpu thread)", width, height);
   return renderer;

@@ -27,6 +27,7 @@
 #include <napi/native_api.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <window_manager/oh_display_manager.h>
 
 #include <mutex>
 #include <string>
@@ -57,6 +58,37 @@ LynxtronQuitFn g_quit = nullptr;
 // exit code through this; the ArkUI thread then calls terminateSelf() on the
 // stored ability context (see ExitCallJS). Event-driven, no polling.
 napi_threadsafe_function g_exit_tsfn = nullptr;
+
+void LogDefaultDisplayAvailableArea() {
+  uint64_t display_id = 0;
+  NativeDisplayManager_ErrorCode status =
+      OH_NativeDisplayManager_GetDefaultDisplayId(&display_id);
+  if (status != DISPLAY_MANAGER_OK) {
+    OH_LOG_ERROR(LOG_APP, "GetDefaultDisplayId failed: %{public}d",
+                 static_cast<int>(status));
+    return;
+  }
+
+  NativeDisplayManager_Rect* available_area = nullptr;
+  status = OH_NativeDisplayManager_CreateAvailableArea(display_id,
+                                                        &available_area);
+  if (status != DISPLAY_MANAGER_OK || !available_area) {
+    OH_LOG_ERROR(LOG_APP,
+                 "CreateAvailableArea failed: display=%{public}llu "
+                 "status=%{public}d",
+                 static_cast<unsigned long long>(display_id),
+                 static_cast<int>(status));
+    return;
+  }
+
+  OH_LOG_INFO(LOG_APP,
+              "AvailableArea: display=%{public}llu left=%{public}d "
+              "top=%{public}d width=%{public}u height=%{public}u",
+              static_cast<unsigned long long>(display_id),
+              available_area->left, available_area->top, available_area->width,
+              available_area->height);
+  OH_NativeDisplayManager_DestroyAvailableArea(available_area);
+}
 
 bool EnsureLynxtronLoaded() {
   if (g_lynxtron_main) return true;
@@ -95,6 +127,7 @@ void RegisterWindowCommandHandler();
 
 napi_value Start(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP, "Start() called from ETS");
+  LogDefaultDisplayAvailableArea();
 
   // Mirrors electron_main_ohos.cc: Node.js module resolution needs NODE_PATH
   // pointing at the HAP libs directory (where bundled .so / asar deps live).
