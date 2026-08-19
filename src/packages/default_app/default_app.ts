@@ -9,7 +9,11 @@ import { app, LynxWindow, clipboard } from 'lynxtron';
 let mainWindow: LynxWindow | null = null;
 
 async function createWindow() {
-  await app.whenReady();
+  app.setName("LYNXTRON-ZLL")
+  await app.whenReady().then(()=>{
+    console.log("app.whenReady: is ok:",app.getName())
+  });
+  console.log("app.getName():",app.getName())
   const mainWindow = new LynxWindow({
     width: 1200,
     height: 800,

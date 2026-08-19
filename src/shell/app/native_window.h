@@ -224,14 +224,19 @@ class NativeWindow : public base::SupportsUserData {
   virtual void MergeAllWindows() {}
   virtual void MoveTabToNewWindow() {}
   virtual void ToggleTabBar() {}
-  virtual void SetWindowButtonVisibility(bool visible) = 0;
-  virtual bool GetWindowButtonVisibility() const = 0;
   virtual void SetTrafficLightPosition(std::optional<gfx::Point> position) = 0;
   virtual std::optional<gfx::Point> GetTrafficLightPosition() const = 0;
   virtual void RedrawTrafficLights() = 0;
   virtual void UpdateFrame() = 0;
   virtual bool IsHiddenInMissionControl() const = 0;
   virtual void SetHiddenInMissionControl(bool hidden) = 0;
+#endif
+
+  // Window button visibility. On macOS this controls the traffic lights; on
+  // HarmonyOS it toggles the native window decor and three-button visibility.
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_HARMONY)
+  virtual void SetWindowButtonVisibility(bool visible) = 0;
+  virtual bool GetWindowButtonVisibility() const = 0;
 #endif
 
   // Touchbar API

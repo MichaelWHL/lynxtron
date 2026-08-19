@@ -13,6 +13,10 @@
 #include "shell/common/platform_util.h"
 #include "shell/common/thread_restrictions.h"
 
+#if BUILDFLAG(IS_HARMONY)
+#include <stdlib.h>
+#endif
+
 #if BUILDFLAG(IS_WIN)
 #include <shobjidl.h>
 #include <windows.h>
@@ -114,12 +118,12 @@ bool PathProvider(int key, base::FilePath* result) {
           lynxtron::GetPossiblyOverriddenApplicationName()));
       create_dir = true;
       break;
-    // case DIR_CRASH_DUMPS:
-    //   if (!base::PathService::Get(DIR_USER_DATA, &cur))
-    //     return false;
-    //   cur = cur.Append(FILE_PATH_LITERAL("Crashpad"));
-    //   create_dir = true;
-    //   break;
+    case DIR_CRASH_DUMPS:
+      if (!base::PathService::Get(DIR_USER_DATA, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Crashpad"));
+      create_dir = true;
+      break;
     case DIR_APP_DICTIONARIES:
       // TODO(nornagon): can we just default to using Chrome's logic here?
       if (!base::PathService::Get(DIR_USER_DATA, &cur)) {
@@ -129,7 +133,9 @@ bool PathProvider(int key, base::FilePath* result) {
       create_dir = true;
       break;
     case DIR_USER_CACHE: {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_HARMONY)
+      int parent_key = DIR_APP_DATA;
+#elif defined(OS_POSIX)
       int parent_key = base::DIR_CACHE;
 #else
       // On Windows, there's no OS-level centralized location for caches, so
@@ -145,7 +151,32 @@ bool PathProvider(int key, base::FilePath* result) {
       create_dir = true;
       break;
     }
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_HARMONY)
+    case DIR_APP_DATA: {
+      const char* env = getenv("LYNXTRON_FILES_DIR");
+      if (env && env[0] != '\0') {
+        cur = base::FilePath(env);
+      } else {
+        const char* kCandidateFilesDirs[] = {
+            "/data/storage/el2/base/files",
+            "/data/storage/el1/base/files",
+        };
+        bool found = false;
+        for (const char* p : kCandidateFilesDirs) {
+          cur = base::FilePath(FILE_PATH_LITERAL(p));
+          if (base::DirectoryExists(cur)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          cur = base::FilePath(
+              FILE_PATH_LITERAL("/data/storage/el2/base/files"));
+        }
+      }
+      break;
+    }
+#elif defined(OS_LINUX)
     case DIR_APP_DATA: {
       auto env = base::Environment::Create();
       cur = base::nix::GetXDGDirectory(
@@ -200,6 +231,27 @@ bool PathProvider(int key, base::FilePath* result) {
         return false;
       }
       break;
+#elif BUILDFLAG(IS_HARMONY)
+    case DIR_USER_DOCUMENTS:
+      if (!base::PathService::Get(base::DIR_HOME, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Documents"));
+      break;
+    case DIR_USER_MUSIC:
+      if (!base::PathService::Get(base::DIR_HOME, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Music"));
+      break;
+    case DIR_USER_PICTURES:
+      if (!base::PathService::Get(base::DIR_HOME, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Pictures"));
+      break;
+    case DIR_USER_VIDEOS:
+      if (!base::PathService::Get(base::DIR_HOME, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Videos"));
+      break;
 #endif
     case DIR_DEFAULT_DOWNLOADS_SAFE:
 #if BUILDFLAG(IS_WIN)
@@ -221,6 +273,10 @@ bool PathProvider(int key, base::FilePath* result) {
       }
       // Do not create the download directory here, we have done it twice now
       // and annoyed a lot of users.
+#elif BUILDFLAG(IS_HARMONY)
+      if (!base::PathService::Get(base::DIR_HOME, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("Download"));
 #endif
       break;
     default:

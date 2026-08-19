@@ -645,6 +645,12 @@ bool App::IsPackaged() {
     return true;
   }
 
+#if BUILDFLAG(IS_HARMONY)
+  // On HarmonyOS, apps are always developed on Windows/Mac and packaged before
+  // running on device. There is no "unpackaged" development scenario on OHOS,
+  // so we always treat the app as packaged.
+  return true;
+#else
   base::FilePath exe_path;
   base::PathService::Get(base::FILE_EXE, &exe_path);
   base::FilePath::StringType base_name =
@@ -655,6 +661,7 @@ bool App::IsPackaged() {
 #else
   return base_name != FILE_PATH_LITERAL("lynxtron");
 #endif
+#endif  // BUILDFLAG(IS_HARMONY)
 }
 
 base::FilePath App::GetPath(gin_helper::ErrorThrower thrower,
@@ -741,13 +748,20 @@ void App::OnSecondInstance(base::CommandLine cmd,
 }
 
 bool App::HasSingleInstanceLock() const {
+#if BUILDFLAG(IS_HARMONY)
+  return true;
+#else
   if (process_singleton_) {
     return true;
   }
   return false;
+#endif
 }
 
 bool App::RequestSingleInstanceLock(gin::Arguments* args) {
+#if BUILDFLAG(IS_HARMONY)
+  return true;
+#endif
   if (HasSingleInstanceLock()) {
     return true;
   }

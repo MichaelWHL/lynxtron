@@ -838,26 +838,26 @@ export interface App extends EventEmitter {
    * opened to handle a URL. If you register the listener in response to a `ready`
    * event, you'll miss URLs that trigger the launch of your application.
    *
-   * @platform darwin
+   * @platform darwin, harmony
    */
   on(event: 'open-url', listener: (event: Event, url: string) => void): this;
   /**
-   * @platform darwin
+   * @platform darwin, harmony
    */
   off(event: 'open-url', listener: (event: Event, url: string) => void): this;
   /**
-   * @platform darwin
+   * @platform darwin, harmony
    */
   once(event: 'open-url', listener: (event: Event, url: string) => void): this;
   /**
-   * @platform darwin
+   * @platform darwin, harmony
    */
   addListener(
     event: 'open-url',
     listener: (event: Event, url: string) => void
   ): this;
   /**
-   * @platform darwin
+   * @platform darwin, harmony
    */
   removeListener(
     event: 'open-url',

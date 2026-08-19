@@ -1,8 +1,4 @@
-// Copyright 2026 The Lynxtron Authors. All rights reserved.
-// Licensed under the Apache License Version 2.0 that can be found in the
-// LICENSE file in the root directory of this source tree.
-
-import { root, useEffect, useState } from '@lynx-js/react';
+import { root,useState, useEffect} from '@lynx-js/react';
 import './index.css';
 import LogPanel from './LogPanel';
 import { log, logError, logInfo, logWarn } from './log';
@@ -123,14 +119,6 @@ export default function WebContainer() {
     };
   }, []);
 
-  // ModuleLoader 测试: 打开页面后自动跑一次(原生模块在 .so 加载早期即注册, 无需等布局);
-  // 也可点下方 “ModuleLoader” 按钮重跑。
-  useEffect(() => {
-    const t = setTimeout(() => { testModuleLoader(); }, 1200);
-    return () => { clearTimeout(t); };
-  }, []);
-
-  // SelectorQuery + JSModule 测试: 打开页面后自动跑(等布局就绪); 也可点下方按钮重跑
 
   // 桥接主线程: 调用 Node 主进程中的 testDemo 测试方法
   const runTest = (name: string) => {

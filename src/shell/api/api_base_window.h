@@ -180,8 +180,6 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   bool HasVibrancyView() const;
   std::string GetVisualEffectStateForTesting() const;
   std::string GetNativeVisualEffectStateForTesting() const;
-  void SetWindowButtonVisibility(bool visible);
-  bool GetWindowButtonVisibility() const;
   void SetTrafficLightPosition(const gfx::Point& position);
   gfx::Point GetTrafficLightPosition() const;
   v8::Local<v8::Value> GetTabbingIdentifier() const;
@@ -194,6 +192,11 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   void MergeAllWindows();
   void MoveTabToNewWindow();
   void ToggleTabBar();
+#endif
+
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_HARMONY)
+  void SetWindowButtonVisibility(bool visible);
+  bool GetWindowButtonVisibility() const;
 #endif
 
   void SetTouchBar(std::vector<gin_helper::PersistentDictionary> items);

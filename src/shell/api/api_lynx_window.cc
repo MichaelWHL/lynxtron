@@ -471,6 +471,7 @@ void LynxWindow::EnsureLynxView() {
   }
   lynx_view_ = builder.Build();
   lynx_view_->SetClient(weak_factory_.GetWeakPtr());
+
   SyncRenderActiveState();
 
   if (data_str_.has_value() && global_props_.has_value()) {
@@ -480,30 +481,47 @@ void LynxWindow::EnsureLynxView() {
   }
 }
 
-void LynxWindow::SetFpsMonitorEnabled(bool enabled,
-                                      uint32_t sample_interval_millis) {
-  bool state_changed = enable_fps_monitor_ != enabled;
+void LynxWindow::SetFpsMonitorEnabled(
+    bool enabled, std::optional<uint32_t> sample_interval_millis) {
+  // Clamp the interval to a sane range so callers cannot pass 0 (tight loop)
+  // or a value that overflows int when narrowing from uint32_t.
+  constexpr uint32_t kMinIntervalMillis = 1;
+  constexpr uint32_t kMaxIntervalMillis = 3600000;  // 1h
+  const uint32_t interval =
+      std::clamp(sample_interval_millis.value_or(1000), kMinIntervalMillis,
+                 kMaxIntervalMillis);
+  sample_interval_millis_ = static_cast<int>(interval);
+
   enable_fps_monitor_ = enabled;
-  sample_interval_millis_ = sample_interval_millis;
-  if (state_changed) {
-    StartFpsMonitorTask();
+
+  // Cancel any in-flight timer (including a pending "tail" timer from a
+  // previous disable) so re-enabling never stacks multiple timers.
+  fps_monitor_task_.Cancel();
+
+  if (!enabled) {
+    // Stop monitoring: drop any frames collected but not yet reported so a
+    // later re-enable does not emit stale timings.
+    last_frame_timings_.clear();
+    return;
   }
+
+  StartFpsMonitorTask();
 }
 
 void LynxWindow::StartFpsMonitorTask() {
+  fps_monitor_task_.Reset(base::BindOnce(
+      [](base::WeakPtr<LynxWindow> window) {
+        if (!window) {
+          return;
+        }
+        window->EmitFpsEvent();
+        if (window->enable_fps_monitor_) {
+          window->StartFpsMonitorTask();
+        }
+      },
+      GetWeakPtr()));
   GetUIThreadTaskRunner()->PostDelayedTask(
-      FROM_HERE,
-      base::BindOnce(
-          [](base::WeakPtr<LynxWindow> window) {
-            if (!window) {
-              return;
-            }
-            window->EmitFpsEvent();
-            if (window->enable_fps_monitor_) {
-              window->StartFpsMonitorTask();
-            }
-          },
-          GetWeakPtr()),
+      FROM_HERE, fps_monitor_task_.callback(),
       base::Milliseconds(sample_interval_millis_));
 }
 
@@ -904,7 +922,8 @@ void LynxWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("loadURL", &LynxWindow::LoadUrl)
       .SetMethod("loadBundle", &LynxWindow::LoadBundle)
       .SetMethod("updateMetaData", &LynxWindow::UpdateMetaData)
-      .SetMethod("sendGlobalEvent", &LynxWindow::SendGlobalEvent);
+      .SetMethod("sendGlobalEvent", &LynxWindow::SendGlobalEvent)
+      .SetMethod("setFrameTimingsEnabled", &LynxWindow::SetFpsMonitorEnabled);
 }
 
 // static

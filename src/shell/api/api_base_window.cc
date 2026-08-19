@@ -765,14 +765,6 @@ std::string BaseWindow::GetNativeVisualEffectStateForTesting() const {
   return window_->GetNativeVisualEffectStateForTesting();
 }
 
-void BaseWindow::SetWindowButtonVisibility(bool visible) {
-  window_->SetWindowButtonVisibility(visible);
-}
-
-bool BaseWindow::GetWindowButtonVisibility() const {
-  return window_->GetWindowButtonVisibility();
-}
-
 void BaseWindow::SetTrafficLightPosition(const gfx::Point& position) {
   // For backward compatibility we treat (0, 0) as resetting to default.
   if (position.IsOrigin()) {
@@ -836,6 +828,16 @@ void BaseWindow::MoveTabToNewWindow() {
 
 void BaseWindow::ToggleTabBar() {
   window_->ToggleTabBar();
+}
+#endif
+
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_HARMONY)
+void BaseWindow::SetWindowButtonVisibility(bool visible) {
+  window_->SetWindowButtonVisibility(visible);
+}
+
+bool BaseWindow::GetWindowButtonVisibility() const {
+  return window_->GetWindowButtonVisibility();
 }
 #endif
 
@@ -1033,11 +1035,13 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("_setTouchBarItems", &BaseWindow::SetTouchBar)
       .SetMethod("_refreshTouchBarItem", &BaseWindow::RefreshTouchBarItem)
       .SetMethod("_setEscapeTouchBarItem", &BaseWindow::SetEscapeTouchBarItem)
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_HARMONY)
       .SetMethod("setWindowButtonVisibility",
                  &BaseWindow::SetWindowButtonVisibility)
       .SetMethod("_getWindowButtonVisibility",
                  &BaseWindow::GetWindowButtonVisibility)
+#endif
+#if BUILDFLAG(IS_MAC)
       .SetProperty("tabbingIdentifier", &BaseWindow::GetTabbingIdentifier)
       .SetProperty("excludedFromShownWindowsMenu",
                    &BaseWindow::IsExcludedFromShownWindowsMenu,

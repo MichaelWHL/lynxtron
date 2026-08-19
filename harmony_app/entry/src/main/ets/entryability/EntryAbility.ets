@@ -3,6 +3,8 @@ import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
+import LogUtil from '../utils/LogUtils';
+import AppAdapter from '../adapter/AppAdapter';
 import lynxtron from 'liblynxtron_napi.so';
 import { BridgeRegistry } from '../bridge/BridgeRegistry';
 
@@ -40,19 +42,47 @@ export default class EntryAbility extends UIAbility {
     } else {
       hilog.info(DOMAIN, TAG, '(no electron_debug in launch params)');
     }
+
+    AppStorage.setOrCreate('abilityContext', this.context);
+    AppAdapter.getInstance().setAbilityContext(this.context);
+
+    this.handleWantUri(want);
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG,
       'EntryAbility onNewWant launchReason=%{public}d', launchParam.launchReason);
     dumpWantParameters(want);
+    LogUtil.info(TAG,
+      `[ohoswindow] in WebAbility onNewWant, want is ${JSON.stringify(want)}, param is ${JSON.stringify(launchParam)}.`);
+    this.handleWantUri(want);
+  }
+
+  private handleWantUri(want: Want): void {
+    let uriNotNull = want["uri"] !== undefined && want["uri"] !== '';
+    if (!uriNotNull) {
+      return;
+    }
+    let uri = want['uri'] as string;
+    if (uri.startsWith("file://docs/")) {
+      AppAdapter.getInstance().openNewWindow(uri.replace("file://docs/", "file:///"));
+    } else if (uri.startsWith("file:///")) {
+      AppAdapter.getInstance().openNewWindow(uri);
+    } else {
+      LogUtil.debug(TAG, `Trigger open-url event. uri = ${uri}`);
+      AppAdapter.getInstance().openURL(uri);
+    }
   }
 
   onDestroy(): void {
     hilog.info(DOMAIN, TAG, 'EntryAbility onDestroy');
+    // System/ArkTS side wants to quit: route through the graceful native path
+    // (Application::Quit, same as JS app.quit()) rather than force-killing the
+    // detached LynxtronMain thread. Mirrors electron_ohos's kAppQuit command.
+    AppAdapter.getInstance().quit();
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
 
     // The input method service routes text per window. XComponent draws its own
@@ -67,6 +97,11 @@ export default class EntryAbility extends UIAbility {
     }
     BridgeRegistry.registerAll(this.context);
     windowStage.loadContent('pages/Index', (err) => {
+      let windoowCLass = windowStage.getMainWindowSync()
+      lynxtron.setWindowObject(windoowCLass);
+      // windoowCLass.setWindowDecorVisible(false);
+      // windoowCLass.setWindowTitleButtonVisible(false, false, false)
+      // windoowCLass.maximize(window.MaximizePresentation.ENTER_IMMERSIVE_DISABLE_TITLE_AND_DOCK_HOVER)
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s',
           JSON.stringify(err) ?? '');

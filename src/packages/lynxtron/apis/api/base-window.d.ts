@@ -979,6 +979,31 @@ export declare class BaseWindow extends EventEmitter {
       details: WillResizeDetails
     ) => void
   ): this;
+  /**
+   * Emitted periodically when frame timing reporting is enabled via
+   * `setFrameTimingsEnabled`. The listener receives an array of
+   * `[startNs, finishNs]` pairs, one per frame rasterized in the sample window.
+   */
+  on(
+    event: 'frame-timings',
+    listener: (event: Event, timings: Array<[number, number]>) => void
+  ): this;
+  off(
+    event: 'frame-timings',
+    listener: (event: Event, timings: Array<[number, number]>) => void
+  ): this;
+  once(
+    event: 'frame-timings',
+    listener: (event: Event, timings: Array<[number, number]>) => void
+  ): this;
+  addListener(
+    event: 'frame-timings',
+    listener: (event: Event, timings: Array<[number, number]>) => void
+  ): this;
+  removeListener(
+    event: 'frame-timings',
+    listener: (event: Event, timings: Array<[number, number]>) => void
+  ): this;
 
   /**
    * BaseWindow
