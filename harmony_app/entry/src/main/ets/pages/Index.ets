@@ -166,13 +166,21 @@ struct Index {
   }
 
   build() {
+    let originWindowId = AppStorage.get<number>('current_origin_window_id');
+    if (originWindowId === undefined || originWindowId <= 0) {
+      originWindowId = -1;
+    }
+    const xcomponentId = 'lynxtron_surface_' + originWindowId;
+
     Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         // XComponent produces a native surface; its onLoad NAPI callback in
         // lynxtron_napi_bridge.cc receives OH_NativeXComponent and hands the
         // EGL window down to NativeWindowHarmony for Chromium/Lynx to draw into.
+        // The id encodes the origin window id so C++ can route surface updates
+        // per-window instead of assuming a single window per thread.
         XComponent({
-          id: 'lynxtron_surface',
+          id: xcomponentId,
           type: XComponentType.SURFACE,
           libraryname: 'lynxtron_napi'
         })

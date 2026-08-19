@@ -70,13 +70,7 @@ class NativeWindowHarmony;
 
 namespace {
 
-// The real OHOS window id for the current (single) window. In a multi-window
-// setup each NativeWindowHarmony would hold its own id; today the HAP binds one
-// XComponent and ETS publishes one id via setWindowId().
-int32_t g_harmony_window_id = -1;
 std::mutex g_window_op_mutex;
-std::mutex g_harmony_window_mutex;
-base::WeakPtr<NativeWindowHarmony> g_harmony_window;
 
 using WindowOpCallback = void (*)(int32_t window_id, const char* op, const char* args);
 std::unordered_map<int32_t, WindowOpCallback> g_window_op_callbacks;
@@ -200,14 +194,10 @@ class NativeWindowHarmony : public NativeWindow {
       std::lock_guard<std::mutex> lock(g_window_map_mutex);
       window_id_ = g_next_window_id.fetch_add(1);
       g_id_to_window[window_id_] = this;
-      // In the current one-window-per-ability model ArkTS may publish the
-      // HarmonyOS window id before JS creates the native window. Bind it now
-      // so C++ can route minimize/restore/etc. per window instead of using a
-      // global id.
-      if (g_harmony_window_id > 0 && harmony_window_id_ <= 0) {
-        harmony_window_id_ = g_harmony_window_id;
-        g_harmony_id_to_window[harmony_window_id_] = this;
-      }
+      // The HarmonyOS window id is published later by ArkTS via
+      // LynxtronOnHarmonyWindowCreated (or the legacy LynxtronSetWindowId path
+      // for the first EntryAbility window). Do not reuse any global id here;
+      // each NativeWindowHarmony must be bound explicitly.
     }
 
     OH_LOG_INFO(LOG_APP,
@@ -268,8 +258,6 @@ class NativeWindowHarmony : public NativeWindow {
     LynxtronCreateHarmonyWindow(window_id_, &create_options);
 
     InitFromOptions(options);
-    std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
-    g_harmony_window = weak_factory_.GetWeakPtr();
   }
 
   ~NativeWindowHarmony() override {
@@ -278,10 +266,6 @@ class NativeWindowHarmony : public NativeWindow {
                 "harmony_id=%{public}d",
                 window_id_, harmony_window_id_);
     {
-      std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
-      if (g_harmony_window.get() == this) {
-        g_harmony_window.reset();
-      }
       std::lock_guard<std::mutex> lock(g_window_map_mutex);
       g_id_to_window.erase(window_id_);
       if (harmony_window_id_ > 0) {
@@ -517,6 +501,9 @@ class NativeWindowHarmony : public NativeWindow {
   void SetHarmonyWindowId(int32_t id) {
     harmony_window_id_ = id;
   }
+  base::WeakPtr<NativeWindowHarmony> GetHarmonyWeakPtr() {
+    return weak_factory_.GetWeakPtr();
+  }
   // --- state notifications from ArkTS (harmony id routing) ---
   void OnHarmonyForeground() {
     if (is_focused_) return;
@@ -662,28 +649,45 @@ class NativeWindowHarmony : public NativeWindow {
 // Called from lynxtron_napi_bridge.cc via dlsym. visibility("default") keeps
 // it in the dynamic symbol table despite -fvisibility=hidden + stripping.
 extern "C" __attribute__((visibility("default"))) void LynxtronSetWindowId(int32_t id) {
-  g_harmony_window_id = id;
-  OH_LOG_INFO(LOG_APP, "[LynxtronWindow] set harmony window id=%{public}d", id);
+  OH_LOG_INFO(LOG_APP, "[LynxtronWindow] legacy SetWindowId id=%{public}d", id);
 
-  // Bind the published HarmonyOS id to the existing native window (if any).
-  // In the current one-window-per-ability model this is sufficient; with
-  // JS-driven creation the id will travel via want.parameters instead.
+  // Legacy path used only by the first EntryAbility window, which has no
+  // C++ window id. Bind the HarmonyOS id to the single native window that has
+  // not received an id yet. If multiple windows are unbound the target is
+  // ambiguous, so ignore and let LynxtronOnHarmonyWindowCreated handle them.
   std::lock_guard<std::mutex> lock(g_window_map_mutex);
-  if (id > 0 && !g_id_to_window.empty()) {
-    auto it = g_id_to_window.begin();
-    NativeWindowHarmony* window = it->second;
-    if (window && window->harmony_window_id() != id) {
-      if (window->harmony_window_id() > 0) {
-        g_harmony_id_to_window.erase(window->harmony_window_id());
+  if (id <= 0) {
+    return;
+  }
+
+  NativeWindowHarmony* unbound_window = nullptr;
+  for (const auto& pair : g_id_to_window) {
+    NativeWindowHarmony* w = pair.second;
+    if (w && w->harmony_window_id() <= 0) {
+      if (unbound_window) {
+        OH_LOG_WARN(LOG_APP,
+                    "[LynxtronWindow] SetWindowId: multiple unbound windows, "
+                    "cannot bind ambiguous id=%{public}d",
+                    id);
+        return;
       }
-      window->SetHarmonyWindowId(id);
-      g_harmony_id_to_window[id] = window;
-      OH_LOG_INFO(LOG_APP,
-                  "[LynxtronWindow] bound harmony id=%{public}d to "
-                  "window_id=%{public}d",
-                  id, window->window_id());
+      unbound_window = w;
     }
   }
+
+  if (!unbound_window) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] SetWindowId: no unbound window, id=%{public}d "
+                "ignored", id);
+    return;
+  }
+
+  unbound_window->SetHarmonyWindowId(id);
+  g_harmony_id_to_window[id] = unbound_window;
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] bound harmony id=%{public}d to "
+              "window_id=%{public}d",
+              id, unbound_window->window_id());
 }
 
 // Called from lynxtron_napi_bridge.cc via dlsym when the ArkTS side has
@@ -721,43 +725,60 @@ extern "C" __attribute__((visibility("default"))) void LynxtronOnHarmonyWindowCr
               harmony_window_id, cpp_window_id);
 }
 
-// Called from surface_render_harmony.cc when an XComponent surface arrives.
-// Updates the first native window's bounds to match the actual render target
-// size. In the current one-surface model this is the only window; with
-// per-window surfaces this should route by the surface's owning window.
+// Called from surface_render_harmony.cc for backward compatibility.
+// Deprecated: use LynxtronSetHarmonySurfaceSizeForWindow with an explicit id.
 extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurfaceSize(
+    int width,
+    int height) {
+  LynxtronSetHarmonySurfaceSizeForWindow(-1, width, height);
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurfaceSizeForWindow(
+    int32_t harmony_window_id,
     int width,
     int height) {
   if (width <= 0 || height <= 0) {
     return;
   }
 
-  // Surface creation callbacks run on the ArkUI thread, but SetBounds() emits
-  // window-resize events that must be handled on the C++ UI thread.
   if (!GlobalThread::IsThreadInitialized(GlobalThread::UI)) {
     OH_LOG_WARN(LOG_APP,
-                "[LynxtronWindow] SetHarmonySurfaceSize: UI thread not ready, "
-                "dropping %{public}dx%{public}d",
+                "[LynxtronWindow] SetHarmonySurfaceSizeForWindow: UI thread not "
+                "ready, dropping %{public}dx%{public}d",
                 width, height);
     return;
   }
 
+  NativeWindowHarmony* target = nullptr;
+  size_t window_count = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_window_map_mutex);
+    window_count = g_id_to_window.size();
+    if (harmony_window_id > 0) {
+      auto it = g_harmony_id_to_window.find(harmony_window_id);
+      if (it != g_harmony_id_to_window.end()) {
+        target = it->second;
+      }
+    } else if (window_count == 1) {
+      target = g_id_to_window.begin()->second;
+    }
+  }
+
+  if (!target) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] SetHarmonySurfaceSizeForWindow: no target for "
+                "harmony_id=%{public}d (%{public}zu windows), dropping "
+                "%{public}dx%{public}d",
+                harmony_window_id, window_count, width, height);
+    return;
+  }
+
+  base::WeakPtr<NativeWindowHarmony> weak_target = target->GetHarmonyWeakPtr();
   GlobalThread::GetUIThreadTaskRunner()->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](int w, int h) {
-            NativeWindowHarmony* window = nullptr;
-            {
-              std::lock_guard<std::mutex> lock(g_window_map_mutex);
-              if (!g_id_to_window.empty()) {
-                window = g_id_to_window.begin()->second;
-              }
-            }
+          [](base::WeakPtr<NativeWindowHarmony> window, int w, int h) {
             if (!window) {
-              OH_LOG_WARN(LOG_APP,
-                          "[LynxtronWindow] no window to size, dropping surface "
-                          "%{public}dx%{public}d",
-                          w, h);
               return;
             }
             gfx::Rect bounds = window->GetBounds();
@@ -768,7 +789,7 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurface
                         "%{public}dx%{public}d",
                         window->window_id(), w, h);
           },
-          width, height));
+          std::move(weak_target), width, height));
 }
 
 // Called from lynxtron_napi_bridge.cc via dlsym. Register the ArkTS callback
@@ -786,11 +807,14 @@ extern "C" __attribute__((visibility("default"))) void LynxtronRegisterWindowOpC
   OH_LOG_INFO(LOG_APP, "[LynxtronWindow] registered callback id=%{public}d", window_id);
 }
 
-// Returns the C++-allocated id of the first native window in this process.
-// For the current one-window-per-ability model this identifies the only window.
+// Returns the C++-allocated id of the only native window in this process.
+// In multi-window mode the caller must know which window it is asking about;
+// this legacy helper therefore returns -1 when more than one window exists.
 extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId() {
   std::lock_guard<std::mutex> lock(g_window_map_mutex);
-  if (g_id_to_window.empty()) return -1;
+  if (g_id_to_window.size() != 1) {
+    return -1;
+  }
   return g_id_to_window.begin()->first;
 }
 
@@ -915,13 +939,33 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
           harmony_window_id, std::string(state), captured_bounds));
 }
 
-void UpdateHarmonyNativeWindowSize(int width, int height) {
-  base::WeakPtr<NativeWindowHarmony> window;
-  {
-    std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
-    window = g_harmony_window;
+void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
+                                            int width,
+                                            int height) {
+  if (width <= 0 || height <= 0) {
+    return;
   }
-  if (!window || width <= 0 || height <= 0) {
+
+  NativeWindowHarmony* target = nullptr;
+  size_t window_count = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_window_map_mutex);
+    window_count = g_id_to_window.size();
+    if (harmony_window_id > 0) {
+      auto it = g_harmony_id_to_window.find(harmony_window_id);
+      if (it != g_harmony_id_to_window.end()) {
+        target = it->second;
+      }
+    } else if (window_count == 1) {
+      target = g_id_to_window.begin()->second;
+    }
+  }
+  if (!target) {
+    OH_LOG_WARN(LOG_APP,
+                "[Window] UpdateHarmonyNativeWindowSizeForWindow: no target for "
+                "harmony_id=%{public}d (%{public}zu windows), dropping "
+                "%{public}dx%{public}d",
+                harmony_window_id, window_count, width, height);
     return;
   }
 
@@ -930,6 +974,7 @@ void UpdateHarmonyNativeWindowSize(int width, int height) {
     OH_LOG_ERROR(LOG_APP, "[Window] no UI runner for XComponent size update");
     return;
   }
+  base::WeakPtr<NativeWindowHarmony> weak_window = target->GetHarmonyWeakPtr();
   runner->PostTask(
       FROM_HERE,
       base::BindOnce(
@@ -938,7 +983,11 @@ void UpdateHarmonyNativeWindowSize(int width, int height) {
               window->OnSurfaceSizeChanged(width, height);
             }
           },
-          std::move(window), width, height));
+          std::move(weak_window), width, height));
+}
+
+void UpdateHarmonyNativeWindowSize(int width, int height) {
+  UpdateHarmonyNativeWindowSizeForWindow(-1, width, height);
 }
 
 // static

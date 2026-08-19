@@ -31,10 +31,12 @@
 #include <unistd.h>
 #include <window_manager/oh_display_manager.h>
 
+#include <cerrno>
+#include <chrono>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
-#include <chrono>
 #include <unordered_map>
 #include <vector>
 
@@ -1396,14 +1398,26 @@ napi_value RegisterShowSaveDialog(napi_env env, napi_callback_info info) {
 
 void* g_native_window = nullptr;
 
+// The HarmonyOS window id of the Ability whose XComponent lifecycle is
+// currently running on this thread. Written by SetWindowId / SetWindowIdForWindow
+// and read by OnSurfaceCreated/OnSurfaceChanged to route surface updates to the
+// correct NativeWindowHarmony. One UIAbility runs on its own JS/UI thread, so
+// thread_local is sufficient.
+thread_local int32_t g_current_harmony_window_id = -1;
+
 // Resolved from liblynxtron.so (loaded via dlopen in EnsureLynxtronLoaded).
 // Skia GL rendering lives in the main library where Skia is linked.
-using SetSurfaceFn = void (*)(void* window, int width, int height);
+using SetSurfaceFn = void (*)(int32_t harmony_window_id,
+                              void* window,
+                              int width,
+                              int height);
 SetSurfaceFn g_set_surface = nullptr;
 
-// LynxtronSendPointerEvent(phase, x, y, buttons) — forwards input to the
-// LynxView's windowless renderer. phase: 0=down,1=up,2=move,3=hover.
-using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons);
+// LynxtronSendPointerEvent(phase, x, y, buttons, device, kind, timestamp) —
+// forwards input to the LynxView's windowless renderer.
+// phase: 0=down,1=up,2=move,3=hover.
+using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons,
+                               int32_t device, int kind, size_t timestamp);
 SendPointerFn g_send_pointer = nullptr;
 
 // ArkUI reports mouse events with no device id and may report the primary
@@ -1454,6 +1468,37 @@ void ForwardPointer(int phase, double x, double y, int64_t buttons,
   g_send_pointer(phase, x, y, buttons, device, kind, timestamp);
 }
 
+// Try to read the HarmonyOS window id encoded in the XComponent id string
+// (e.g. "lynxtron_surface_12345"). Falls back to -1 if the id is missing or
+// not in the expected format.
+int32_t GetSurfaceWindowId(OH_NativeXComponent* component) {
+  if (!component) {
+    return -1;
+  }
+  char id_buf[128] = {0};
+  uint64_t len = sizeof(id_buf);
+  if (OH_NativeXComponent_GetXComponentId(component, id_buf, &len) != 0) {
+    return -1;
+  }
+  std::string id(id_buf);
+  const std::string prefix = "lynxtron_surface_";
+  if (id.compare(0, prefix.size(), prefix) != 0) {
+    return -1;
+  }
+  std::string suffix = id.substr(prefix.size());
+  if (suffix.empty()) {
+    return -1;
+  }
+  errno = 0;
+  char* endptr = nullptr;
+  long long value = std::strtoll(suffix.c_str(), &endptr, 10);
+  if (endptr == suffix.c_str() || *endptr != '\0' || errno != 0 ||
+      value <= 0 || value > std::numeric_limits<int32_t>::max()) {
+    return -1;
+  }
+  return static_cast<int32_t>(value);
+}
+
 void ForwardSurface(OH_NativeXComponent* component, void* window) {
   if (!window) return;
 
@@ -1475,7 +1520,16 @@ void ForwardSurface(OH_NativeXComponent* component, void* window) {
       return;
     }
   }
-  g_set_surface(window, static_cast<int>(w), static_cast<int>(h));
+  int32_t surface_window_id = GetSurfaceWindowId(component);
+  if (surface_window_id <= 0) {
+    surface_window_id = g_current_harmony_window_id;
+    if (surface_window_id <= 0) {
+      OH_LOG_WARN(LOG_APP,
+                  "[XC] ForwardSurface: no XComponent id or TLS window id, "
+                  "falling back to single-window routing");
+    }
+  }
+  g_set_surface(surface_window_id, window, static_cast<int>(w), static_cast<int>(h));
 }
 
 void OnSurfaceCreated(OH_NativeXComponent* component, void* window) {
@@ -1561,7 +1615,9 @@ void DispatchMouseEvent(OH_NativeXComponent* component, void* window) {
     default:
       return;
   }
-  ForwardPointer(phase, me.x, me.y, buttons);
+  const size_t timestamp = static_cast<size_t>(NowMicros());
+  ForwardPointer(phase, me.x, me.y, buttons, kLynxtronMouseDeviceId,
+                 /*mouse=*/1, timestamp);
 }
 
 void DispatchHoverEvent(OH_NativeXComponent* component, bool isHover) {}
@@ -1956,6 +2012,9 @@ napi_value SetWindowId(napi_env env, napi_callback_info info) {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
     g_window_id = id;
   }
+  // Remember which window this Ability belongs to so surface lifecycle callbacks
+  // can be routed per-window instead of assuming a single window.
+  g_current_harmony_window_id = id;
   // Also route native window operations through this window id. Without this
   // NativeWindowHarmony::InvokeWindowOp looks up callbacks with id=-1 and
   // drops every minimize/restore/show/focus/etc. request.
@@ -1991,6 +2050,8 @@ napi_value SetWindowIdForWindow(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP,
               "[LynxtronWindow] setWindowIdForWindow cpp=%{public}d harmony=%{public}d",
               cpp_window_id, harmony_window_id);
+  // Surface lifecycle callbacks on this thread belong to this window.
+  g_current_harmony_window_id = harmony_window_id;
   if (EnsureLynxtronLoaded()) {
     auto fn = reinterpret_cast<void (*)(int32_t, int32_t)>(
         dlsym(g_lynxtron_handle, "LynxtronOnHarmonyWindowCreated"));

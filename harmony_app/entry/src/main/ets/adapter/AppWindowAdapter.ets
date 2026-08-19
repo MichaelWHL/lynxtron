@@ -365,6 +365,10 @@ export class AppWindowAdapter {
         // Keep C++ state cache in sync with manual minimize/maximize/restore/close.
         BaseWindowAbility.registerWindowLifecycleListeners(originWindowId, subWindow);
 
+        // Publish the origin window id so pages/Index.ets can encode it into the
+        // XComponent id for per-window surface routing.
+        AppStorage.setOrCreate('current_origin_window_id', originWindowId);
+
         // Load UI content and show.
         subWindow.setUIContent('pages/Index', (err) => {
           if (err?.code) {

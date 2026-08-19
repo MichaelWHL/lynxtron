@@ -148,6 +148,11 @@ export default abstract class BaseWindowAbility extends UIAbility {
         lynxtron.setWindowId(originWindowId);
       }
 
+      // Publish the origin window id so that pages/Index.ets can encode it into
+      // the XComponent id. This lets the C++ surface callback route per-window
+      // even when multiple windows (including subwindows) share a thread.
+      AppStorage.setOrCreate('current_origin_window_id', originWindowId);
+
       this.registerWindowOpCallback(windowStage);
       BaseWindowAbility.registerWindowLifecycleListeners(this.windowId, mainWindow);
 

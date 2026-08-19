@@ -13,6 +13,7 @@
 
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
+#include <cstdint>
 #include <hilog/log.h>
 
 #include "include/core/SkCanvas.h"
@@ -157,9 +158,13 @@ void DrawFrame(int width, int height) {
 // __attribute__((visibility("default"))) keeps it in the dynamic symbol
 // table despite -fvisibility=hidden so dlsym can find it.
 extern "C" __attribute__((visibility("default"))) void
-LynxtronSetNativeSurface(void* window, int width, int height) {
-  SR_LOG("LynxtronSetNativeSurface window=%{public}p %{public}dx%{public}d",
-         window, width, height);
+LynxtronSetNativeSurface(int32_t harmony_window_id,
+                         void* window,
+                         int width,
+                         int height) {
+  SR_LOG("LynxtronSetNativeSurface harmony_id=%{public}d window=%{public}p "
+         "%{public}dx%{public}d",
+         harmony_window_id, window, width, height);
   if (!window) {
     SR_ERR("null window");
     return;
@@ -175,12 +180,13 @@ LynxtronSetNativeSurface(void* window, int width, int height) {
   // tell the existing NativeWindow/LynxView about every size change. Without
   // this its viewport stays at the prior size and pointer coordinates hit-test
   // at a different scale from the ArkUI XComponent.
-  lynxtron::UpdateHarmonyNativeWindowSize(width, height);
+  lynxtron::UpdateHarmonyNativeWindowSizeForWindow(harmony_window_id, width, height);
 
-  // Sync the first native window's bounds to the actual surface size so the
-  // LynxView viewport matches the render target. In the one-surface model this
-  // is the only window; multi-window needs per-window surface routing later.
-  lynxtron::LynxtronSetHarmonySurfaceSize(width, height);
+  // Sync the native window's bounds to the actual surface size so the LynxView
+  // viewport matches the render target. With an explicit harmony_window_id this
+  // works for multi-window; if the id is invalid we fall back to single-window
+  // behavior inside the callee.
+  lynxtron::LynxtronSetHarmonySurfaceSizeForWindow(harmony_window_id, width, height);
 
   // NOTE: no bring-up LynxView here anymore. The default_app JS creates a real
   // LynxWindow (BrowserWindow) and loads its own Lynx app; that window's
