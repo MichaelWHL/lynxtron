@@ -1962,7 +1962,7 @@ napi_value Init(napi_env env, napi_value exports) {
       {"notifyPowerMonitorLockScreen", nullptr, NotifyPowerMonitorLockScreen,
        nullptr, nullptr, nullptr, napi_default, nullptr},
       {"notifyPowerMonitorUnlockScreen", nullptr,
-       NotifyPowerMonitorUnlockScreen, nullptr, nullptr, nullptr, napi_default,
+       NotifyPowerMonitorUnlockScreen, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"setWindowObject", nullptr, SetWindowObject, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"getWindowTitle", nullptr, GetWindowTitle, nullptr, nullptr, nullptr,
