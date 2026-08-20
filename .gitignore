@@ -57,6 +57,7 @@
 /build/
 /base/
 .DS_Store
+._*
 /out/
 .venv/
 **/__pycache__/
