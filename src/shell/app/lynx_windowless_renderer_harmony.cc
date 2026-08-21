@@ -21,6 +21,7 @@
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "lynx/platform/embedder/windowless/lynx_windowless_renderer_priv.h"
 #include "shell/common/global_thread.h"
 #include "shell/app/application.h"
 
@@ -159,6 +160,9 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   void* window() const { return window_; }
   void SetHarmonyWindowId(int32_t id) { harmony_window_id_ = id; }
   int32_t GetHarmonyWindowId() const { return harmony_window_id_; }
+  // Exposes the underlying C renderer so the placeholder can copy the input/
+  // task callbacks that LynxUIRendererWindowless installed on it.
+  lynx_windowless_renderer_t* capi_impl() { return Impl(); }
 
   // ---- GLDirect callbacks (invoked on Clay's GPU thread) ----
 
@@ -339,6 +343,19 @@ int32_t g_last_harmony_window_id = -1;
 std::unordered_map<int32_t, std::weak_ptr<lynx::pub::LynxWindowlessRenderer>>
     g_placeholder_renderers;
 
+// Placeholder renderers keyed by the C++-allocated window id for the brief
+// window between NativeWindowHarmony construction and the ArkTS side binding
+// the HarmonyOS window id. BindHarmonyWindowIdForPlaceholder() moves them into
+// g_placeholder_renderers once the HarmonyOS id is known.
+std::unordered_map<int32_t, std::weak_ptr<lynx::pub::LynxWindowlessRenderer>>
+    g_cpp_placeholder_renderers;
+
+// C++ window id -> HarmonyOS window id mapping, recorded the moment the ArkTS
+// side binds a window. The view build path can race that binding in either
+// direction, so this map lets a placeholder created AFTER the binding be keyed
+// by the HarmonyOS id (or resolve the already-created real renderer) directly.
+std::unordered_map<int32_t, int32_t> g_cpp_to_harmony;
+
 // Text-input focus/caret callback registered by the NAPI bridge. Invoked from
 // EglWindowlessRenderer on the Lynx/Clay sequence; the bridge re-posts to the
 // ArkUI thread as needed.
@@ -442,9 +459,50 @@ class DelegatingWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   DelegatingWindowlessRenderer()
       : lynx::pub::LynxWindowlessRenderer(kRendererTypeGLDirect) {}
 
+  ~DelegatingWindowlessRenderer() override {
+    // SetTarget copied our input/task callbacks (which capture the
+    // LynxUIRendererWindowless) into the real renderer's C impl. The
+    // LynxUIRendererWindowless is destroyed before this placeholder, leaving
+    // those copies dangling. Clear them so a late pointer/key event routed to
+    // the real renderer by harmony id cannot call into freed memory (the
+    // MAPERR-at-small-offset crash when closing a window).
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (!target_) {
+      return;
+    }
+    auto* target_impl =
+        reinterpret_cast<lynx::embedder::LynxWindowlessRenderer*>(
+            target_->Impl());
+    target_impl->send_pointer_event = nullptr;
+    target_impl->send_key_event = nullptr;
+    target_impl->run_task = nullptr;
+  }
+
   void SetTarget(std::shared_ptr<lynx::pub::LynxWindowlessRenderer> target) {
     std::lock_guard<std::mutex> lock(target_mutex_);
     target_ = std::move(target);
+    if (!target_) {
+      return;
+    }
+    // Input (pointer/key) events and Clay tasks are routed by harmony window id
+    // to the REAL renderer, while LynxUIRendererWindowless installed the
+    // send_pointer_event/send_key_event/run_task callbacks on this placeholder
+    // when the LynxView was built. Copy them over, otherwise those events are
+    // silently dropped once the real renderer takes over.
+    auto* self_impl = reinterpret_cast<lynx::embedder::LynxWindowlessRenderer*>(
+        Impl());
+    auto* target_egl = static_cast<EglWindowlessRenderer*>(target_.get());
+    auto* target_impl = reinterpret_cast<lynx::embedder::LynxWindowlessRenderer*>(
+        target_egl->capi_impl());
+    if (self_impl->send_pointer_event) {
+      target_impl->send_pointer_event = self_impl->send_pointer_event;
+    }
+    if (self_impl->send_key_event) {
+      target_impl->send_key_event = self_impl->send_key_event;
+    }
+    if (self_impl->run_task) {
+      target_impl->run_task = self_impl->run_task;
+    }
   }
 
   bool HasTarget() const {
@@ -453,9 +511,27 @@ class DelegatingWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   }
 
   // ---- GLDirect callbacks ----
-  bool OnGLMakeCurrent() override { return Forward(&LynxWindowlessRenderer::OnGLMakeCurrent); }
+  bool OnGLMakeCurrent() override {
+    const bool had_target = HasTarget();
+    const bool result = Forward(&LynxWindowlessRenderer::OnGLMakeCurrent);
+    if (had_target && !gl_fwd_logged_) {
+      gl_fwd_logged_ = true;
+      WLR_LOG("[WLR] placeholder OnGLMakeCurrent fwd result=%{public}d",
+              result ? 1 : 0);
+    }
+    return result;
+  }
   bool OnGLClearCurrent() override { return Forward(&LynxWindowlessRenderer::OnGLClearCurrent); }
-  bool OnGLPresent() override { return Forward(&LynxWindowlessRenderer::OnGLPresent); }
+  bool OnGLPresent() override {
+    const bool had_target = HasTarget();
+    const bool result = Forward(&LynxWindowlessRenderer::OnGLPresent);
+    if (had_target && !gl_present_logged_) {
+      gl_present_logged_ = true;
+      WLR_LOG("[WLR] placeholder OnGLPresent fwd result=%{public}d",
+              result ? 1 : 0);
+    }
+    return result;
+  }
   uint32_t OnGLCreateFBO(int width, int height) override {
     std::lock_guard<std::mutex> lock(target_mutex_);
     return target_ ? target_->OnGLCreateFBO(width, height) : 0;
@@ -532,6 +608,8 @@ class DelegatingWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
 
   mutable std::mutex target_mutex_;
   std::shared_ptr<lynx::pub::LynxWindowlessRenderer> target_;
+  bool gl_fwd_logged_ = false;
+  bool gl_present_logged_ = false;
 };
 
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
@@ -674,6 +752,102 @@ GetOrCreateHarmonyPlaceholderRendererForWindow(int32_t harmony_window_id) {
   g_placeholder_renderers[harmony_window_id] = placeholder;
   WLR_LOG("Created placeholder renderer for id=%{public}d", harmony_window_id);
   return placeholder;
+}
+
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetOrCreateHarmonyPlaceholderRendererForCppWindow(int32_t cpp_window_id) {
+  if (cpp_window_id <= 0) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(g_mutex);
+
+  // If the ArkTS side already bound this C++ id to a HarmonyOS id, prefer the
+  // real renderer (if the surface has arrived) or a harmony-keyed placeholder
+  // so the surface callback can bind it without a later re-key. This covers
+  // the race where LynxtronOnHarmonyWindowCreated ran BEFORE the view was
+  // built (e.g. a slow first loadFile with a fast Ability startup).
+  auto mapping = g_cpp_to_harmony.find(cpp_window_id);
+  if (mapping != g_cpp_to_harmony.end()) {
+    const int32_t harmony_id = mapping->second;
+    auto real_it = g_renderers.find(harmony_id);
+    if (real_it != g_renderers.end() && real_it->second) {
+      WLR_LOG("cpp id=%{public}d already bound to harmony id=%{public}d with "
+              "real renderer", cpp_window_id, harmony_id);
+      return real_it->second;
+    }
+    auto pit = g_placeholder_renderers.find(harmony_id);
+    if (pit != g_placeholder_renderers.end()) {
+      if (auto existing = pit->second.lock()) {
+        return existing;
+      }
+    }
+    auto placeholder = std::make_shared<DelegatingWindowlessRenderer>();
+    placeholder->InitIfNeeded();
+    g_placeholder_renderers[harmony_id] = placeholder;
+    WLR_LOG("Created harmony-keyed placeholder for cpp id=%{public}d "
+            "(harmony id=%{public}d)", cpp_window_id, harmony_id);
+    return placeholder;
+  }
+
+  // Binding has not happened yet: key by cpp id. BindHarmonyWindowIdForPlaceholder
+  // will re-key it under the HarmonyOS id once the ArkTS side binds.
+  auto it = g_cpp_placeholder_renderers.find(cpp_window_id);
+  if (it != g_cpp_placeholder_renderers.end()) {
+    if (auto existing = it->second.lock()) {
+      return existing;
+    }
+  }
+  auto placeholder = std::make_shared<DelegatingWindowlessRenderer>();
+  placeholder->InitIfNeeded();
+  g_cpp_placeholder_renderers[cpp_window_id] = placeholder;
+  WLR_LOG("Created cpp-keyed placeholder renderer for cpp id=%{public}d",
+          cpp_window_id);
+  return placeholder;
+}
+
+void BindHarmonyWindowIdForPlaceholder(int32_t cpp_window_id,
+                                       int32_t harmony_window_id) {
+  if (cpp_window_id <= 0 || harmony_window_id <= 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_mutex);
+
+  // Always record the mapping, even if no cpp-keyed placeholder exists yet.
+  // The view build path can run after this binding and must be able to resolve
+  // the HarmonyOS id (or an already-created real renderer) without re-keying.
+  g_cpp_to_harmony[cpp_window_id] = harmony_window_id;
+
+  auto it = g_cpp_placeholder_renderers.find(cpp_window_id);
+  if (it == g_cpp_placeholder_renderers.end()) {
+    return;
+  }
+  auto placeholder = it->second.lock();
+  if (!placeholder) {
+    g_cpp_placeholder_renderers.erase(it);
+    return;
+  }
+  // Re-key the pending placeholder under the HarmonyOS id so the surface
+  // callback (CreateHarmonyWindowlessRenderer) can bind the real renderer.
+  g_placeholder_renderers[harmony_window_id] = placeholder;
+  g_cpp_placeholder_renderers.erase(it);
+  WLR_LOG("Re-keyed placeholder renderer cpp id=%{public}d -> harmony id=%{public}d",
+          cpp_window_id, harmony_window_id);
+}
+
+void ReleaseHarmonyWindowRenderer(int32_t cpp_window_id,
+                                  int32_t harmony_window_id) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (harmony_window_id > 0) {
+    g_renderers.erase(harmony_window_id);
+    g_surface_sizes.erase(harmony_window_id);
+    g_placeholder_renderers.erase(harmony_window_id);
+  }
+  if (cpp_window_id > 0) {
+    g_cpp_placeholder_renderers.erase(cpp_window_id);
+    g_cpp_to_harmony.erase(cpp_window_id);
+  }
+  WLR_LOG("Released renderer state cpp id=%{public}d harmony id=%{public}d",
+          cpp_window_id, harmony_window_id);
 }
 
 void LynxtronSetHarmonyTextInputFocusCallback(

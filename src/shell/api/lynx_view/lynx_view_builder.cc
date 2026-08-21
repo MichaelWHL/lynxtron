@@ -76,6 +76,11 @@ LynxViewBuilder& LynxViewBuilder::SetWindowId(int32_t window_id) {
   harmony_window_id_ = window_id;
   return *this;
 }
+
+LynxViewBuilder& LynxViewBuilder::SetCppWindowId(int32_t cpp_window_id) {
+  cpp_window_id_ = cpp_window_id;
+  return *this;
+}
 #endif
 
 LynxViewBuilder& LynxViewBuilder::SetNodeIntegrationPreload(
@@ -139,6 +144,13 @@ std::unique_ptr<LynxView> LynxViewBuilder::Build() {
       renderer =
           GetOrCreateHarmonyPlaceholderRendererForWindow(harmony_window_id_);
     }
+  } else if (cpp_window_id_ > 0) {
+    // The ArkTS side has not bound this window's HarmonyOS id yet (the OS
+    // window is created asynchronously). Use a placeholder keyed by the stable
+    // C++ window id so this view never grabs another window's renderer; it is
+    // re-keyed by HarmonyOS id once LynxtronOnHarmonyWindowCreated runs.
+    renderer =
+        GetOrCreateHarmonyPlaceholderRendererForCppWindow(cpp_window_id_);
   } else {
     // Legacy single-window fallback: the surface arrived before the view was
     // built and was stored as the "current" renderer.

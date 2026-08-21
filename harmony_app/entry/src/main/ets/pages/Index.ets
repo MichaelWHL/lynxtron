@@ -89,31 +89,89 @@ struct Index {
   @State xcomponentId: string = 'lynxtron_surface_-1';
   private webNodeController: WebNodeController = new WebNodeController();
 
-  async aboutToAppear(): Promise<void> {
+  aboutToAppear(): void {
     // LynxtronMain is now started from XComponent.onLoad (see build()), so the
     // native surface exists before the render pipeline spins up.
     hilog.info(DOMAIN, TAG, 'aboutToAppear — waiting for XComponent surface');
     let originWindowId = -1;
+    let via = 'none';
+    let windowName = '';
     try {
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      // window.getLastWindow(ctx) returns the topmost window of the application,
-      // which is wrong for multi-window: every page may read the same id and end
-      // up binding to the same XComponent. Look up the id that BaseWindowAbility
-      // registered for this exact Ability context instead.
-      const proxy = AbilityManager.getByContext(ctx);
-      if (proxy && proxy.originWindowId > 0) {
-        originWindowId = proxy.originWindowId;
-      } else {
-        const win = await window.getLastWindow(ctx);
-        originWindowId = win.getWindowProperties().id;
-      }
+      windowName = this.getUIContext().getWindowName() ?? '';
+      hilog.info(DOMAIN, TAG, 'aboutToAppear windowName=%{public}s', windowName);
     } catch (e) {
-      hilog.warn(DOMAIN, TAG, 'resolve origin window id failed: %{public}s', String(e));
+      hilog.warn(DOMAIN, TAG, 'getWindowName failed: %{public}s', String(e));
     }
+
+    // A subwindow shares the parent Ability's context, so context-based lookup
+    // below would resolve to the parent window and route the subwindow's
+    // XComponent surface (and every size change produced while dragging it) to
+    // the parent window, corrupting the parent's layout. Subwindows are created
+    // with a unique name ("lynxtron-sub-<cppWindowId>") in
+    // AppWindowAdapter.createSubWindowFromCpp; resolve the subwindow's own
+    // harmony window id from that name first.
+    if (windowName.startsWith('lynxtron-sub-')) {
+      try {
+        const cppWindowId = Number(windowName.substring('lynxtron-sub-'.length));
+        if (Number.isInteger(cppWindowId) && cppWindowId > 0) {
+          const proxy = AbilityManager.getByCppWindowId(cppWindowId);
+          if (proxy && proxy.originWindowId > 0) {
+            originWindowId = proxy.originWindowId;
+            via = 'sub-name';
+          }
+        }
+        if (originWindowId <= 0) {
+          // Registration may race the page load in rare cases; fall back to the
+          // window manager's name lookup.
+          const win = window.findWindow(windowName);
+          originWindowId = win.getWindowProperties().id;
+          via = 'sub-findWindow';
+        }
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'resolve subwindow origin id failed: %{public}s', String(e));
+      }
+    }
+
+    // Main window: first try the exact Ability context that BaseWindowAbility
+    // registered (semantically "this ability's own window").
+    if (originWindowId <= 0) {
+      try {
+        const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const proxy = AbilityManager.getByContext(ctx);
+        if (proxy && proxy.originWindowId > 0) {
+          originWindowId = proxy.originWindowId;
+          via = 'context';
+        }
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'resolve origin window id failed: %{public}s', String(e));
+      }
+    }
+
+    // Main window fallback: resolve by the window manager's unique window name.
+    // window.findWindow(name) is synchronous and does not depend on context
+    // object identity, unlike the context lookup above.
+    if (originWindowId <= 0 && windowName.length > 0) {
+      try {
+        const win = window.findWindow(windowName);
+        originWindowId = win.getWindowProperties().id;
+        via = 'main-findWindow';
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'findWindow(%{public}s) failed: %{public}s', windowName, String(e));
+      }
+    }
+
+    // Do NOT fall back to window.getLastWindow(): it returns the topmost
+    // window, so in multi-window every page would read the same id and bind
+    // to the same XComponent. Leaving -1 makes the native side use its
+    // thread-local harmony window id, which is correct because each main
+    // window (Ability) runs on its own thread.
     if (originWindowId <= 0) {
       originWindowId = -1;
+      via = 'tls-fallback';
     }
     this.xcomponentId = 'lynxtron_surface_' + originWindowId;
+    hilog.info(DOMAIN, TAG, 'xcomponentId=%{public}s via=%{public}s',
+      this.xcomponentId, via);
     // Text input is owned entirely by the native side: the bridge registers an
     // InputMethod_TextEditorProxy (inputmethod NDK) and becomes the system
     // IME's text client directly, so no ArkUI TextInput is involved and nothing

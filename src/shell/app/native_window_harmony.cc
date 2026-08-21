@@ -197,6 +197,14 @@ class NativeWindowHarmony : public NativeWindow {
     const bool has_y = options.Has(options::kY);
     const bool center = options.ValueOrDefault(options::kCenter, !has_x && !has_y);
 
+    // True when this NativeWindowHarmony was bound to an already-created
+    // HarmonyOS window through the legacy pending id path (EntryAbility created
+    // the first WindowAbility before LynxtronMain ran). In that case the OS
+    // window already exists and must NOT be re-created by
+    // LynxtronCreateHarmonyWindow, otherwise a spurious second window appears
+    // and the first window's binding gets overwritten.
+    bool legacy_bound = false;
+
     {
       std::lock_guard<std::mutex> lock(g_window_map_mutex);
       window_id_ = g_next_window_id.fetch_add(1);
@@ -213,6 +221,7 @@ class NativeWindowHarmony : public NativeWindow {
         harmony_window_id_ = g_pending_legacy_window_id.value();
         g_harmony_id_to_window[harmony_window_id_] = this;
         g_pending_legacy_window_id.reset();
+        legacy_bound = true;
         OH_LOG_INFO(LOG_APP,
                     "[LynxtronWindow] consumed pending legacy harmony id=%{public}d "
                     "for window_id=%{public}d",
@@ -226,12 +235,18 @@ class NativeWindowHarmony : public NativeWindow {
                 x, y, w, h, window_id_, harmony_window_id_);
     bounds_ = gfx::Rect(x, y, w, h);
 
-    // If the XComponent surface has already arrived, size the window to it
-    // instead of the requested dimensions. This keeps LynxView's viewport in
-    // sync with the actual render target.
+    // If this window's XComponent surface has already arrived, size the window
+    // to it instead of the requested dimensions. This keeps LynxView's viewport
+    // in sync with the actual render target. Look the size up by this window's
+    // own harmony id: the legacy global fallback would give a newly created
+    // window the previous window's surface size in multi-window mode.
     int surf_w = 0, surf_h = 0;
-    if (GetCurrentHarmonySurfaceSize(&surf_w, &surf_h) && surf_w > 0 &&
-        surf_h > 0) {
+    bool have_surface_size = false;
+    if (harmony_window_id_ > 0) {
+      have_surface_size = GetHarmonySurfaceSizeForWindow(harmony_window_id_,
+                                                         &surf_w, &surf_h);
+    }
+    if (have_surface_size && surf_w > 0 && surf_h > 0) {
       bounds_.set_size(gfx::Size(surf_w, surf_h));
       OH_LOG_INFO(LOG_APP,
                   "[Window] sized to existing surface %{public}dx%{public}d",
@@ -249,33 +264,37 @@ class NativeWindowHarmony : public NativeWindow {
     // Request ArkTS to create the real HarmonyOS window. The window is
     // considered "created" in-process immediately; the actual Ability will
     // finish asynchronously and call back via LynxtronOnHarmonyWindowCreated.
-    HarmonyWindowCreationOptions create_options;
-    create_options.x = x;
-    create_options.y = y;
-    create_options.width = w;
-    create_options.height = h;
-    create_options.show = show;
-    create_options.resizable = resizable;
-    create_options.movable = movable;
-    create_options.minimizable = minimizable;
-    create_options.maximizable = maximizable;
-    create_options.closable = closable;
-    create_options.focusable = focusable;
-    create_options.always_on_top = always_on_top;
-    create_options.type = type;
-    create_options.center = center;
-    create_options.has_x = has_x;
-    create_options.has_y = has_y;
-    create_options.parent_window_id = parent ? parent_harmony->window_id() : -1;
-    create_options.parent_harmony_window_id = parent_harmony_id;
-    create_options.title = title;
-    create_options.fullscreen = fullscreen;
-    create_options.min_width = min_width;
-    create_options.min_height = min_height;
-    create_options.max_width = max_width;
-    create_options.max_height = max_height;
-    create_options.modal = modal;
-    LynxtronCreateHarmonyWindow(window_id_, &create_options);
+    // Skip this when the legacy pending id already bound us to an existing
+    // window (the first EntryAbility-launched window).
+    if (!legacy_bound) {
+      HarmonyWindowCreationOptions create_options;
+      create_options.x = x;
+      create_options.y = y;
+      create_options.width = w;
+      create_options.height = h;
+      create_options.show = show;
+      create_options.resizable = resizable;
+      create_options.movable = movable;
+      create_options.minimizable = minimizable;
+      create_options.maximizable = maximizable;
+      create_options.closable = closable;
+      create_options.focusable = focusable;
+      create_options.always_on_top = always_on_top;
+      create_options.type = type;
+      create_options.center = center;
+      create_options.has_x = has_x;
+      create_options.has_y = has_y;
+      create_options.parent_window_id = parent ? parent_harmony->window_id() : -1;
+      create_options.parent_harmony_window_id = parent_harmony_id;
+      create_options.title = title;
+      create_options.fullscreen = fullscreen;
+      create_options.min_width = min_width;
+      create_options.min_height = min_height;
+      create_options.max_width = max_width;
+      create_options.max_height = max_height;
+      create_options.modal = modal;
+      LynxtronCreateHarmonyWindow(window_id_, &create_options);
+    }
 
     InitFromOptions(options);
     std::lock_guard<std::mutex> lock(g_harmony_window_mutex);
@@ -305,20 +324,35 @@ class NativeWindowHarmony : public NativeWindow {
         g_window_op_callbacks.erase(harmony_window_id_);
       }
     }
+    // Drop the per-window windowless renderer/surface state so a late event
+    // routed to the old harmony id cannot reach a stale renderer (which would
+    // otherwise crash when its copied input callbacks dangle after the view is
+    // destroyed).
+    ReleaseHarmonyWindowRenderer(window_id_, harmony_window_id_);
   }
 
   void OnSurfaceSizeChanged(int width, int height) {
-    if (width <= 0 || height <= 0 ||
-        (bounds_.width() == width && bounds_.height() == height)) {
+    if (width <= 0 || height <= 0) {
       return;
     }
-    OH_LOG_INFO(LOG_APP,
-                "[Window] XComponent size %{public}dx%{public}d -> "
-                "%{public}dx%{public}d",
-                bounds_.width(), bounds_.height(), width, height);
-    bounds_.set_size(gfx::Size(width, height));
-    NotifyWindowResize();
-    NotifyWindowResized();
+    const bool size_changed =
+        bounds_.width() != width || bounds_.height() != height;
+    if (size_changed) {
+      OH_LOG_INFO(LOG_APP,
+                  "[Window] XComponent size %{public}dx%{public}d -> "
+                  "%{public}dx%{public}d",
+                  bounds_.width(), bounds_.height(), width, height);
+      bounds_.set_size(gfx::Size(width, height));
+    }
+    // Notify on size changes AND on the first surface arrival. The first
+    // arrival can happen after the LynxView was already built (delayed bind),
+    // in which case the view's initial frame was dropped by the placeholder
+    // renderer and must be re-laid-out/re-rendered now.
+    if (size_changed || !surface_bound_) {
+      surface_bound_ = true;
+      NotifyWindowResize();
+      NotifyWindowResized();
+    }
   }
 
   // --- lifecycle ---
@@ -530,6 +564,9 @@ class NativeWindowHarmony : public NativeWindow {
   int32_t GetHarmonyWindowId() const override {
     return harmony_window_id_;
   }
+  int32_t GetCppWindowId() const override {
+    return window_id_;
+  }
   base::WeakPtr<NativeWindowHarmony> GetHarmonyWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
@@ -666,6 +703,10 @@ class NativeWindowHarmony : public NativeWindow {
   bool is_fullscreenable_ = true;
   bool is_closable_ = true;
   bool is_active_ = false;
+  // True once the XComponent surface has arrived for this window, so the first
+  // arrival triggers a viewport refresh even when the surface size happens to
+  // equal the requested window size.
+  bool surface_bound_ = false;
   bool is_focusable_ = true;
   bool has_shadow_ = true;
   bool is_window_buttons_visible_ = true;
@@ -760,6 +801,10 @@ extern "C" __attribute__((visibility("default"))) void LynxtronOnHarmonyWindowCr
   }
   window->SetHarmonyWindowId(harmony_window_id);
   g_harmony_id_to_window[harmony_window_id] = window;
+  // If the LynxView was built before the HarmonyOS id was bound, its renderer
+  // is a cpp-keyed placeholder. Re-key it now so the surface callback binds the
+  // real renderer instead of letting the view keep another window's renderer.
+  BindHarmonyWindowIdForPlaceholder(cpp_window_id, harmony_window_id);
   OH_LOG_INFO(LOG_APP,
               "[LynxtronWindow] bound harmony id=%{public}d to cpp id=%{public}d",
               harmony_window_id, cpp_window_id);

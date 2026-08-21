@@ -42,6 +42,7 @@ class LynxViewBuilder {
   LynxViewBuilder& SetLynxWindow(base::WeakPtr<api::LynxWindow> lynx_window);
 #if BUILDFLAG(IS_HARMONY)
   LynxViewBuilder& SetWindowId(int32_t window_id);
+  LynxViewBuilder& SetCppWindowId(int32_t cpp_window_id);
 #endif
   LynxViewBuilder& SetNodeIntegrationPreload(
       const std::vector<std::string>& preload);
@@ -61,6 +62,7 @@ class LynxViewBuilder {
   std::vector<std::string> node_integration_preload_;
 #if BUILDFLAG(IS_HARMONY)
   int32_t harmony_window_id_ = -1;
+  int32_t cpp_window_id_ = -1;
 #endif
 };
 

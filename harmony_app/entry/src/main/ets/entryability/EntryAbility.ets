@@ -5,7 +5,6 @@ import { BusinessError } from '@ohos.base';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
 import { StatusBarManager } from '../manager/StatusBarManager';
-import { AppWindowAdapter } from '../adapter/AppWindowAdapter';
 import LogUtil from '../utils/LogUtils';
 import AppAdapter from '../adapter/AppAdapter';
 import lynxtron from 'liblynxtron_napi.so';
@@ -88,12 +87,14 @@ export default class EntryAbility extends UIAbility {
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
 
-    // EntryAbility does not host an XComponent, so do not publish its own window
-    // id to C++. The first WindowAbility will publish the real application window
-    // id via the legacy setWindowId path in BaseWindowAbility.onWindowStageCreate.
+    // EntryAbility does not host an XComponent and does NOT create any app window
+    // itself. Both app windows are created by the JS app via `new LynxWindow()`,
+    // which flows through the C++ driven path (LynxtronCreateHarmonyWindow →
+    // createWindowFromCpp → WindowAbility). Publish this ability's context so
+    // createWindowFromCpp can call startAbility before any WindowAbility exists.
+    AppStorage.setOrCreate('active_ability_context', this.context);
     BridgeRegistry.registerAll(this.context);
-    // EntryAbility is the host launcher; it does not host the app window.
-    // Initialize the status-bar item, then start the real WindowAbility.
+    // Initialize the status-bar item, then start LynxtronMain.
     StatusBarManager.init(this.context)
       .then(() => {
         hilog.info(DOMAIN, TAG, 'StatusBarManager.init OK');
@@ -115,13 +116,15 @@ export default class EntryAbility extends UIAbility {
       }
       hilog.info(DOMAIN, TAG, 'setUIContent OK');
 
-      AppWindowAdapter.createWindow({
-        context: this.context,
-        instanceKey: 'main',
-        abilityName: 'WindowAbility',
-        show: true,
-        bounds: { left: 100, top: 100, width: 800, height: 600 },
-      });
+      // Start LynxtronMain. The JS app (default_app.ts) then creates BOTH app
+      // windows through `new LynxWindow()` → LynxtronCreateHarmonyWindow →
+      // createWindowFromCpp. No window is created here by EntryAbility.
+      try {
+        lynxtron.start();
+        hilog.info(DOMAIN, TAG, 'lynxtron.start() OK');
+      } catch (e) {
+        hilog.error(DOMAIN, TAG, 'lynxtron.start() failed: %{public}s', String(e));
+      }
     });
   }
 

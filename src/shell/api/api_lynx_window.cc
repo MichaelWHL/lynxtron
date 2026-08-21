@@ -384,9 +384,48 @@ void LynxWindow::OnWindowResize() {
 }
 
 void LynxWindow::OnWindowResized() {
+#if BUILDFLAG(IS_HARMONY)
+  // The XComponent surface has arrived. If the LynxView was deferred because
+  // the surface was not ready when loadFile/loadUrl/loadBundle ran, build it
+  // now (against the real renderer) and replay the pending load.
+  if (!lynx_view_ && pending_load_.has_value()) {
+    EnsureLynxView();
+    if (lynx_view_) {
+      PendingLoad load = std::move(*pending_load_);
+      pending_load_.reset();
+      switch (load.type) {
+        case PendingLoad::Type::kFile:
+          SetTemplateResourceBaseFromFile(
+              base::FilePath::FromUTF8Unsafe(load.target));
+          lynx_view_->LoadFile(load.target, load.data_json, load.props_json);
+          break;
+        case PendingLoad::Type::kUrl:
+          SetTemplateResourceBaseFromUrl(load.target);
+          lynx_view_->LoadURL(load.target, load.data_json, load.props_json);
+          break;
+        case PendingLoad::Type::kBundle:
+          current_resource_base_url_.reset();
+          current_resource_base_is_file_ = false;
+          lynx_view_->LoadBundle(load.bundle, load.data_json, load.props_json);
+          break;
+      }
+    }
+  }
+#endif
   if (lynx_view_) {
     const auto metrics = GetLynxContentMetrics(window_.get());
     SyncLynxScreenMetrics(lynx_view_.get(), metrics);
+    if (!viewport_synced_once_) {
+      viewport_synced_once_ = true;
+      // The XComponent surface can arrive after the LynxView was built (the
+      // HarmonyOS window is created asynchronously). The first frame was then
+      // dropped by the placeholder renderer, so nudge the viewport by one pixel
+      // to make Clay re-layout and paint the already-loaded content.
+      SyncLynxViewport(lynx_view_.get(),
+                       LynxContentMetrics{metrics.width + 1,
+                                          metrics.height + 1,
+                                          metrics.device_pixel_ratio});
+    }
     SyncLynxViewport(lynx_view_.get(), metrics);
 #if BUILDFLAG(IS_WIN)
     if (HWND lynx_hwnd =
@@ -496,6 +535,17 @@ void LynxWindow::EnsureLynxView() {
     return;
   }
 
+#if BUILDFLAG(IS_HARMONY)
+  // The XComponent surface arrives asynchronously after the window is created.
+  // If this window's HarmonyOS id has not been bound yet, the surface has not
+  // arrived; building the view now would bind a placeholder renderer whose
+  // first frame is dropped. Defer instead — OnWindowResized builds the view and
+  // replays the pending load once the surface is ready.
+  if (window_->GetHarmonyWindowId() <= 0) {
+    return;
+  }
+#endif
+
   const auto metrics = GetLynxContentMetrics(window_.get());
 
   LynxViewBuilder builder;
@@ -504,8 +554,11 @@ void LynxWindow::EnsureLynxView() {
       .SetFrame(0, 0, metrics.width, metrics.height)
       .SetParent(window_->GetNativeWindowHandle())
       .SetNodeIntegrationPreload(node_integration_preload_)
-      .SetLynxWindow(GetWeakPtr())
-      .SetWindowId(window_->GetHarmonyWindowId());
+      .SetLynxWindow(GetWeakPtr());
+#if BUILDFLAG(IS_HARMONY)
+  builder.SetWindowId(window_->GetHarmonyWindowId());
+  builder.SetCppWindowId(window_->GetCppWindowId());
+#endif
 
   if (lynx_view_state_observer_) {
     lynx_view_state_observer_->OnPreLynxViewCreate(&builder);
@@ -620,7 +673,6 @@ bool LynxWindow::LoadFile(const std::string& path, gin::Arguments* args) {
     return false;
   }
 
-  EnsureLynxView();
   auto data_json = ConvertDictionaryToJsonString(data);
   if (!data_json.has_value()) {
     return false;
@@ -629,6 +681,20 @@ bool LynxWindow::LoadFile(const std::string& path, gin::Arguments* args) {
   if (!props_json.has_value()) {
     return false;
   }
+
+  EnsureLynxView();
+#if BUILDFLAG(IS_HARMONY)
+  if (!lynx_view_) {
+    // Surface not ready yet; replay this load from OnWindowResized.
+    PendingLoad load;
+    load.type = PendingLoad::Type::kFile;
+    load.target = local_path.AsUTF8Unsafe();
+    load.data_json = data_json.value();
+    load.props_json = global_props.IsEmptyObject() ? "" : props_json.value();
+    pending_load_ = std::move(load);
+    return true;
+  }
+#endif
 
   SetTemplateResourceBaseFromFile(local_path);
   lynx_view_->LoadFile(local_path.AsUTF8Unsafe(), data_json.value(),
@@ -643,8 +709,6 @@ bool LynxWindow::LoadUrl(const std::string& url, gin::Arguments* args) {
     return false;
   }
 
-  EnsureLynxView();
-
   auto data_json = ConvertDictionaryToJsonString(data);
   if (!data_json.has_value()) {
     return false;
@@ -653,6 +717,19 @@ bool LynxWindow::LoadUrl(const std::string& url, gin::Arguments* args) {
   if (!props_json.has_value()) {
     return false;
   }
+
+  EnsureLynxView();
+#if BUILDFLAG(IS_HARMONY)
+  if (!lynx_view_) {
+    PendingLoad load;
+    load.type = PendingLoad::Type::kUrl;
+    load.target = url;
+    load.data_json = data_json.value();
+    load.props_json = global_props.IsEmptyObject() ? "" : props_json.value();
+    pending_load_ = std::move(load);
+    return true;
+  }
+#endif
 
   SetTemplateResourceBaseFromUrl(url);
   lynx_view_->LoadURL(url, data_json.value(),
@@ -676,8 +753,6 @@ bool LynxWindow::LoadBundle(gin::Arguments* args) {
     return false;
   }
 
-  EnsureLynxView();
-
   auto data_json = ConvertDictionaryToJsonString(data);
   if (!data_json.has_value()) {
     return false;
@@ -686,6 +761,19 @@ bool LynxWindow::LoadBundle(gin::Arguments* args) {
   if (!props_json.has_value()) {
     return false;
   }
+
+  EnsureLynxView();
+#if BUILDFLAG(IS_HARMONY)
+  if (!lynx_view_) {
+    PendingLoad load;
+    load.type = PendingLoad::Type::kBundle;
+    load.bundle = wrapper->GetImpl();
+    load.data_json = data_json.value();
+    load.props_json = global_props.IsEmptyObject() ? "" : props_json.value();
+    pending_load_ = std::move(load);
+    return true;
+  }
+#endif
 
   current_resource_base_url_.reset();
   current_resource_base_is_file_ = false;

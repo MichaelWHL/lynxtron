@@ -66,6 +66,25 @@ bool GetCurrentHarmonySurfaceSize(int* w, int* h);
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 GetOrCreateHarmonyPlaceholderRendererForWindow(int32_t harmony_window_id);
 
+// Returns a placeholder windowless renderer keyed by the C++-allocated window
+// id. Used when a LynxView is built before the ArkTS side has bound the
+// HarmonyOS window id; BindHarmonyWindowIdForPlaceholder() re-keys it once the
+// HarmonyOS id is known so the surface callback can bind the real renderer.
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetOrCreateHarmonyPlaceholderRendererForCppWindow(int32_t cpp_window_id);
+
+// Re-keys a cpp-keyed placeholder renderer under its HarmonyOS window id. Safe
+// to call when no placeholder exists. Invoked from LynxtronOnHarmonyWindowCreated
+// when the ArkTS side finishes binding a window.
+void BindHarmonyWindowIdForPlaceholder(int32_t cpp_window_id,
+                                       int32_t harmony_window_id);
+
+// Releases all per-window renderer/surface/placeholder state for a closed
+// window. Invoked from NativeWindowHarmony's destructor so a late event routed
+// to the old harmony id cannot reach a dangling renderer.
+void ReleaseHarmonyWindowRenderer(int32_t cpp_window_id,
+                                  int32_t harmony_window_id);
+
 // Snapshot of the cached Lynx IME request and caret rectangle for the given
 // HarmonyOS window id. This is used by the NAPI bridge on the ArkUI UI
 // sequence; no renderer object escapes.

@@ -23,6 +23,10 @@ namespace lynxtron {
 class LynxViewStateObserver;
 }
 
+namespace lynx::pub {
+class LynxTemplateBundle;
+}
+
 namespace lynxtron::api {
 class LynxWindow : public BaseWindow, public lynxtron::LynxViewClient {
  public:
@@ -172,6 +176,25 @@ class LynxWindow : public BaseWindow, public lynxtron::LynxViewClient {
   std::optional<std::string> global_props_ = std::nullopt;
   std::optional<std::string> current_resource_base_url_ = std::nullopt;
   bool current_resource_base_is_file_ = false;
+  // True once the surface size has been synced to the LynxView. The first sync
+  // is used to force a re-layout/re-render for windows whose LynxView was built
+  // before their XComponent surface arrived (delayed bind).
+  bool viewport_synced_once_ = false;
+
+  // Deferred load (HarmonyOS). The LynxView is built only after the XComponent
+  // surface has arrived, so LoadFile/LoadUrl/LoadBundle cache their arguments
+  // here and OnWindowResized builds the view and replays them once the surface
+  // is ready. This avoids building against a placeholder renderer whose first
+  // frame is dropped.
+  struct PendingLoad {
+    enum class Type { kFile, kUrl, kBundle };
+    Type type = Type::kFile;
+    std::string target;  // file path or url
+    std::string data_json;
+    std::string props_json;
+    std::shared_ptr<lynx::pub::LynxTemplateBundle> bundle;
+  };
+  std::optional<PendingLoad> pending_load_;
 };
 
 }  // namespace lynxtron::api

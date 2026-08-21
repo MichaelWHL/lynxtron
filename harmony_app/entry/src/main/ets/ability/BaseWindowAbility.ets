@@ -87,7 +87,12 @@ export default abstract class BaseWindowAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     const params = want.parameters as Record<string, Object> | undefined;
     this.launchOptions = {
-      windowId: Number(params?.['windowId'] ?? -1),
+      // The C++ driven path (AppWindowAdapter.createWindowFromCpp) puts the
+      // C++-allocated window id under the key "cppWindowId"; the legacy
+      // EntryAbility path used "windowId". Read both so C++-driven windows
+      // correctly route through setWindowIdForWindow instead of the legacy
+      // setWindowId single-window path.
+      windowId: Number(params?.['cppWindowId'] ?? params?.['windowId'] ?? -1),
       type: String(params?.['windowType'] ?? params?.['type'] ?? 'main'),
       x: Number(params?.['x'] ?? 0),
       y: Number(params?.['y'] ?? 0),

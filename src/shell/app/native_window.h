@@ -191,6 +191,10 @@ class NativeWindow : public base::SupportsUserData {
   // Returns the HarmonyOS system window id used for cross-layer routing.
   // Default -1 means "not bound to a HarmonyOS window yet".
   virtual int32_t GetHarmonyWindowId() const { return -1; }
+  // Returns the process-unique C++-allocated window id. Unlike the HarmonyOS
+  // window id, this is assigned when NativeWindowHarmony is constructed, so it
+  // is available before the ArkTS side finishes binding the HarmonyOS id.
+  virtual int32_t GetCppWindowId() const { return -1; }
 #endif
 
   // Taskbar/Dock APIs.
