@@ -504,7 +504,8 @@ void LynxWindow::EnsureLynxView() {
       .SetFrame(0, 0, metrics.width, metrics.height)
       .SetParent(window_->GetNativeWindowHandle())
       .SetNodeIntegrationPreload(node_integration_preload_)
-      .SetLynxWindow(GetWeakPtr());
+      .SetLynxWindow(GetWeakPtr())
+      .SetWindowId(window_->GetHarmonyWindowId());
 
   if (lynx_view_state_observer_) {
     lynx_view_state_observer_->OnPreLynxViewCreate(&builder);

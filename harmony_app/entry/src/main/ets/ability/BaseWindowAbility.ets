@@ -44,6 +44,8 @@ interface WindowLimitsPayload {
 interface WindowBorders {
   leftBorder: number;
   topBorder: number;
+  rightBorder: number;
+  bottomBorder: number;
 }
 
 const DOMAIN = 0x0000;
@@ -148,11 +150,6 @@ export default abstract class BaseWindowAbility extends UIAbility {
         lynxtron.setWindowId(originWindowId);
       }
 
-      // Publish the origin window id so that pages/Index.ets can encode it into
-      // the XComponent id. This lets the C++ surface callback route per-window
-      // even when multiple windows (including subwindows) share a thread.
-      AppStorage.setOrCreate('current_origin_window_id', originWindowId);
-
       this.registerWindowOpCallback(windowStage);
       BaseWindowAbility.registerWindowLifecycleListeners(this.windowId, mainWindow);
 
@@ -246,7 +243,7 @@ export default abstract class BaseWindowAbility extends UIAbility {
     // StartOptions (windowLeft/windowTop/windowWidth/windowHeight and
     // startupVisibility) when the Ability is launched. Do not call
     // resizeAsync/moveWindowToAsync/showWindow/minimize here before
-    // loadContent() — that can leave the window stuck on the start-window
+    // setUIContent() — that can leave the window stuck on the start-window
     // icon because the UI content has not been loaded yet.
 
     // Supported window modes reflect maximizable.
@@ -589,8 +586,8 @@ export default abstract class BaseWindowAbility extends UIAbility {
               break;
             }
             const borders = BaseWindowAbility.getWindowBorders(win);
-            win.resizeAsync(size.width + borders.leftBorder + borders.leftBorder,
-                            size.height + borders.topBorder + borders.leftBorder)
+            win.resizeAsync(size.width + borders.leftBorder + borders.rightBorder,
+                            size.height + borders.topBorder + borders.bottomBorder)
               .then(() => BaseWindowAbility.recordWindowOpResult('setSize', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', BaseWindowAbility.errText(e)));
             break;
@@ -607,8 +604,8 @@ export default abstract class BaseWindowAbility extends UIAbility {
             try {
               const disp = display.getDefaultDisplaySync();
               const borders = BaseWindowAbility.getWindowBorders(win);
-              const totalWidth = rect.width + borders.leftBorder + borders.leftBorder;
-              const totalHeight = rect.height + borders.topBorder + borders.leftBorder;
+              const totalWidth = rect.width + borders.leftBorder + borders.rightBorder;
+              const totalHeight = rect.height + borders.topBorder + borders.bottomBorder;
               const left = Math.round((disp.width - totalWidth) / 2);
               const top = Math.round((disp.height - totalHeight) / 2);
               win.moveWindowToAsync(left, top)
@@ -638,10 +635,10 @@ export default abstract class BaseWindowAbility extends UIAbility {
             }
             const borders = BaseWindowAbility.getWindowBorders(win);
             win.setWindowLimits({
-              minWidth: limits.minWidth === 0 ? 0 : limits.minWidth + borders.leftBorder + borders.leftBorder,
-              minHeight: limits.minHeight === 0 ? 0 : limits.minHeight + borders.topBorder + borders.leftBorder,
-              maxWidth: limits.maxWidth === 0 ? 0 : limits.maxWidth + borders.leftBorder + borders.leftBorder,
-              maxHeight: limits.maxHeight === 0 ? 0 : limits.maxHeight + borders.topBorder + borders.leftBorder,
+              minWidth: limits.minWidth === 0 ? 0 : limits.minWidth + borders.leftBorder + borders.rightBorder,
+              minHeight: limits.minHeight === 0 ? 0 : limits.minHeight + borders.topBorder + borders.bottomBorder,
+              maxWidth: limits.maxWidth === 0 ? 0 : limits.maxWidth + borders.leftBorder + borders.rightBorder,
+              maxHeight: limits.maxHeight === 0 ? 0 : limits.maxHeight + borders.topBorder + borders.bottomBorder,
             })
               .then(() => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'OK'))
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', BaseWindowAbility.errText(e)));
@@ -676,10 +673,20 @@ export default abstract class BaseWindowAbility extends UIAbility {
   }
 
   private static getWindowBorders(win: window.Window): WindowBorders {
-    const drawable = win.getWindowProperties()?.drawableRect;
+    const props = win.getWindowProperties();
+    const drawable = props?.drawableRect;
+    const windowRect = props?.windowRect;
+    const left = drawable?.left ?? 0;
+    const top = drawable?.top ?? 0;
+    const drawableWidth = drawable?.width ?? 0;
+    const drawableHeight = drawable?.height ?? 0;
+    const windowWidth = windowRect?.width ?? (left + drawableWidth);
+    const windowHeight = windowRect?.height ?? (top + drawableHeight);
     return {
-      leftBorder: drawable?.left ?? 0,
-      topBorder: drawable?.top ?? 0,
+      leftBorder: left,
+      topBorder: top,
+      rightBorder: Math.max(0, windowWidth - drawableWidth - left),
+      bottomBorder: Math.max(0, windowHeight - drawableHeight - top),
     };
   }
 
@@ -688,8 +695,8 @@ export default abstract class BaseWindowAbility extends UIAbility {
     return {
       x: bounds.x - borders.leftBorder,
       y: bounds.y - borders.topBorder,
-      width: bounds.width + borders.leftBorder + borders.leftBorder,
-      height: bounds.height + borders.topBorder + borders.leftBorder,
+      width: bounds.width + borders.leftBorder + borders.rightBorder,
+      height: bounds.height + borders.topBorder + borders.bottomBorder,
     };
   }
 }

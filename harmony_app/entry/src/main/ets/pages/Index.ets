@@ -1,5 +1,8 @@
 import lynxtron from 'liblynxtron_napi.so';
 import hilog from '@ohos.hilog';
+import window from '@ohos.window';
+import common from '@ohos.app.ability.common';
+import { AbilityManager } from '../common/AbilityManager';
 import web_webview from '@ohos.web.webview';
 import { NodeController, BuilderNode, FrameNode } from '@ohos.arkui.node';
 import { UIContext } from '@ohos.arkui.UIContext';
@@ -86,12 +89,28 @@ struct Index {
   @State xcomponentId: string = 'lynxtron_surface_-1';
   private webNodeController: WebNodeController = new WebNodeController();
 
-  aboutToAppear(): void {
+  async aboutToAppear(): Promise<void> {
     // LynxtronMain is now started from XComponent.onLoad (see build()), so the
     // native surface exists before the render pipeline spins up.
     hilog.info(DOMAIN, TAG, 'aboutToAppear — waiting for XComponent surface');
-    let originWindowId = AppStorage.get<number>('current_origin_window_id');
-    if (originWindowId === undefined || originWindowId <= 0) {
+    let originWindowId = -1;
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      // window.getLastWindow(ctx) returns the topmost window of the application,
+      // which is wrong for multi-window: every page may read the same id and end
+      // up binding to the same XComponent. Look up the id that BaseWindowAbility
+      // registered for this exact Ability context instead.
+      const proxy = AbilityManager.getByContext(ctx);
+      if (proxy && proxy.originWindowId > 0) {
+        originWindowId = proxy.originWindowId;
+      } else {
+        const win = await window.getLastWindow(ctx);
+        originWindowId = win.getWindowProperties().id;
+      }
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'resolve origin window id failed: %{public}s', String(e));
+    }
+    if (originWindowId <= 0) {
       originWindowId = -1;
     }
     this.xcomponentId = 'lynxtron_surface_' + originWindowId;

@@ -88,16 +88,9 @@ export default class EntryAbility extends UIAbility {
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
 
-    // The input method service routes text per window. XComponent draws its own
-    // editable, so the native IME client (see lynxtron_napi_bridge.cc) has no
-    // ArkUI node to infer the window from and must be told explicitly.
-    try {
-      const id: number = windowStage.getMainWindowSync().getWindowProperties().id;
-      lynxtron.setWindowId(id);
-      hilog.info(DOMAIN, TAG, 'published IME windowId=%{public}d', id);
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'setWindowId failed: %{public}s', String(e));
-    }
+    // EntryAbility does not host an XComponent, so do not publish its own window
+    // id to C++. The first WindowAbility will publish the real application window
+    // id via the legacy setWindowId path in BaseWindowAbility.onWindowStageCreate.
     BridgeRegistry.registerAll(this.context);
     // EntryAbility is the host launcher; it does not host the app window.
     // Initialize the status-bar item, then start the real WindowAbility.
@@ -109,18 +102,18 @@ export default class EntryAbility extends UIAbility {
         hilog.error(DOMAIN, TAG, 'StatusBarManager.init failed: %{public}s', String(e));
       });
 
-    windowStage.loadContent('pages/Entry', (err) => {
-      let windoowCLass = windowStage.getMainWindowSync()
-      lynxtron.setWindowObject(windoowCLass);
-      // windoowCLass.setWindowDecorVisible(false);
-      // windoowCLass.setWindowTitleButtonVisible(false, false, false)
-      // windoowCLass.maximize(window.MaximizePresentation.ENTER_IMMERSIVE_DISABLE_TITLE_AND_DOCK_HOVER)
+    const mainWindow = windowStage.getMainWindowSync();
+    mainWindow.setUIContent('pages/Entry', (err) => {
+      lynxtron.setWindowObject(mainWindow);
+      // mainWindow.setWindowDecorVisible(false);
+      // mainWindow.setWindowTitleButtonVisible(false, false, false)
+      // mainWindow.maximize(window.MaximizePresentation.ENTER_IMMERSIVE_DISABLE_TITLE_AND_DOCK_HOVER)
       if (err.code) {
-        hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s',
+        hilog.error(DOMAIN, TAG, 'setUIContent failed: %{public}s',
           JSON.stringify(err) ?? '');
         return;
       }
-      hilog.info(DOMAIN, TAG, 'loadContent OK');
+      hilog.info(DOMAIN, TAG, 'setUIContent OK');
 
       AppWindowAdapter.createWindow({
         context: this.context,

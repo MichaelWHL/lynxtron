@@ -59,6 +59,15 @@ export class AbilityManager {
     return AbilityManager.proxies.get(windowId)?.originWindowId ?? -1;
   }
 
+  static getByContext(context: common.UIAbilityContext): AbilityProxy | undefined {
+    for (const proxy of AbilityManager.proxies.values()) {
+      if (proxy.context === context) {
+        return proxy;
+      }
+    }
+    return undefined;
+  }
+
   static getAllWindowIds(): number[] {
     return Array.from(AbilityManager.proxies.keys());
   }

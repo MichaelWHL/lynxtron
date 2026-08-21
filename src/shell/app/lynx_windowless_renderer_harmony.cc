@@ -15,6 +15,7 @@
 #include <array>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "base/functional/bind.h"
@@ -36,6 +37,7 @@ namespace {
 
 std::mutex g_mutex;
 scoped_refptr<base::SingleThreadTaskRunner> g_lynx_platform_runner;
+HarmonyTextInputFocusCallback g_text_input_focus_callback = nullptr;
 
 // The runner Clay treats as its "platform thread": the Lynxtron UI thread that
 // built the LynxView (captured in LynxViewBuilder::Build). Clay's custom
@@ -155,6 +157,8 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   }
 
   void* window() const { return window_; }
+  void SetHarmonyWindowId(int32_t id) { harmony_window_id_ = id; }
+  int32_t GetHarmonyWindowId() const { return harmony_window_id_; }
 
   // ---- GLDirect callbacks (invoked on Clay's GPU thread) ----
 
@@ -229,26 +233,66 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   // The platform text client is owned by ArkUI.  These callbacks can arrive on
   // a Lynx-owned sequence, so only cache POD state here; the NAPI bridge polls
   // it from the ArkUI sequence before moving/focusing its TextInput.
+  // Notifies the NAPI bridge of the current text-input visibility/caret rect.
+  // Must be called without holding input_mutex_ so the bridge can safely call
+  // back into GetTextInputState() if needed.
+  void NotifyTextInputFocus() {
+    if (!g_text_input_focus_callback) {
+      return;
+    }
+    float x = 0, y = 0, w = 1, h = 1;
+    bool visible = false;
+    {
+      std::lock_guard<std::mutex> lock(input_mutex_);
+      visible = text_input_visible_;
+      x = marked_rect_[0] * editable_transform_[0] + editable_transform_[12];
+      y = marked_rect_[1] * editable_transform_[5] + editable_transform_[13];
+      w = marked_rect_[2];
+      h = marked_rect_[3];
+    }
+    g_text_input_focus_callback(harmony_window_id_, visible, x, y, w, h);
+  }
+
   void ShowTextInput(bool show) override {
-    std::lock_guard<std::mutex> lock(input_mutex_);
-    text_input_visible_ = show;
+    {
+      std::lock_guard<std::mutex> lock(input_mutex_);
+      text_input_visible_ = show;
+    }
     OH_LOG_INFO(LOG_APP, "[IME] ShowTextInput visible=%{public}d", show);
+    NotifyTextInputFocus();
   }
 
   void SetMarkedTextRect(float x, float y, float width, float height) override {
-    std::lock_guard<std::mutex> lock(input_mutex_);
-    marked_rect_ = {x, y, width, height};
+    {
+      std::lock_guard<std::mutex> lock(input_mutex_);
+      marked_rect_ = {x, y, width, height};
+    }
     OH_LOG_INFO(LOG_APP,
                 "[IME] marked rect x=%{public}f y=%{public}f w=%{public}f h=%{public}f",
                 x, y, width, height);
+    NotifyTextInputFocus();
+  }
+
+  void UpdateCaretPosition(float x, float y, float width, float height) override {
+    {
+      std::lock_guard<std::mutex> lock(input_mutex_);
+      marked_rect_ = {x, y, width, height};
+    }
+    OH_LOG_INFO(LOG_APP,
+                "[IME] caret rect x=%{public}f y=%{public}f w=%{public}f h=%{public}f",
+                x, y, width, height);
+    NotifyTextInputFocus();
   }
 
   void SetEditableTransform(const float transform[16]) override {
-    std::lock_guard<std::mutex> lock(input_mutex_);
-    for (size_t i = 0; i < editable_transform_.size(); ++i) {
-      editable_transform_[i] = transform[i];
+    {
+      std::lock_guard<std::mutex> lock(input_mutex_);
+      for (size_t i = 0; i < editable_transform_.size(); ++i) {
+        editable_transform_[i] = transform[i];
+      }
     }
     OH_LOG_INFO(LOG_APP, "[IME] editable transform updated");
+    NotifyTextInputFocus();
   }
 
   bool GetTextInputState(float* x, float* y, float* width, float* height) {
@@ -269,6 +313,7 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
   EGLSurface surface_ = EGL_NO_SURFACE;  // window surface (primary/raster thread)
   EGLContext context_ = EGL_NO_CONTEXT;  // primary context
   void* window_ = nullptr;
+  int32_t harmony_window_id_ = -1;
   pthread_t primary_thread_ = 0;
   std::mutex threads_mutex_;
   // Per resource/IO thread: its own shared context + 1x1 pbuffer.
@@ -280,9 +325,34 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
       1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-std::shared_ptr<EglWindowlessRenderer> g_current;
-int g_surface_w = 0;
-int g_surface_h = 0;
+// Per-window renderer and surface state. Multi-window mode uses
+// harmony_window_id as the routing key; single-window fallbacks read the most
+// recently touched entry.
+std::unordered_map<int32_t, std::shared_ptr<EglWindowlessRenderer>> g_renderers;
+std::unordered_map<int32_t, std::pair<int, int>> g_surface_sizes;
+int32_t g_last_harmony_window_id = -1;
+
+// Placeholder renderers created by the LynxView build path when the XComponent
+// surface has not arrived yet. They are keyed by harmony_window_id and are
+// bound to the real renderer in CreateHarmonyWindowlessRenderer(). Stored as
+// weak_ptr so the LynxView's ownership keeps them alive without us leaking refs.
+std::unordered_map<int32_t, std::weak_ptr<lynx::pub::LynxWindowlessRenderer>>
+    g_placeholder_renderers;
+
+// Text-input focus/caret callback registered by the NAPI bridge. Invoked from
+// EglWindowlessRenderer on the Lynx/Clay sequence; the bridge re-posts to the
+// ArkUI thread as needed.
+
+namespace {
+std::shared_ptr<EglWindowlessRenderer> GetCurrentRendererLocked() {
+  if (g_last_harmony_window_id > 0) {
+    auto it = g_renderers.find(g_last_harmony_window_id);
+    if (it != g_renderers.end()) return it->second;
+  }
+  if (!g_renderers.empty()) return g_renderers.begin()->second;
+  return nullptr;
+}
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Global UI task runner for windowless mode
@@ -361,8 +431,114 @@ void EnsureGlobalUiTaskRunner() {
 
 }  // namespace
 
+// Placeholder windowless renderer used when a LynxView is built before its
+// XComponent surface has arrived. It creates its own C renderer object so the
+// LynxView can be constructed immediately, and forwards all renderer/platform
+// callbacks to the real renderer once CreateHarmonyWindowlessRenderer() binds
+// it. This prevents multi-window setups from accidentally sharing another
+// window's renderer during the gap.
+class DelegatingWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
+ public:
+  DelegatingWindowlessRenderer()
+      : lynx::pub::LynxWindowlessRenderer(kRendererTypeGLDirect) {}
+
+  void SetTarget(std::shared_ptr<lynx::pub::LynxWindowlessRenderer> target) {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    target_ = std::move(target);
+  }
+
+  bool HasTarget() const {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ != nullptr;
+  }
+
+  // ---- GLDirect callbacks ----
+  bool OnGLMakeCurrent() override { return Forward(&LynxWindowlessRenderer::OnGLMakeCurrent); }
+  bool OnGLClearCurrent() override { return Forward(&LynxWindowlessRenderer::OnGLClearCurrent); }
+  bool OnGLPresent() override { return Forward(&LynxWindowlessRenderer::OnGLPresent); }
+  uint32_t OnGLCreateFBO(int width, int height) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? target_->OnGLCreateFBO(width, height) : 0;
+  }
+  void* OnGLProcResolver(const char* name) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? target_->OnGLProcResolver(name) : nullptr;
+  }
+
+  // ---- Software / accelerated callbacks ----
+  bool OnSoftwarePresent(const void* allocation, size_t row_bytes,
+                         size_t height) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? target_->OnSoftwarePresent(allocation, row_bytes, height)
+                   : false;
+  }
+  bool OnAcceleratedPresent() override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? target_->OnAcceleratedPresent() : false;
+  }
+
+  // ---- Platform task runner ----
+  void OnPostTask(lynx_task_t task,
+                  uint64_t interval_nanoseconds) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) {
+      target_->OnPostTask(task, interval_nanoseconds);
+    }
+  }
+
+  // ---- Platform IME / clipboard / cursor callbacks ----
+  const char* GetClipboardData() override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? target_->GetClipboardData() : "";
+  }
+  void SetClipboardData(const char* data) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->SetClipboardData(data);
+  }
+  void ActivateSystemCursor(lynx_cursor_type_e cursor_type,
+                            const char* path) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->ActivateSystemCursor(cursor_type, path);
+  }
+  void ShowTextInput(bool show) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->ShowTextInput(show);
+  }
+  void UpdateCaretPosition(float x, float y, float width,
+                           float height) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->UpdateCaretPosition(x, y, width, height);
+  }
+  void SetCursorPosition(int position) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->SetCursorPosition(position);
+  }
+  void SetMarkedTextRect(float x, float y, float width,
+                         float height) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->SetMarkedTextRect(x, y, width, height);
+  }
+  void SetEditableTransform(const float transform[16]) override {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    if (target_) target_->SetEditableTransform(transform);
+  }
+
+ private:
+  using BoolMethod = bool (lynx::pub::LynxWindowlessRenderer::*)();
+  bool Forward(BoolMethod method) {
+    std::lock_guard<std::mutex> lock(target_mutex_);
+    return target_ ? (target_.get()->*method)() : false;
+  }
+
+  mutable std::mutex target_mutex_;
+  std::shared_ptr<lynx::pub::LynxWindowlessRenderer> target_;
+};
+
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
-CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height) {
+CreateHarmonyWindowlessRenderer(int32_t harmony_window_id,
+                                void* egl_window,
+                                int width,
+                                int height) {
   // Must happen before the first LynxView is built, i.e. before anything can
   // call base::UIThread::Init() and claim the (never-pumped) fml loop.
   EnsureGlobalUiTaskRunner();
@@ -370,29 +546,56 @@ CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height) {
   // ArkUI reuses the same OHNativeWindow across full-screen transitions. Keep
   // these dimensions current even when no renderer must be recreated; they
   // seed native-window geometry and must match incoming XComponent coordinates.
-  g_surface_w = width;
-  g_surface_h = height;
-  if (g_current && g_current->window() == egl_window) {
-    WLR_LOG("XComponent surface resized %{public}dx%{public}d", width, height);
-    return g_current;
+  g_surface_sizes[harmony_window_id] = {width, height};
+  g_last_harmony_window_id = harmony_window_id;
+
+  auto it = g_renderers.find(harmony_window_id);
+  if (it != g_renderers.end() && it->second && it->second->window() == egl_window) {
+    WLR_LOG("XComponent surface resized for id=%{public}d %{public}dx%{public}d",
+            harmony_window_id, width, height);
+    return it->second;
   }
 
   // Do NOT create EGL here (this runs on the surface-callback thread). EGL is
   // created lazily in OnGLMakeCurrent on Clay's GPU thread.
   auto renderer = std::make_shared<EglWindowlessRenderer>(egl_window);
+  renderer->SetHarmonyWindowId(harmony_window_id);
   // InitIfNeeded() binds the capi callbacks and needs weak_from_this(), so it
   // must run after the shared_ptr owns the object.
   renderer->InitIfNeeded();
-  g_current = renderer;
-  WLR_LOG("Windowless GLDirect renderer created %{public}dx%{public}d "
-          "(EGL deferred to gpu thread)", width, height);
+  g_renderers[harmony_window_id] = renderer;
+
+  // If a placeholder renderer was created earlier by the LynxView build path,
+  // bind the real renderer to it so the existing LynxView starts rendering.
+  auto placeholder_it = g_placeholder_renderers.find(harmony_window_id);
+  if (placeholder_it != g_placeholder_renderers.end()) {
+    if (auto placeholder = placeholder_it->second.lock()) {
+      auto* delegating =
+          static_cast<DelegatingWindowlessRenderer*>(placeholder.get());
+      delegating->SetTarget(renderer);
+      WLR_LOG("Bound real renderer to placeholder for id=%{public}d",
+              harmony_window_id);
+    }
+    g_placeholder_renderers.erase(placeholder_it);
+  }
+
+  WLR_LOG("Windowless GLDirect renderer created for id=%{public}d %{public}dx%{public}d "
+          "(EGL deferred to gpu thread)", harmony_window_id, width, height);
   return renderer;
+}
+
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetHarmonyWindowlessRendererForWindow(int32_t harmony_window_id) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_renderers.find(harmony_window_id);
+  if (it != g_renderers.end()) return it->second;
+  return nullptr;
 }
 
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 GetCurrentHarmonyWindowlessRenderer() {
   std::lock_guard<std::mutex> lock(g_mutex);
-  return g_current;
+  return GetCurrentRendererLocked();
 }
 
 void CaptureHarmonyLynxPlatformTaskRunner() {
@@ -401,18 +604,82 @@ void CaptureHarmonyLynxPlatformTaskRunner() {
   WLR_LOG("Captured Lynx platform task runner");
 }
 
+bool GetHarmonySurfaceSizeForWindow(int32_t harmony_window_id, int* w, int* h) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_surface_sizes.find(harmony_window_id);
+  if (it == g_surface_sizes.end()) return false;
+  if (it->second.first <= 0 || it->second.second <= 0) return false;
+  if (w) *w = it->second.first;
+  if (h) *h = it->second.second;
+  return true;
+}
+
 bool GetCurrentHarmonySurfaceSize(int* w, int* h) {
   std::lock_guard<std::mutex> lock(g_mutex);
-  if (g_surface_w <= 0 || g_surface_h <= 0) return false;
-  if (w) *w = g_surface_w;
-  if (h) *h = g_surface_h;
+  if (g_last_harmony_window_id > 0) {
+    auto it = g_surface_sizes.find(g_last_harmony_window_id);
+    if (it != g_surface_sizes.end()) {
+      if (it->second.first > 0 && it->second.second > 0) {
+        if (w) *w = it->second.first;
+        if (h) *h = it->second.second;
+        return true;
+      }
+    }
+  }
+  if (g_surface_sizes.empty()) return false;
+  const auto& size = g_surface_sizes.begin()->second;
+  if (size.first <= 0 || size.second <= 0) return false;
+  if (w) *w = size.first;
+  if (h) *h = size.second;
   return true;
+}
+
+bool GetHarmonyTextInputStateForWindow(int32_t harmony_window_id,
+                                       float* x,
+                                       float* y,
+                                       float* width,
+                                       float* height) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_renderers.find(harmony_window_id);
+  if (it == g_renderers.end() || !it->second) return false;
+  return it->second->GetTextInputState(x, y, width, height);
 }
 
 bool GetCurrentHarmonyTextInputState(float* x, float* y, float* width,
                                      float* height) {
   std::lock_guard<std::mutex> lock(g_mutex);
-  return g_current && g_current->GetTextInputState(x, y, width, height);
+  auto renderer = GetCurrentRendererLocked();
+  return renderer && renderer->GetTextInputState(x, y, width, height);
+}
+
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetOrCreateHarmonyPlaceholderRendererForWindow(int32_t harmony_window_id) {
+  if (harmony_window_id <= 0) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(g_mutex);
+  // If a real renderer already exists, there is no need for a placeholder.
+  auto real_it = g_renderers.find(harmony_window_id);
+  if (real_it != g_renderers.end() && real_it->second) {
+    return nullptr;
+  }
+  auto placeholder_it = g_placeholder_renderers.find(harmony_window_id);
+  if (placeholder_it != g_placeholder_renderers.end()) {
+    if (auto existing = placeholder_it->second.lock()) {
+      return existing;
+    }
+  }
+  auto placeholder = std::make_shared<DelegatingWindowlessRenderer>();
+  placeholder->InitIfNeeded();
+  g_placeholder_renderers[harmony_window_id] = placeholder;
+  WLR_LOG("Created placeholder renderer for id=%{public}d", harmony_window_id);
+  return placeholder;
+}
+
+void LynxtronSetHarmonyTextInputFocusCallback(
+    HarmonyTextInputFocusCallback callback) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_text_input_focus_callback = callback;
 }
 
 }  // namespace lynxtron
@@ -434,9 +701,12 @@ void PostToLynxUi(base::OnceClosure task) {
   }
 }
 
-void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
+void SendPointerOnLynxUi(int32_t harmony_window_id,
+                         int phase, double x, double y, int64_t buttons,
                          int32_t device, int kind, size_t timestamp) {
-  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  auto r = harmony_window_id > 0
+               ? lynxtron::GetHarmonyWindowlessRendererForWindow(harmony_window_id)
+               : lynxtron::GetCurrentHarmonyWindowlessRenderer();
   if (!r) return;
   // Keep the event stream as small as the reference GLFW embedder does (a click
   // is just Down -> Up, never Add/Remove: Clay maps Remove to Cancel, which
@@ -467,9 +737,12 @@ void SendPointerOnLynxUi(int phase, double x, double y, int64_t buttons,
   r->SendPointerEvent(&ev);
 }
 
-void SendKeyOnLynxUi(int type, uint64_t logical, uint64_t physical,
+void SendKeyOnLynxUi(int32_t harmony_window_id,
+                     int type, uint64_t logical, uint64_t physical,
                      double timestamp) {
-  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  auto r = harmony_window_id > 0
+               ? lynxtron::GetHarmonyWindowlessRendererForWindow(harmony_window_id)
+               : lynxtron::GetCurrentHarmonyWindowlessRenderer();
   if (!r) return;
   lynx_key_event_t ev = {};
   ev.struct_size = sizeof(ev);
@@ -481,8 +754,11 @@ void SendKeyOnLynxUi(int type, uint64_t logical, uint64_t physical,
   r->SendKeyEvent(&ev);
 }
 
-void SendTextOnLynxUi(std::string text, double timestamp, bool composing) {
-  auto r = lynxtron::GetCurrentHarmonyWindowlessRenderer();
+void SendTextOnLynxUi(int32_t harmony_window_id,
+                      std::string text, double timestamp, bool composing) {
+  auto r = harmony_window_id > 0
+               ? lynxtron::GetHarmonyWindowlessRendererForWindow(harmony_window_id)
+               : lynxtron::GetCurrentHarmonyWindowlessRenderer();
   if (!r) {
     WLR_LOG("[IME] drop text: renderer unavailable");
     return;
@@ -505,42 +781,76 @@ void SendTextOnLynxUi(std::string text, double timestamp, bool composing) {
 
 }  // namespace
 
-// Exported for the NAPI bridge (dlsym'd like LynxtronSetNativeSurface). Forwards
-// an XComponent pointer/mouse event to the current LynxView's windowless
-// renderer so Lynx can hit-test and dispatch it (button clicks, hover, etc.).
+// Exported for the NAPI bridge. Forwards an XComponent pointer/mouse event to
+// the LynxView's windowless renderer so Lynx can hit-test and dispatch it.
 //   phase: 0=down, 1=up, 2=move, 3=hover, 4=cancel, 5=remove
 //   kind: 1=mouse, 2=touch, 3=stylus, 4=trackpad
+extern "C" __attribute__((visibility("default"))) void LynxtronSendPointerEventForWindow(
+    int32_t harmony_window_id,
+    int phase, double x, double y, int64_t buttons, int32_t device, int kind,
+    size_t timestamp) {
+  PostToLynxUi(base::BindOnce(&SendPointerOnLynxUi, harmony_window_id,
+                              phase, x, y, buttons, device, kind, timestamp));
+}
+
 extern "C" __attribute__((visibility("default"))) void LynxtronSendPointerEvent(
     int phase, double x, double y, int64_t buttons, int32_t device, int kind,
     size_t timestamp) {
-  PostToLynxUi(base::BindOnce(&SendPointerOnLynxUi, phase, x, y, buttons,
-                              device, kind, timestamp));
+  LynxtronSendPointerEventForWindow(-1, phase, x, y, buttons, device, kind,
+                                    timestamp);
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSendKeyEventForWindow(
+    int32_t harmony_window_id,
+    int type, uint64_t logical, uint64_t physical, double timestamp) {
+  PostToLynxUi(base::BindOnce(&SendKeyOnLynxUi, harmony_window_id,
+                              type, logical, physical, timestamp));
 }
 
 extern "C" __attribute__((visibility("default"))) void LynxtronSendKeyEvent(
     int type, uint64_t logical, uint64_t physical, double timestamp) {
-  PostToLynxUi(
-      base::BindOnce(&SendKeyOnLynxUi, type, logical, physical, timestamp));
+  LynxtronSendKeyEventForWindow(-1, type, logical, physical, timestamp);
 }
 
-extern "C" __attribute__((visibility("default"))) void LynxtronSendTextInput(
+extern "C" __attribute__((visibility("default"))) void LynxtronSendTextInputForWindow(
+    int32_t harmony_window_id,
     const char* text, double timestamp) {
   if (!text || !*text) return;
   std::string committed_text(text);
   WLR_LOG("[IME] queue committed text bytes=%{public}zu", committed_text.size());
-  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, std::move(committed_text),
-                              timestamp, /*composing=*/false));
+  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, harmony_window_id,
+                              std::move(committed_text), timestamp,
+                              /*composing=*/false));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSendTextInput(
+    const char* text, double timestamp) {
+  LynxtronSendTextInputForWindow(-1, text, timestamp);
 }
 
 // Pre-edit (marked) text an IME is still composing. An empty string clears the
 // composing region, which is how a cancelled composition is reported.
 extern "C" __attribute__((visibility("default"))) void
-LynxtronSendComposingText(const char* text, double timestamp) {
+LynxtronSendComposingTextForWindow(int32_t harmony_window_id,
+                                   const char* text, double timestamp) {
   if (!text) return;
   std::string composing_text(text);
   WLR_LOG("[IME] queue composing text bytes=%{public}zu", composing_text.size());
-  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, std::move(composing_text),
-                              timestamp, /*composing=*/true));
+  PostToLynxUi(base::BindOnce(&SendTextOnLynxUi, harmony_window_id,
+                              std::move(composing_text), timestamp,
+                              /*composing=*/true));
+}
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronSendComposingText(const char* text, double timestamp) {
+  LynxtronSendComposingTextForWindow(-1, text, timestamp);
+}
+
+extern "C" __attribute__((visibility("default"))) bool LynxtronGetTextInputStateForWindow(
+    int32_t harmony_window_id,
+    float* x, float* y, float* width, float* height) {
+  return lynxtron::GetHarmonyTextInputStateForWindow(harmony_window_id,
+                                                     x, y, width, height);
 }
 
 extern "C" __attribute__((visibility("default"))) bool LynxtronGetTextInputState(

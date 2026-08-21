@@ -71,6 +71,13 @@ LynxViewBuilder& LynxViewBuilder::SetLynxWindow(
   return *this;
 }
 
+#if BUILDFLAG(IS_HARMONY)
+LynxViewBuilder& LynxViewBuilder::SetWindowId(int32_t window_id) {
+  harmony_window_id_ = window_id;
+  return *this;
+}
+#endif
+
 LynxViewBuilder& LynxViewBuilder::SetNodeIntegrationPreload(
     const std::vector<std::string>& preload) {
   node_integration_preload_ = preload;
@@ -120,7 +127,24 @@ std::unique_ptr<LynxView> LynxViewBuilder::Build() {
   // The surface arrives asynchronously (ETS onLoad -> LynxtronSetNativeSurface),
   // so it may not be ready yet when a view is built headlessly; in that case
   // the view is created without a renderer and can be attached later.
-  if (auto renderer = GetCurrentHarmonyWindowlessRenderer()) {
+  std::shared_ptr<lynx::pub::LynxWindowlessRenderer> renderer;
+  if (harmony_window_id_ > 0) {
+    renderer = GetHarmonyWindowlessRendererForWindow(harmony_window_id_);
+    if (!renderer) {
+      // The XComponent surface has not arrived yet. Use a placeholder renderer
+      // so the LynxView can be built immediately; the real renderer will be
+      // bound when CreateHarmonyWindowlessRenderer() is called from the surface
+      // callback. This avoids sharing another window's renderer in multi-window
+      // mode.
+      renderer =
+          GetOrCreateHarmonyPlaceholderRendererForWindow(harmony_window_id_);
+    }
+  } else {
+    // Legacy single-window fallback: the surface arrived before the view was
+    // built and was stored as the "current" renderer.
+    renderer = GetCurrentHarmonyWindowlessRenderer();
+  }
+  if (renderer) {
     impl_->builder.SetWindowlessRenderer(renderer);
     CaptureHarmonyLynxPlatformTaskRunner();
     LOG(INFO) << "LynxView: using HarmonyOS EGL GLDirect windowless renderer";

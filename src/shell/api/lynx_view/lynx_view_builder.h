@@ -5,11 +5,13 @@
 #ifndef LYNXTRON_SHELL_API_LYNX_VIEW_LYNX_VIEW_BUILDER_H_
 #define LYNXTRON_SHELL_API_LYNX_VIEW_LYNX_VIEW_BUILDER_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "lynx/platform/embedder/public/capi/lynx_native_view_capi.h"
 
 namespace lynx {
@@ -38,6 +40,9 @@ class LynxViewBuilder {
       std::shared_ptr<lynx::pub::LynxGenericResourceFetcher> fetcher);
 
   LynxViewBuilder& SetLynxWindow(base::WeakPtr<api::LynxWindow> lynx_window);
+#if BUILDFLAG(IS_HARMONY)
+  LynxViewBuilder& SetWindowId(int32_t window_id);
+#endif
   LynxViewBuilder& SetNodeIntegrationPreload(
       const std::vector<std::string>& preload);
   LynxViewBuilder& SetNativeViewCreator(const char* name,
@@ -54,6 +59,9 @@ class LynxViewBuilder {
   std::unique_ptr<Impl> impl_;
   base::WeakPtr<api::LynxWindow> lynx_window_;
   std::vector<std::string> node_integration_preload_;
+#if BUILDFLAG(IS_HARMONY)
+  int32_t harmony_window_id_ = -1;
+#endif
 };
 
 }  // namespace lynxtron

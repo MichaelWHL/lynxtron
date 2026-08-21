@@ -187,6 +187,12 @@ class NativeWindow : public base::SupportsUserData {
 #endif
   virtual NativeWindowHandle GetNativeWindowHandle() const = 0;
 
+#if BUILDFLAG(IS_HARMONY)
+  // Returns the HarmonyOS system window id used for cross-layer routing.
+  // Default -1 means "not bound to a HarmonyOS window yet".
+  virtual int32_t GetHarmonyWindowId() const { return -1; }
+#endif
+
   // Taskbar/Dock APIs.
   enum class ProgressState {
     kNone,           // no progress, no marking

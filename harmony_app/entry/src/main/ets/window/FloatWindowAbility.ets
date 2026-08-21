@@ -12,12 +12,12 @@ export default class FloatWindowAbility extends BaseWindowAbility {
     // Phase 1: float window uses the same page as a normal window. The actual
     // floating behavior is controlled by StartOptions / windowStage configuration
     // and will be refined once the main+float creation path is stable.
-    windowStage.loadContent('pages/Index', (err) => {
+    mainWindow.setUIContent('pages/Index', (err) => {
       if (err.code) {
-        hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s', JSON.stringify(err) ?? '');
+        hilog.error(DOMAIN, TAG, 'setUIContent failed: %{public}s', JSON.stringify(err) ?? '');
         return;
       }
-      hilog.info(DOMAIN, TAG, 'loadContent OK');
+      hilog.info(DOMAIN, TAG, 'setUIContent OK');
       this.applyWindowOptions(mainWindow, windowStage);
     });
   }

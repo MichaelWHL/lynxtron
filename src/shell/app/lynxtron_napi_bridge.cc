@@ -18,6 +18,7 @@
 #include <dlfcn.h>
 #include <hilog/log.h>
 
+#include "shell/app/lynx_windowless_renderer_harmony.h"
 #include "shell/app/window_creation_bridge_harmony.h"
 #include <inputmethod/inputmethod_attach_options_capi.h>
 #include <inputmethod/inputmethod_controller_capi.h>
@@ -31,6 +32,7 @@
 #include <unistd.h>
 #include <window_manager/oh_display_manager.h>
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <limits>
@@ -147,9 +149,18 @@ bool EnsureLynxtronLoaded() {
 // Defined further down; registers WindowCommandFromNative into liblynxtron.so.
 void RegisterWindowCommandHandler();
 
+// Defined further down; invoked by liblynxtron.so when a window's editable
+// focus or caret changes.
+void OnHarmonyTextInputFocus(int32_t harmony_window_id,
+                             bool visible,
+                             float x,
+                             float y,
+                             float width,
+                             float height);
+
 napi_value Start(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP, "Start() called from ETS");
-
+  LogDefaultDisplayAvailableArea();
   // Mirrors electron_main_ohos.cc: Node.js module resolution needs NODE_PATH
   // pointing at the HAP libs directory (where bundled .so / asar deps live).
   setenv("NODE_PATH",
@@ -167,6 +178,22 @@ napi_value Start(napi_env env, napi_callback_info info) {
   // setWindowButtonVisibility flows from NativeWindowHarmony to the OHOS
   // window.Window.
   RegisterWindowCommandHandler();
+
+  // Wire up per-window text-input focus/caret events so IME follows the actual
+  // editable focus instead of the window-creation-time window id.
+  using SetTextInputFocusCallbackFn =
+      void (*)(lynxtron::HarmonyTextInputFocusCallback);
+  auto set_focus_callback = reinterpret_cast<SetTextInputFocusCallbackFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetHarmonyTextInputFocusCallback"));
+  if (set_focus_callback) {
+    set_focus_callback(&OnHarmonyTextInputFocus);
+    OH_LOG_INFO(LOG_APP, "[IME] text-input focus callback registered");
+  } else {
+    OH_LOG_ERROR(LOG_APP,
+                 "[IME] dlsym LynxtronSetHarmonyTextInputFocusCallback FAILED: "
+                 "%{public}s",
+                 dlerror());
+  }
 
   // LynxtronMain runs chromium's blocking run_loop->Run(). The OHOS UIAbility
   // main (ETS) thread must keep pumping the ArkUI event loop, so running
@@ -1413,10 +1440,12 @@ using SetSurfaceFn = void (*)(int32_t harmony_window_id,
                               int height);
 SetSurfaceFn g_set_surface = nullptr;
 
-// LynxtronSendPointerEvent(phase, x, y, buttons, device, kind, timestamp) —
-// forwards input to the LynxView's windowless renderer.
+// LynxtronSendPointerEventForWindow(harmony_window_id, phase, x, y, buttons,
+// device, kind, timestamp) — forwards input to the LynxView's windowless
+// renderer for the given window.
 // phase: 0=down,1=up,2=move,3=hover.
-using SendPointerFn = void (*)(int phase, double x, double y, int64_t buttons,
+using SendPointerFn = void (*)(int32_t harmony_window_id,
+                               int phase, double x, double y, int64_t buttons,
                                int32_t device, int kind, size_t timestamp);
 SendPointerFn g_send_pointer = nullptr;
 
@@ -1427,10 +1456,13 @@ SendPointerFn g_send_pointer = nullptr;
 constexpr int32_t kLynxtronMouseDeviceId = 1;
 constexpr int32_t kLynxtronTouchDeviceIdBase = 1000;
 
-using SendKeyFn = void (*)(int type, uint64_t logical, uint64_t physical,
+using SendKeyFn = void (*)(int32_t harmony_window_id,
+                           int type, uint64_t logical, uint64_t physical,
                            double timestamp);
-using SendTextFn = void (*)(const char* text, double timestamp);
-using GetTextInputStateFn = bool (*)(float*, float*, float*, float*);
+using SendTextFn = void (*)(int32_t harmony_window_id,
+                            const char* text, double timestamp);
+using GetTextInputStateFn = bool (*)(int32_t harmony_window_id,
+                                     float*, float*, float*, float*);
 using GetTitleFn = const char* (*)();
 using SetWindowCommandHandlerFn = void (*)(void (*)(int));
 SendKeyFn g_send_key = nullptr;
@@ -1455,17 +1487,27 @@ double NowMicros() {
       .count();
 }
 
-void ForwardPointer(int phase, double x, double y, int64_t buttons,
+void ForwardPointer(int32_t harmony_window_id,
+                    int phase, double x, double y, int64_t buttons,
                     int32_t device, int kind, size_t timestamp) {
-  OH_LOG_INFO(LOG_APP, "[XC] pointer phase=%{public}d x=%{public}f y=%{public}f b=%{public}lld",
-              phase, x, y, (long long)buttons);
+  OH_LOG_INFO(LOG_APP, "[XC] pointer phase=%{public}d x=%{public}f y=%{public}f b=%{public}lld id=%{public}d",
+              phase, x, y, (long long)buttons, harmony_window_id);
   if (!g_send_pointer) {
-    if (!g_lynxtron_handle) return;
+    if (!g_lynxtron_handle) {
+      OH_LOG_ERROR(LOG_APP, "[XC] ForwardPointer: liblynxtron.so not loaded");
+      return;
+    }
     g_send_pointer = reinterpret_cast<SendPointerFn>(
-        dlsym(g_lynxtron_handle, "LynxtronSendPointerEvent"));
-    if (!g_send_pointer) return;
+        dlsym(g_lynxtron_handle, "LynxtronSendPointerEventForWindow"));
+    if (!g_send_pointer) {
+      OH_LOG_ERROR(LOG_APP,
+                   "[XC] ForwardPointer: dlsym LynxtronSendPointerEventForWindow FAILED: "
+                   "%{public}s",
+                   dlerror());
+      return;
+    }
   }
-  g_send_pointer(phase, x, y, buttons, device, kind, timestamp);
+  g_send_pointer(harmony_window_id, phase, x, y, buttons, device, kind, timestamp);
 }
 
 // Try to read the HarmonyOS window id encoded in the XComponent id string
@@ -1576,7 +1618,11 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window) {
   const size_t timestamp = static_cast<size_t>(NowMicros());
   const int32_t device = kLynxtronTouchDeviceIdBase +
                          static_cast<int32_t>(te.deviceId);
-  ForwardPointer(phase, te.x, te.y, buttons, device,
+  int32_t surface_window_id = GetSurfaceWindowId(component);
+  if (surface_window_id <= 0) {
+    surface_window_id = g_current_harmony_window_id;
+  }
+  ForwardPointer(surface_window_id, phase, te.x, te.y, buttons, device,
                  /*touch=*/2, timestamp);
   // Do not emit Remove immediately after Up.  Clay maps Remove to Cancel
   // before the Lynx event dispatcher sees it, which cancels bindtap after a
@@ -1616,7 +1662,12 @@ void DispatchMouseEvent(OH_NativeXComponent* component, void* window) {
       return;
   }
   const size_t timestamp = static_cast<size_t>(NowMicros());
-  ForwardPointer(phase, me.x, me.y, buttons, kLynxtronMouseDeviceId,
+  int32_t surface_window_id = GetSurfaceWindowId(component);
+  if (surface_window_id <= 0) {
+    surface_window_id = g_current_harmony_window_id;
+  }
+  ForwardPointer(surface_window_id, phase, me.x, me.y, buttons,
+                 kLynxtronMouseDeviceId,
                  /*mouse=*/1, timestamp);
 }
 
@@ -1670,10 +1721,16 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
       OH_NativeXComponent_GetKeyEventCode(key_event, &code) != 0 ||
       action == OH_NATIVEXCOMPONENT_KEY_ACTION_UNKNOWN) return;
   if (!g_send_key && g_lynxtron_handle) {
-    g_send_key = reinterpret_cast<SendKeyFn>(dlsym(g_lynxtron_handle, "LynxtronSendKeyEvent"));
+    g_send_key = reinterpret_cast<SendKeyFn>(
+        dlsym(g_lynxtron_handle, "LynxtronSendKeyEventForWindow"));
   }
   if (g_send_key) {
-    g_send_key(action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
+    int32_t surface_window_id = GetSurfaceWindowId(component);
+    if (surface_window_id <= 0) {
+      surface_window_id = g_current_harmony_window_id;
+    }
+    g_send_key(surface_window_id,
+               action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
                ToLynxLogicalKey(code), 0, NowMicros());
   }
 }
@@ -1700,8 +1757,21 @@ InputMethod_InputMethodProxy* g_ime_proxy = nullptr;  // non-null == attached
 double g_caret_x = 0, g_caret_y = 0, g_caret_w = 1, g_caret_h = 1;
 // Window the editor lives in, published from ETS (see SetWindowId). The input
 // method service routes keyboard focus per window, so leaving this unset can
-// leave an attached client that never receives text.
-int32_t g_window_id = -1;
+// leave an attached client that never receives text. Atomic because it is read
+// from the IME IPC thread and written from the ArkUI main thread.
+std::atomic<int32_t> g_window_id{-1};
+
+// Event-driven text-input focus state. The liblynxtron.so renderer invokes
+// LynxtronSetHarmonyTextInputFocusCallback() whenever a window gains/loses an
+// editable focus or its caret moves. We cache the latest state here and apply
+// attach/detach/cursor-update in SyncImeImpl on the ArkUI thread.
+std::atomic<int32_t> g_focus_window_id{-1};
+std::atomic<bool> g_focus_visible{false};
+std::atomic<bool> g_focus_changed{false};
+std::atomic<double> g_focus_caret_x{0};
+std::atomic<double> g_focus_caret_y{0};
+std::atomic<double> g_focus_caret_w{1};
+std::atomic<double> g_focus_caret_h{1};
 
 napi_ref g_ability_context_ref = nullptr;
 std::string g_last_synced_title;
@@ -1767,13 +1837,36 @@ void EnsureExitThreadsafeFunction(napi_env env) {
 void ForwardKey(uint64_t logical) {
   if (!g_send_key && g_lynxtron_handle) {
     g_send_key = reinterpret_cast<SendKeyFn>(
-        dlsym(g_lynxtron_handle, "LynxtronSendKeyEvent"));
+        dlsym(g_lynxtron_handle, "LynxtronSendKeyEventForWindow"));
   }
   if (!g_send_key) return;
   // Clay's editable acts on key-down (or repeat) and ignores the up, but send
   // both so the focus manager's pressed-key bookkeeping stays balanced.
-  g_send_key(1, logical, 0, NowMicros());
-  g_send_key(0, logical, 0, NowMicros());
+  int32_t window_id = g_window_id.load();
+  g_send_key(window_id, 1, logical, 0, NowMicros());
+  g_send_key(window_id, 0, logical, 0, NowMicros());
+}
+
+// Invoked from the liblynxtron.so renderer whenever this window's editable
+// focus or caret changes. Runs on the Lynx/Clay sequence, not the ArkUI thread,
+// so we only cache the latest state and let SyncImeImpl apply it on ArkUI.
+void OnHarmonyTextInputFocus(int32_t harmony_window_id,
+                             bool visible,
+                             float x,
+                             float y,
+                             float width,
+                             float height) {
+  g_focus_window_id.store(harmony_window_id);
+  g_focus_visible.store(visible);
+  g_focus_caret_x.store(x);
+  g_focus_caret_y.store(y);
+  g_focus_caret_w.store(width > 0 ? width : 1);
+  g_focus_caret_h.store(height > 0 ? height : 1);
+  g_focus_changed.store(true);
+  OH_LOG_INFO(LOG_APP,
+              "[IME] focus event window=%{public}d visible=%{public}d "
+              "caret=%{public}f,%{public}f,%{public}f,%{public}f",
+              harmony_window_id, static_cast<int>(visible), x, y, width, height);
 }
 
 // The IME hands us UTF-16; Lynx wants UTF-8. Lone surrogates are dropped
@@ -1828,15 +1921,16 @@ void OnImeGetTextConfig(InputMethod_TextEditorProxy*,
 
   {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
-    if (g_window_id >= 0) {
-      OH_TextConfig_SetWindowId(config, g_window_id);
+    int32_t window_id = g_window_id.load();
+    if (window_id >= 0) {
+      OH_TextConfig_SetWindowId(config, window_id);
     }
     InputMethod_CursorInfo* cursor = nullptr;
     if (OH_TextConfig_GetCursorInfo(config, &cursor) == IME_ERR_OK && cursor) {
       OH_CursorInfo_SetRect(cursor, g_caret_x, g_caret_y, g_caret_w, g_caret_h);
     }
     OH_LOG_INFO(LOG_APP, "[IME] GetTextConfig served (windowId=%{public}d)",
-                g_window_id);
+                window_id);
   }
 }
 
@@ -1846,11 +1940,12 @@ void OnImeInsertText(InputMethod_TextEditorProxy*, const char16_t* text,
   if (utf8.empty()) return;
   if (!g_send_text && g_lynxtron_handle) {
     g_send_text = reinterpret_cast<SendTextFn>(
-        dlsym(g_lynxtron_handle, "LynxtronSendTextInput"));
+        dlsym(g_lynxtron_handle, "LynxtronSendTextInputForWindow"));
   }
-  OH_LOG_INFO(LOG_APP, "[IME] InsertText bytes=%{public}zu dispatch=%{public}d",
-              utf8.size(), g_send_text != nullptr);
-  if (g_send_text) g_send_text(utf8.c_str(), NowMicros());
+  int32_t window_id = g_window_id.load();
+  OH_LOG_INFO(LOG_APP, "[IME] InsertText bytes=%{public}zu dispatch=%{public}d window=%{public}d",
+              utf8.size(), g_send_text != nullptr, window_id);
+  if (g_send_text) g_send_text(window_id, utf8.c_str(), NowMicros());
 }
 
 void OnImeDeleteForward(InputMethod_TextEditorProxy*, int32_t length) {
@@ -1922,20 +2017,23 @@ int32_t OnImeSetPreviewText(InputMethod_TextEditorProxy*, const char16_t* text,
   std::string utf8 = Utf16ToUtf8(text, length);
   if (!g_send_composing_text && g_lynxtron_handle) {
     g_send_composing_text = reinterpret_cast<SendTextFn>(
-        dlsym(g_lynxtron_handle, "LynxtronSendComposingText"));
+        dlsym(g_lynxtron_handle, "LynxtronSendComposingTextForWindow"));
   }
-  OH_LOG_INFO(LOG_APP, "[IME] SetPreviewText bytes=%{public}zu", utf8.size());
-  if (g_send_composing_text) g_send_composing_text(utf8.c_str(), NowMicros());
+  int32_t window_id = g_window_id.load();
+  OH_LOG_INFO(LOG_APP, "[IME] SetPreviewText bytes=%{public}zu window=%{public}d",
+              utf8.size(), window_id);
+  if (g_send_composing_text) g_send_composing_text(window_id, utf8.c_str(), NowMicros());
   return IME_ERR_OK;
 }
 
 void OnImeFinishTextPreview(InputMethod_TextEditorProxy*) {
   if (!g_send_composing_text && g_lynxtron_handle) {
     g_send_composing_text = reinterpret_cast<SendTextFn>(
-        dlsym(g_lynxtron_handle, "LynxtronSendComposingText"));
+        dlsym(g_lynxtron_handle, "LynxtronSendComposingTextForWindow"));
   }
-  OH_LOG_INFO(LOG_APP, "[IME] FinishTextPreview");
-  if (g_send_composing_text) g_send_composing_text("", NowMicros());
+  int32_t window_id = g_window_id.load();
+  OH_LOG_INFO(LOG_APP, "[IME] FinishTextPreview window=%{public}d", window_id);
+  if (g_send_composing_text) g_send_composing_text(window_id, "", NowMicros());
 }
 
 // Builds the editor proxy once. Returns false if the NDK rejects any callback.
@@ -2010,7 +2108,7 @@ napi_value SetWindowId(napi_env env, napi_callback_info info) {
   }
   {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
-    g_window_id = id;
+    g_window_id.store(id);
   }
   // Remember which window this Ability belongs to so surface lifecycle callbacks
   // can be routed per-window instead of assuming a single window.
@@ -2052,6 +2150,15 @@ napi_value SetWindowIdForWindow(napi_env env, napi_callback_info info) {
               cpp_window_id, harmony_window_id);
   // Surface lifecycle callbacks on this thread belong to this window.
   g_current_harmony_window_id = harmony_window_id;
+  // IME can only focus one window at a time. Since setWindowIdForWindow is
+  // called when a window is created/shown, treat the newly bound window as the
+  // current IME target so text input reaches the right surface. This keeps the
+  // legacy single-window IME behavior intact while multi-window rendering is
+  // routed per-window.
+  {
+    std::lock_guard<std::mutex> lock(g_ime_mutex);
+    g_window_id.store(harmony_window_id);
+  }
   if (EnsureLynxtronLoaded()) {
     auto fn = reinterpret_cast<void (*)(int32_t, int32_t)>(
         dlsym(g_lynxtron_handle, "LynxtronOnHarmonyWindowCreated"));
@@ -2183,19 +2290,48 @@ napi_value OpenPath(napi_env env, napi_callback_info info) {
 
 // Polled from the ArkUI thread. Attaching there keeps GetTextConfig on the
 // UI thread, which is what the NDK documents for the config callback.
+//
+// Primary source of truth: event-driven focus callbacks from the renderer
+// (OnHarmonyTextInputFocus). We apply attach/detach/cursor-update when those
+// events arrive. The poll remains as a caret-move fallback and to handle any
+// lost events.
 void SyncImeImpl(napi_env env) {
   if (!g_get_text_input_state && g_lynxtron_handle) {
     g_get_text_input_state = reinterpret_cast<GetTextInputStateFn>(
-        dlsym(g_lynxtron_handle, "LynxtronGetTextInputState"));
+        dlsym(g_lynxtron_handle, "LynxtronGetTextInputStateForWindow"));
   }
+
+  // 1. Apply any event-driven focus change received from the renderer.
+  bool focus_changed = g_focus_changed.exchange(false);
   float x = 0, y = 0, w = 1, h = 1;
-  bool visible =
-      g_get_text_input_state && g_get_text_input_state(&x, &y, &w, &h);
+  bool visible = false;
+  int32_t window_id = g_window_id.load();
+
+  if (focus_changed) {
+    window_id = g_focus_window_id.load();
+    visible = g_focus_visible.load();
+    x = static_cast<float>(g_focus_caret_x.load());
+    y = static_cast<float>(g_focus_caret_y.load());
+    w = static_cast<float>(g_focus_caret_w.load());
+    h = static_cast<float>(g_focus_caret_h.load());
+    {
+      std::lock_guard<std::mutex> lock(g_ime_mutex);
+      g_window_id.store(window_id);
+    }
+    OH_LOG_INFO(LOG_APP,
+                "[IME] applying focus event window=%{public}d visible=%{public}d",
+                window_id, static_cast<int>(visible));
+  } else {
+    // Fallback / caret-move poll for the currently focused window.
+    visible = g_get_text_input_state &&
+              g_get_text_input_state(window_id, &x, &y, &w, &h);
+  }
 
   bool caret_moved = false;
   {
     std::lock_guard<std::mutex> lock(g_ime_mutex);
-    caret_moved = g_caret_x != x || g_caret_y != y || g_caret_h != h;
+    caret_moved = g_caret_x != x || g_caret_y != y || g_caret_w != w ||
+                  g_caret_h != h;
     g_caret_x = x;
     g_caret_y = y;
     g_caret_w = w > 0 ? w : 1;
@@ -2375,21 +2511,25 @@ napi_value SendText(napi_env env, napi_callback_info info) {
   napi_get_value_string_utf8(env, argv[0], text.data(), text.size(), &length);
   text.resize(length);
   if (!g_send_text && g_lynxtron_handle) {
-    g_send_text = reinterpret_cast<SendTextFn>(dlsym(g_lynxtron_handle, "LynxtronSendTextInput"));
+    g_send_text = reinterpret_cast<SendTextFn>(
+        dlsym(g_lynxtron_handle, "LynxtronSendTextInputForWindow"));
   }
-  OH_LOG_INFO(LOG_APP, "[IME] committed text bytes=%{public}zu dispatch=%{public}d",
-              text.size(), g_send_text != nullptr);
-  if (g_send_text) g_send_text(text.c_str(), NowMicros());
+  int32_t window_id = g_window_id.load();
+  OH_LOG_INFO(LOG_APP, "[IME] committed text bytes=%{public}zu dispatch=%{public}d window=%{public}d",
+              text.size(), g_send_text != nullptr, window_id);
+  if (g_send_text) g_send_text(window_id, text.c_str(), NowMicros());
   napi_value result = nullptr; napi_get_undefined(env, &result); return result;
 }
 
 napi_value GetTextInputState(napi_env env, napi_callback_info) {
   if (!g_get_text_input_state && g_lynxtron_handle) {
     g_get_text_input_state = reinterpret_cast<GetTextInputStateFn>(
-        dlsym(g_lynxtron_handle, "LynxtronGetTextInputState"));
+        dlsym(g_lynxtron_handle, "LynxtronGetTextInputStateForWindow"));
   }
   float x = 0, y = 0, width = 1, height = 1;
-  bool visible = g_get_text_input_state && g_get_text_input_state(&x, &y, &width, &height);
+  int32_t window_id = g_window_id.load();
+  bool visible = g_get_text_input_state &&
+                 g_get_text_input_state(window_id, &x, &y, &width, &height);
   napi_value result = nullptr; napi_create_object(env, &result);
   napi_value value = nullptr;
   napi_get_boolean(env, visible, &value); napi_set_named_property(env, result, "visible", value);
@@ -2510,6 +2650,7 @@ napi_value Init(napi_env env, napi_value exports) {
       OH_LOG_INFO(LOG_APP, "[XC] RegisterMouseEventCallback ret=%{public}d", rm);
       int32_t rk = OH_NativeXComponent_RegisterKeyEventCallback(xc, DispatchKeyEvent);
       OH_LOG_INFO(LOG_APP, "[XC] RegisterKeyEventCallback ret=%{public}d", rk);
+    } else {
       OH_LOG_ERROR(LOG_APP, "[XC] napi_unwrap xcomponent failed");
     }
   } else {

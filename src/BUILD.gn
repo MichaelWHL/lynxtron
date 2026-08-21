@@ -1176,6 +1176,7 @@ if (is_harmony) {
       "hilog_ndk.z",
       "ohinputmethod",   # OH_InputMethodController_* / OH_TextEditorProxy_*
       "native_display_manager",  # OH_NativeDisplayManager_CreateAvailableArea
+      "native_window_manager"
     ]
   }
 }

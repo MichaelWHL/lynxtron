@@ -13,12 +13,12 @@ export default class SubWindowAbility extends BaseWindowAbility {
     // relationship is recorded in BaseWindowAbility and can later drive
     // windowStage.createSubWindow() when the exact parent window object is
     // available via AbilityManager.
-    windowStage.loadContent('pages/Index', (err) => {
+    mainWindow.setUIContent('pages/Index', (err) => {
       if (err.code) {
-        hilog.error(DOMAIN, TAG, 'loadContent failed: %{public}s', JSON.stringify(err) ?? '');
+        hilog.error(DOMAIN, TAG, 'setUIContent failed: %{public}s', JSON.stringify(err) ?? '');
         return;
       }
-      hilog.info(DOMAIN, TAG, 'loadContent OK');
+      hilog.info(DOMAIN, TAG, 'setUIContent OK');
       this.applyWindowOptions(mainWindow, windowStage);
     });
   }

@@ -5,33 +5,42 @@
 #ifndef SHELL_APP_LYNX_WINDOWLESS_RENDERER_HARMONY_H_
 #define SHELL_APP_LYNX_WINDOWLESS_RENDERER_HARMONY_H_
 
+#include <cstdint>
 #include <memory>
 
 #include "lynx/platform/embedder/public/lynx_windowless_renderer.h"
 
 namespace lynxtron {
 
-// Render bridge (roadmap step 1): a GLDirect windowless renderer whose GL
-// callbacks drive an EGL context created on the HarmonyOS XComponent surface
-// (the OHNativeWindow handed to us via LynxtronSetNativeSurface). Clay renders
-// its composited frame directly into the EGL window's default framebuffer, so
-// a real Lynx bundle lands on the XComponent surface — the same GL contract the
-// clay/example/glfw SurfaceDelegate implements, expressed for OHOS EGL/GLES3.
+// Render bridge: a GLDirect windowless renderer whose GL callbacks drive an
+// EGL context created on the HarmonyOS XComponent surface. In multi-window
+// mode each surface is tracked by its HarmonyOS window id so that renderer,
+// surface size, and input stay per-window instead of being global singletons.
 //
 // Ownership model: the XComponent surface arrives asynchronously (ETS onLoad),
 // while the LynxView is built later when the JS app creates it. We keep the
-// renderer for the current surface in a process-global slot; the LynxView build
-// path (lynx_view_builder harmony branch) fetches it and calls
+// renderer for each surface in a per-window map keyed by harmony_window_id;
+// the LynxView build path fetches the renderer for its own window id and calls
 // Builder::SetWindowlessRenderer().
 
 // Creates (or returns the existing) windowless renderer bound to `egl_window`
-// (an OHNativeWindow*). Also records it as the current renderer. Safe to call
-// again for the same window; recreates if the window changed.
+// for the given HarmonyOS window id. Also records it as the renderer for that
+// window. Safe to call again for the same window; recreates if the window
+// changed.
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
-CreateHarmonyWindowlessRenderer(void* egl_window, int width, int height);
+CreateHarmonyWindowlessRenderer(int32_t harmony_window_id,
+                                void* egl_window,
+                                int width,
+                                int height);
+
+// Returns the renderer bound to the given HarmonyOS window id, or nullptr if
+// no surface has arrived for that window yet. Used by the LynxView build path
+// in multi-window mode.
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetHarmonyWindowlessRendererForWindow(int32_t harmony_window_id);
 
 // Returns the renderer bound to the most recent XComponent surface, or nullptr
-// if no surface has arrived yet. Used by the LynxView build path.
+// if no surface has arrived yet. This is the legacy single-window fallback.
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 GetCurrentHarmonyWindowlessRenderer();
 
@@ -39,18 +48,58 @@ GetCurrentHarmonyWindowlessRenderer();
 // host input can be dispatched on the same sequence later.
 void CaptureHarmonyLynxPlatformTaskRunner();
 
+// Returns the XComponent surface size for the given HarmonyOS window id into
+// *w,*h and true, or false if no surface has arrived for that window yet.
+bool GetHarmonySurfaceSizeForWindow(int32_t harmony_window_id, int* w, int* h);
+
 // Returns the most recent XComponent surface size (physical px) into *w,*h and
 // true, or false if no surface has arrived yet. NativeWindowHarmony uses this so
 // the LynxWindow's LynxView is sized to the real surface, not a fixed default.
+// This is the legacy single-window fallback.
 bool GetCurrentHarmonySurfaceSize(int* w, int* h);
 
-// Snapshot of the cached Lynx IME request and caret rectangle.  This is used
-// by the NAPI bridge on the ArkUI UI sequence; no renderer object escapes.
-bool GetCurrentHarmonyTextInputState(float* x, float* y, float* width,
+// Returns a placeholder windowless renderer for the given HarmonyOS window id.
+// The placeholder forwards all renderer callbacks to a real renderer once the
+// XComponent surface arrives and CreateHarmonyWindowlessRenderer() binds it.
+// This lets a LynxView be built before its surface callback fires without
+// falling back to the wrong window's renderer in multi-window mode.
+std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
+GetOrCreateHarmonyPlaceholderRendererForWindow(int32_t harmony_window_id);
+
+// Snapshot of the cached Lynx IME request and caret rectangle for the given
+// HarmonyOS window id. This is used by the NAPI bridge on the ArkUI UI
+// sequence; no renderer object escapes.
+bool GetHarmonyTextInputStateForWindow(int32_t harmony_window_id,
+                                       float* x,
+                                       float* y,
+                                       float* width,
+                                       float* height);
+
+// Snapshot of the cached Lynx IME request and caret rectangle. Legacy
+// single-window fallback.
+bool GetCurrentHarmonyTextInputState(float* x,
+                                     float* y,
+                                     float* width,
                                      float* height);
 
+// Callback signature used by the NAPI bridge to observe text-input focus/caret
+// changes per HarmonyOS window id. The bridge updates the global IME target
+// window and moves the candidate window accordingly.
+using HarmonyTextInputFocusCallback =
+    void (*)(int32_t harmony_window_id,
+             bool visible,
+             float x,
+             float y,
+             float width,
+             float height);
+
+// Registers the text-input focus callback. Harmony-only; called once from the
+// NAPI bridge during initialization.
+void LynxtronSetHarmonyTextInputFocusCallback(
+    HarmonyTextInputFocusCallback callback);
+
 // Called from surface_render_harmony.cc when the XComponent surface arrives.
-// Updates the first native window's bounds to match the actual render target.
+// Deprecated: use LynxtronSetHarmonySurfaceSizeForWindow with an explicit id.
 extern "C" void LynxtronSetHarmonySurfaceSize(int width, int height);
 
 }  // namespace lynxtron

@@ -175,7 +175,7 @@ LynxtronSetNativeSurface(int32_t harmony_window_id,
   // card created a second EGL window surface on the same OHNativeWindow, which
   // made Clay's OnGLMakeCurrent fail with EGL_BAD_ACCESS (0x3002). The card is
   // removed now that Clay renders the real Lynx bundle here.
-  lynxtron::CreateHarmonyWindowlessRenderer(window, width, height);
+  lynxtron::CreateHarmonyWindowlessRenderer(harmony_window_id, window, width, height);
   // The same OHNativeWindow is retained across a full-screen transition, so
   // tell the existing NativeWindow/LynxView about every size change. Without
   // this its viewport stays at the prior size and pointer coordinates hit-test
