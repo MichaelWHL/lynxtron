@@ -7,6 +7,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import LogPanel from './LogPanel';
 import { log, logError, logWarn } from '../utils/log';
+import { TEST_MODULES } from '../pages/zf/testRegistry';
 
 export interface MenuItem {
   path: string;
@@ -14,13 +15,20 @@ export interface MenuItem {
   group: string;
 }
 
-/** 左侧菜单: 每个菜单项对应一条路由; group 用于分区标题 */
+/**
+ * 左侧菜单: 每个菜单项对应一条路由; group 用于分区标题。
+ * part3 由 testRegistry 的 TEST_MODULES 动态生成(一级导航即模块),
+ * 注册表中注释/置空的模块自动不出现在菜单中。
+ */
 export const MENU_ITEMS: MenuItem[] = [
   { path: '/', label: 'App', group: '首页' },
   { path: '/zll', label: ' APP MODULE API', group: 'part1' },
   { path: '/yb', label: 'yb API', group: 'part2' },
-  { path: '/zf', label: 'ZF 总览', group: 'part3' },
-  { path: '/zf/js', label: 'JSModule', group: 'part3' },
+  ...TEST_MODULES.filter((m) => m.tests.length > 0).map((m) => ({
+    path: `/zf/${m.id}`,
+    label: m.label,
+    group: 'part3',
+  })),
   { path: '/sph', label: 'Window 测试', group: 'part4' },
 ];
 

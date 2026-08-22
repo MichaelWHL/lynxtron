@@ -27,7 +27,6 @@ function flushPendingLogs(): void {
 }
 
 // 公共发送日志事件: mainWindow 未初始化时先缓存, 初始化完成后按序发送。
-// 注意: 不要重写全局 console.log —— 主进程底层依赖 console 输出, 重写会影响窗口初始化。
 function sendLog(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
   const text = args.map(safeStringify).join(' ');
   if (mainWindow && logChannelReady) {
@@ -39,6 +38,33 @@ function sendLog(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
   } else {
     pendingLogs.push({ level, text });
   }
+}
+
+// 窗口初始化完成后, 把主进程 console.log/warn/error 一并转发到渲染层 LogPanel,
+// 使 testDemo.ts 等主进程模块里的 console 输出也能在页面 LogPanel 看到。
+// 注意: 仅在 loadFile(窗口就绪)之后才重写 —— 初始化阶段主进程底层依赖
+// console 输出, 若提前重写会影响窗口初始化。
+let consoleForwardInstalled = false;
+function installConsoleForward(): void {
+  if (consoleForwardInstalled) return;
+  consoleForwardInstalled = true;
+  const raw = {
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+  };
+  console.log = (...args: unknown[]) => {
+    sendLog('log', ...args);
+    raw.log(...args);
+  };
+  console.warn = (...args: unknown[]) => {
+    sendLog('warn', ...args);
+    raw.warn(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    sendLog('error', ...args);
+    raw.error(...args);
+  };
 }
 
 async function createWindow() {
@@ -59,6 +85,9 @@ export const loadFile = async (appPath: string) => {
   // mainWindow 与 LynxView 已就绪, 把初始化之前缓存的日志按序发送
   logChannelReady = true;
   flushPendingLogs();
+
+  // 窗口已就绪: 重定向 console 输出到渲染层 LogPanel, 主进程 console 日志可见
+  installConsoleForward();
 
   // 桥接主线程: 处理来自 Lynx UI 的 bridge 调用, 分发到 testDemo 的对应测试方法
   // @ts-ignore -lynx-invoke 为 Lynxtron 内部事件名

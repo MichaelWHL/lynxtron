@@ -30,15 +30,10 @@ export default function HomePage() {
           <text className="homeCardTitle">App Module API</text>
           <text className="homeCardDesc">调用 app模块 主进程测试方法</text>
         </view>
-        <view className="homeCard" bindtap={() => navigate('/bridge')}>
-          <view className="homeCardDot" />
-          <text className="homeCardTitle">Bridge API</text>
-          <text className="homeCardDesc">调用 Node 主进程测试方法</text>
-        </view>
-        <view className="homeCard" bindtap={() => navigate('/zf')}>
+        <view className="homeCard" bindtap={() => navigate('/zf/shell')}>
           <view className="homeCardDot" />
           <text className="homeCardTitle">ZF 测试</text>
-          <text className="homeCardDesc">嵌套路由: JSModule/SelectorQuery/ModuleLoader/AddFont</text>
+          <text className="homeCardDesc">按模块导航: shell/dialog/nativeImage/lynx 等</text>
         </view>
         <view className="homeCard" bindtap={() => navigate('/sph')}>
           <view className="homeCardDot" />

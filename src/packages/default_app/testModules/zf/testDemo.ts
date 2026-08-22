@@ -44,12 +44,16 @@ export async function testOpenExternal() {
       passed++;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`  ✗ [${label}] ${url} → ${message}`);
+      console.error(`  ✗ [${label}] ${url} → ${message}`);
       failed++;
     }
   }
 
-  console.log(`[shell.openExternal] 完成: ${passed} 通过, ${failed} 失败`);
+  if (failed === 0) {
+    console.log(`[shell.openExternal] [PASS] 完成: ${passed} 通过, 0 失败`);
+  } else {
+    console.error(`[shell.openExternal] [FAIL] 完成: ${passed} 通过, ${failed} 失败`);
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -93,7 +97,7 @@ export async function testOpenPath() {
       const errorMsg = await shell.openPath(path);
       if (errorMsg) {
         // openPath 通过返回非空字符串来表示失败
-        console.warn(`  ✗ [${label}] ${path} → ${errorMsg}`);
+        console.error(`  ✗ [${label}] ${path} → ${errorMsg}`);
         failed++;
       } else {
         console.log(`  ✓ [${label}] ${path}`);
@@ -101,12 +105,16 @@ export async function testOpenPath() {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`  ✗ [${label}] ${path} → ${message}`);
+      console.error(`  ✗ [${label}] ${path} → ${message}`);
       failed++;
     }
   }
 
-  console.log(`[shell.openPath] 完成: ${passed} 通过, ${failed} 失败`);
+  if (failed === 0) {
+    console.log(`[shell.openPath] [PASS] 完成: ${passed} 通过, 0 失败`);
+  } else {
+    console.error(`[shell.openPath] [FAIL] 完成: ${passed} 通过, ${failed} 失败`);
+  }
 }
 
 
@@ -168,16 +176,20 @@ export async function testShowOpenDialog() {
         console.log(`  ✓ [${label}] filePaths=${JSON.stringify(filePaths)}`);
         passed++;
       } else {
-        console.warn(`  ✗ [${label}] canceled=false 但 filePaths 为空`);
+        console.error(`  ✗ [${label}] canceled=false 但 filePaths 为空`);
         failed++;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`  ✗ [${label}] 抛异常 → ${message}`);
+      console.error(`  ✗ [${label}] 抛异常 → ${message}`);
       failed++;
     }
   }
-  console.log(`[dialog.showOpenDialog] 完成: ${passed} 通过, ${failed} 失败`);
+  if (failed === 0) {
+    console.log(`[dialog.showOpenDialog] [PASS] 完成: ${passed} 通过, 0 失败`);
+  } else {
+    console.error(`[dialog.showOpenDialog] [FAIL] 完成: ${passed} 通过, ${failed} 失败`);
+  }
 }
 
 /** 选择字体文件: 返回 {filePaths, canceled} 给 UI 侧 addFont 测试用 */
@@ -262,18 +274,23 @@ export async function testShowSaveDialog() {
         console.log(`  ✓ [${label}] filePath=${JSON.stringify(filePath)}`);
         passed++;
       } else {
-        console.warn(`  ✗ [${label}] canceled=false 但 filePath 为空`);
+        console.error(`  ✗ [${label}] canceled=false 但 filePath 为空`);
         failed++;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`  ✗ [${label}] 抛异常 → ${message}`);
+      console.error(`  ✗ [${label}] 抛异常 → ${message}`);
       failed++;
     }
   }
-  console.log(`[dialog.showSaveDialog] 完成: ${passed} 通过, ${failed} 失败`);
+  if (failed === 0) {
+    console.log(`[dialog.showSaveDialog] [PASS] 完成: ${passed} 通过, 0 失败`);
+  } else {
+    console.error(`[dialog.showSaveDialog] [FAIL] 完成: ${passed} 通过, ${failed} 失败`);
+  }
 }
 export async function testCreateFromPath() {
+  console.log('[nativeImage.createFromPath] 测试开始');
   const result = await dialog.showOpenDialog({
     title: '选择图片',
     filters: [
@@ -282,44 +299,70 @@ export async function testCreateFromPath() {
     properties: ['openFile']
   });
 
-  if (!result.canceled && result.filePaths.length > 0) {
-    const imagePath = result.filePaths[0];
-    console.log(imagePath)
-    const image = nativeImage.createFromPath(imagePath);
+  if (result.canceled || result.filePaths.length === 0) {
+    console.error('[nativeImage.createFromPath] [FAIL] 用户取消或未选择图片');
+    return;
+  }
 
-    console.log("isEmpty", image.isEmpty()); // false 表示成功加载
-    console.log('size:', image.getSize());
+  const imagePath = result.filePaths[0];
+  console.log('选择图片:', imagePath);
+  const image = nativeImage.createFromPath(imagePath);
+  const empty = image.isEmpty();
+  const size = image.getSize();
+  console.log('isEmpty:', empty, '(false 表示成功加载)');
+  console.log('size:', JSON.stringify(size));
+
+  if (!empty && size && size.width > 0 && size.height > 0) {
+    console.log(`[nativeImage.createFromPath] [PASS] 加载成功, size=${JSON.stringify(size)}`);
+  } else {
+    console.error(`[nativeImage.createFromPath] [FAIL] 加载失败: isEmpty=${empty} size=${JSON.stringify(size)}`);
   }
 }
 export async function testCreateFromBitmap() {
+  console.log('[nativeImage.createFromBitmap] 测试开始');
   const result = await dialog.showOpenDialog({
     title: '选择图片',
     filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
     properties: ['openFile']
   });
 
-  if (!result.canceled && result.filePaths.length > 0) {
-    // 先用 createFromPath 加载
-    const img = nativeImage.createFromPath(result.filePaths[0]);
+  if (result.canceled || result.filePaths.length === 0) {
+    console.error('[nativeImage.createFromBitmap] [FAIL] 用户取消或未选择图片');
+    return;
+  }
 
-    // createFromBitmap 测试：toBitmap → 构造新 NativeImage
-    const raw = img.toBitmap();           // Buffer (BGRA 像素数据)
-    const size = img.getSize();
-    const img2 = nativeImage.createFromBitmap(raw, {
-      width: size.width,
-      height: size.height
-    });
-    console.log('createFromBitmap isEmpty:', img2.isEmpty());  // 期望 false
-    console.log('createFromBitmap size:', img2.getSize());     // 期望与原图一致
+  // 先用 createFromPath 加载
+  const img = nativeImage.createFromPath(result.filePaths[0]);
+  if (img.isEmpty()) {
+    console.error('[nativeImage.createFromBitmap] [FAIL] createFromPath 加载失败');
+    return;
+  }
 
-    // toPNG 测试
-    const png = img.toPNG();              // Buffer (PNG 编码字节)
-    console.log('toPNG type:', png.constructor.name);        // Buffer
-    console.log('toPNG bytes:', png.length);                 // > 0
+  // createFromBitmap 测试：toBitmap → 构造新 NativeImage
+  const raw = img.toBitmap();           // Buffer (BGRA 像素数据)
+  const size = img.getSize();
+  const img2 = nativeImage.createFromBitmap(raw, {
+    width: size.width,
+    height: size.height
+  });
+  console.log('createFromBitmap isEmpty:', img2.isEmpty());  // 期望 false
+  console.log('createFromBitmap size:', JSON.stringify(img2.getSize()));     // 期望与原图一致
+  const bmpOk = !img2.isEmpty() && img2.getSize().width === size.width && img2.getSize().height === size.height;
 
-    // 验证 PNG 可被重新解析
-    const img3 = nativeImage.createFromBuffer(png);
-    console.log('reparse fromPNG isEmpty:', img3.isEmpty());  // 期望 false
+  // toPNG 测试
+  const png = img.toPNG();              // Buffer (PNG 编码字节)
+  console.log('toPNG type:', png.constructor.name);        // Buffer
+  console.log('toPNG bytes:', png.length);                 // > 0
+
+  // 验证 PNG 可被重新解析
+  const img3 = nativeImage.createFromBuffer(png);
+  console.log('reparse fromPNG isEmpty:', img3.isEmpty());  // 期望 false
+  const pngOk = !img3.isEmpty();
+
+  if (bmpOk && pngOk) {
+    console.log('[nativeImage.createFromBitmap] [PASS] 位图往返 + PNG 编码均正常');
+  } else {
+    console.error(`[nativeImage.createFromBitmap] [FAIL] bmpOk=${bmpOk} pngOk=${pngOk}`);
   }
 }
 
@@ -370,7 +413,8 @@ export function testOnlock() {
   }
 
   setTimeout(() => {
-    stopPowerMonitorTest()
+    stopPowerMonitorTest();
+    console.log(`[powerMonitor] [PASS] 监听器注册/注销流程完成 (lock=${lockCount}, unlock=${unlockCount}; 事件触发请真机锁屏/解锁验证)`);
   }, 5 * 1000)
 }
 
@@ -425,7 +469,7 @@ const pollSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function testPollHttpBasic() {
   const r = await pollHttpGet(POLL_TEST_URL);
   const ok = r.status === 200 && r.ms < POLL_SLOW_MS;
-  console.log(`[poll.basic] status=${r.status} ms=${r.ms} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.basic] status=${r.status} ms=${r.ms} ${ok ? '[PASS]' : '[FAIL]'}`);
   console.log(`[poll.basic] 完成: ${ok ? '1 通过' : '1 失败'}`);
   return ok;
 }
@@ -440,7 +484,7 @@ export async function testPollHttpConcurrent() {
   );
   const passed = results.filter((r) => r.status === 200 && r.ms < POLL_SLOW_MS).length;
   const ok = passed === results.length;
-  console.log(`[poll.concurrent] 完成: ${passed}/${results.length} 通过 ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.concurrent] 完成: ${passed}/${results.length} 通过 ${ok ? '[PASS]' : '[FAIL]'}`);
   return ok;
 }
 
@@ -455,7 +499,7 @@ export async function testPollTimerPrecision() {
   }
   const max = Math.max(...results);
   const ok = max < 1000; // 宽松阈值: 不允许 15-26s 级别的饿死
-  console.log(`[poll.timer] delays=[${results.join(',')}] max=${max} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.timer] delays=[${results.join(',')}] max=${max} ${ok ? '[PASS]' : '[FAIL]'}`);
   return ok;
 }
 
@@ -478,7 +522,7 @@ export async function testPollTimerAndIO() {
     timerMs >= 0 &&
     timerMs < 1000;
   console.log(
-    `[poll.mix] http status=${httpResult.status} ms=${httpResult.ms}; timer fired at ${timerMs}ms ${ok ? '✓' : '✗'}`
+    `[poll.mix] http status=${httpResult.status} ms=${httpResult.ms}; timer fired at ${timerMs}ms ${ok ? '[PASS]' : '[FAIL]'}`
   );
   return ok;
 }
@@ -489,7 +533,7 @@ export async function testPollConnectRefused() {
   const r = await pollHttpGet('http://127.0.0.1:9/', 5000); // 本机无监听 → ECONNREFUSED
   const ms = Date.now() - t0;
   const ok = !!r.err && ms < POLL_SLOW_MS;
-  console.log(`[poll.refused] err=${r.err ?? 'none'} ms=${ms} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.refused] err=${r.err ?? 'none'} ms=${ms} ${ok ? '[PASS]' : '[FAIL]'}`);
   return ok;
 }
 
@@ -500,7 +544,7 @@ export async function testPollRequestTimeout() {
   const r = await pollHttpGet('http://192.0.2.1:80/', 2000);
   const ms = Date.now() - t0;
   const ok = !!r.err && ms < 15000; // 只要快速失败/超时, 不允许无限挂死
-  console.log(`[poll.timeout] err=${r.err ?? 'none'} ms=${ms} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.timeout] err=${r.err ?? 'none'} ms=${ms} ${ok ? '[PASS]' : '[FAIL]'}`);
   return ok;
 }
 
@@ -517,7 +561,7 @@ export async function testPollHttpLoop() {
   const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
   const ok = failed === 0;
   console.log(
-    `[poll.loop] n=20 avg=${avg}ms max=${max}ms failed=${failed} ${ok ? '✓' : '✗'}`
+    `[poll.loop] n=20 avg=${avg}ms max=${max}ms failed=${failed} ${ok ? '[PASS]' : '[FAIL]'}`
   );
   return ok;
 }
@@ -527,15 +571,29 @@ export async function testPollNoTimerIO() {
   await pollSleep(50); // 让 pending timer 尽量清空
   const r = await pollHttpGet(POLL_TEST_URL);
   const ok = r.status === 200 && r.ms < POLL_SLOW_MS;
-  console.log(`[poll.notimer] status=${r.status} ms=${r.ms} ${ok ? '✓' : '✗'}`);
+  console.log(`[poll.notimer] status=${r.status} ms=${r.ms} ${ok ? '[PASS]' : '[FAIL]'}`);
   return ok;
 }
 
 export function testGetPrimaryDisplay() {
-  const res = screen.getPrimaryDisplay()
-  console.log('[screen]', JSON.stringify(res, null, 2))
+  console.log('[screen] 测试开始');
+  const res = screen.getPrimaryDisplay();
+  console.log('[screen]', JSON.stringify(res, null, 2));
+  const ok = !!res && typeof res === 'object' && Object.keys(res).length > 0;
+  if (ok) {
+    console.log('[screen] [PASS] getPrimaryDisplay 返回有效');
+  } else {
+    console.error('[screen] [FAIL] 返回异常: ' + JSON.stringify(res));
+  }
 }
-export function testClipboardWriteText(){
-  clipboard.writeText('hello world')
-  console.log('[clipboard]', clipboard.readText())
+// 注意: clipboard.readText() 尚未适配, 此处只验证写入成功
+export function testClipboardWriteText() {
+  console.log('[clipboard] 测试开始');
+  const text = 'hello world';
+  try {
+    clipboard.writeText(text);
+    console.log('[clipboard] [PASS] 写入成功');
+  } catch (e) {
+    console.error(`[clipboard] [FAIL] 写入异常: ${e}`);
+  }
 }

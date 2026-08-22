@@ -7,12 +7,11 @@
 // 触发方式: 点击 "AddFont验证" 按钮。
 // 验证思路: addFont(data URI) 同步注册 → 轮询测量 #ft-custom vs #ft-default 宽度,
 //           等异步加载完成后再下结论(不依赖固定延时)。
+// 每条用例以 [PASS] / [FAIL] 标记。
 
-import { logInfo } from '../../utils/log';
+import { logInfo, logPass, logFail } from '../../utils/log';
 
 const TAG = 'FT';
-
-
 
 const FONT_SRC = "url('http://192.168.19.183:8787/fonts/Bungee-Regular.ttf')"
 
@@ -22,44 +21,43 @@ export function testAddFont(onReady?: () => void): void {
   logInfo(TAG, '═══ addFont(data URI) 验证开始 ═══');
 
   if (typeof lynxAny.addFont !== 'function') {
-    logInfo(TAG, '❌ lynx.addFont 不可用, type=' + typeof lynxAny.addFont);
+    logFail(TAG, 'lynx.addFont 不可用, type=' + typeof lynxAny.addFont);
     return;
   }
 
   // 用例1: 缺 font-family → 应抛异常
   try {
     lynxAny.addFont({ src: FONT_SRC }, () => { });
-    logInfo(TAG, '用例1 ❌ 缺 font-family 未抛异常');
+    logFail(TAG, '用例1 缺 font-family 未抛异常');
   } catch (e) {
-    logInfo(TAG, '用例1 ✅ 缺 font-family 抛异常');
+    logPass(TAG, '用例1 缺 font-family 抛异常');
   }
 
   // 用例2: 缺 src → 应抛异常
   try {
     lynxAny.addFont({ 'font-family': 'sq-font' }, () => { });
-    logInfo(TAG, '用例2 ❌ 缺 src 未抛异常');
+    logFail(TAG, '用例2 缺 src 未抛异常');
   } catch (e) {
-    logInfo(TAG, '用例2 ✅ 缺 src 抛异常');
+    logPass(TAG, '用例2 缺 src 抛异常');
   }
 
   // 用例3: data URI 加载 + 轮询测量
-  logInfo(TAG, '用例3 ⏳ 提交 addFont(data URI)…');
+  logInfo(TAG, '用例3 提交 addFont(data URI)…');
   try {
     lynxAny.addFont({ 'font-family': 'sq-font', src: FONT_SRC }, (e?: any) => {
       if (e) {
-        logInfo(TAG, '用例3 ❌ 回调带错误: ' + String(e));
+        logFail(TAG, '用例3 回调带错误: ' + String(e));
         return;
       }
-      logInfo(TAG, '用例3 ℹ 回调触发(同步)');
+      logInfo(TAG, '用例3 回调触发(同步)');
       // 先调 onReady, 让 #ft-custom 元素在 addFont 后才出现(先注册后声明)
-      logInfo(TAG, '→ 调用 onReady(), 动态渲染引用 sq-font 的元素');
       if (onReady) onReady();
       // 为防止字体注册/渲染回调时机不对, 延迟 2s 后再测量
-      logInfo(TAG, '→ 延迟 2s 后开始轮询测量');
+      logInfo(TAG, '延迟 2s 后开始轮询测量');
       setTimeout(() => pollFontWidth(0), 2000);
     });
   } catch (e) {
-    logInfo(TAG, '用例3 ❌ 抛异常: ' + String(e));
+    logFail(TAG, '用例3 抛异常: ' + String(e));
   }
 }
 
@@ -69,7 +67,7 @@ export function testAddFont(onReady?: () => void): void {
 function pollFontWidth(attempt: number): void {
   const MAX = 20;          // 允许更多次: 等元素动态出现
   const INTERVAL = 300;
-  const done = (msg: string) => { logInfo(TAG, msg); };
+  const done = (msg: string, isPass: boolean) => { if (isPass) logPass(TAG, msg); else logFail(TAG, msg); };
 
   // 每轮新的局部变量
   let m1: any = null;
@@ -83,11 +81,11 @@ function pollFontWidth(attempt: number): void {
     // 有任一查询失败(节点还没就绪) → 下一轮重试
     if (m1fail || m2fail) {
       if (attempt + 1 >= MAX) {
-        done('❌ 结论: 轮询 ' + MAX + ' 次后元素未就绪(无法测量)');
+        done('结论: 轮询 ' + MAX + ' 次后元素未就绪(无法测量)', false);
         return;
       }
       m1 = m2 = null; m1fail = m2fail = false;
-      logInfo(TAG, '\u2192 元素未就绪, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
+      logInfo(TAG, '元素未就绪, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
       setTimeout(() => pollFontWidth(attempt + 1), INTERVAL);
       return;
     }
@@ -96,11 +94,11 @@ function pollFontWidth(attempt: number): void {
     logInfo(TAG, '测量[' + (attempt + 1) + ']: 自定义=' + (m1 as any).width.toFixed(1) +
       ' 默认=' + (m2 as any).width.toFixed(1) + ' 差=' + diff.toFixed(2));
     if (diff > 0.5) {
-      done('✅ 结论: addFont(data URI) 字体已生效');
+      done('结论: addFont(data URI) 字体已生效', true);
     } else if (attempt + 1 >= MAX) {
-      done('❌ 结论: 轮询 ' + MAX + ' 次后宽度仍无差异 → 字体未生效');
+      done('结论: 轮询 ' + MAX + ' 次后宽度仍无差异 → 字体未生效', false);
     } else {
-      logInfo(TAG, '\u2192 宽度无差异, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
+      logInfo(TAG, '宽度无差异, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
       setTimeout(() => pollFontWidth(attempt + 1), INTERVAL);
     }
   };
@@ -118,6 +116,6 @@ function pollFontWidth(attempt: number): void {
       })
       .exec();
   } catch (err) {
-    logInfo(TAG, '测量抛异常: ' + String(err));
+    logFail(TAG, '测量抛异常: ' + String(err));
   }
 }

@@ -205,7 +205,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: 240px;
+  width: 360px;
   border-radius: 16px;
   background: #13131b;
   border: 1px solid #26262e;
@@ -216,25 +216,27 @@
 .menuGroup {
   display: flex;
   flex-direction: column;
-  grid-row-gap: 4px;
-  margin-bottom: 16px;
+  flex-shrink: 0;
+  grid-row-gap: 6px;
+  margin-bottom: 20px;
 }
 
 .menuGroupTitle {
   color: rgba(255, 255, 255, 0.35);
   font-family: Inter;
-  font-size: 12px;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: 1px;
-  padding: 0 12px 6px;
+  letter-spacing: 2px;
+  padding: 0 12px 10px;
 }
 
 .menuItem {
   display: flex;
   flex-direction: row;
   align-items: center;
-  grid-column-gap: 10px;
-  padding: 12px 12px;
+  flex-shrink: 0;
+  grid-column-gap: 14px;
+  padding: 14px 14px;
   border-radius: 10px;
 }
 
@@ -248,8 +250,8 @@
 }
 
 .menuItemDot {
-  width: 8px;
-  height: 8px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: #3a3a44;
   flex-shrink: 0;
@@ -262,9 +264,9 @@
 .menuItemText {
   color: rgba(255, 255, 255, 0.78);
   font-family: Inter;
-  font-size: 16px;
+  font-size: 32px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 48px;
 }
 
 .menuItem-active .menuItemText {
@@ -382,49 +384,28 @@
   background: #0e0e14;
 }
 
-/* ZF 嵌套路由二级 Tab */
-.zfTabs {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  grid-column-gap: 8px;
-  grid-row-gap: 8px;
-}
-
-.zfTab {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 18px;
-  border-radius: 999px;
-  background: #1a1a22;
-  border: 1px solid #2c2c38;
-}
-
-.zfTab:active {
-  background: #24242e;
-  border-color: #5a7fd0;
-}
-
-.zfTab-active {
-  background: #1e2a44;
-  border-color: #334a7a;
-}
-
-.zfTabText {
-  color: rgba(255, 255, 255, 0.7);
-  font-family: Inter;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.zfTab-active .zfTabText {
-  color: #ffffff;
-}
-
-.zfContent {
+/* ZF 模块页: 一级菜单即模块导航, 页面仅渲染当前模块内容
+   注意: 内容位于 contentArea(scroll-view) 内, 不能设 flex:1,
+   否则高度被限制为视口导致卡片溢出被裁剪; 应让内容自然撑开由 scroll-view 滚动 */
+.testModuleContent {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  grid-row-gap: 14px;
+}
+
+.testModuleDesc {
+  color: rgba(255, 255, 255, 0.45);
+  font-family: Inter;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* lynx 模块: SelectorQuery / AddFont 测试目标节点区 */
+.lynxTargetArea {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 10px;
 }
 
 /* ── Console 面板(常驻底部) ── */
@@ -432,7 +413,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  height: 240px;
+  height: 680px;
   border-radius: 16px;
   background: #101018;
   border: 1px solid #26262e;
@@ -460,7 +441,7 @@
 .logPanelTitle {
   color: #ffffff;
   font-family: Inter;
-  font-size: 17px;
+  font-size: 34px;
   font-weight: 700;
 }
 
@@ -512,7 +493,7 @@
 .logCopyButtonText {
   color: #9dbdff;
   font-family: Inter;
-  font-size: 14px;
+  font-size: 28px;
   font-weight: 600;
 }
 
@@ -537,7 +518,7 @@
 .logClearButtonText {
   color: rgba(255, 255, 255, 0.8);
   font-family: Inter;
-  font-size: 14px;
+  font-size: 28px;
   font-weight: 600;
 }
 
@@ -565,16 +546,16 @@
   flex-shrink: 0;
   color: rgba(255, 255, 255, 0.35);
   font-family: "Roboto Mono", monospace;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 26px;
+  line-height: 40px;
 }
 
 .logText {
   flex: 1;
   color: rgba(255, 255, 255, 0.85);
   font-family: "Roboto Mono", monospace;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 28px;
+  line-height: 40px;
   word-break: break-all;
 }
 
@@ -593,8 +574,8 @@
 .logEmpty {
   color: rgba(255, 255, 255, 0.35);
   font-family: "Roboto Mono", monospace;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 28px;
+  line-height: 40px;
 }
 
 .hero {

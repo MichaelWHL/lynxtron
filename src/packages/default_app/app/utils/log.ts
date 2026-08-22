@@ -71,6 +71,16 @@ export function logError(...args: unknown[]): void {
   push('error', args);
 }
 
+/** 记录测试通过日志(info 级), 自动加 [PASS] 标记, 便于在 Console 面板一眼识别 */
+export function logPass(...args: unknown[]): void {
+  push('info', ['[PASS]', ...args]);
+}
+
+/** 记录测试失败日志(error 级), 自动加 [FAIL] 标记, Console 面板中显示为红色 */
+export function logFail(...args: unknown[]): void {
+  push('error', ['[FAIL]', ...args]);
+}
+
 /** 清空全部日志 */
 export function clearLogs(): void {
   entries = [];

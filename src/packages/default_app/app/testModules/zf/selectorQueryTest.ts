@@ -5,8 +5,9 @@
 // createSelectorQuery 功能验证用例 (lynxtron 鸿蒙版)
 // 触发方式: 打开页面 1s 后自动跑一次, 或点击 index.tsx 里的 "SelectorQuery" 按钮。
 // 结果输出到页面 Console 面板 (LogPanel), 每条日志带 [SQ] 前缀。
+// 每条用例以 [PASS] / [FAIL] 标记。
 
-import { logInfo, logError } from '../../utils/log';
+import { logInfo, logPass, logFail } from '../../utils/log';
 
 const TAG = 'SQ';
 
@@ -18,10 +19,10 @@ function caseApiExists(): boolean {
   const lynxAny = lynx as any;
   const t = typeof lynxAny.createSelectorQuery;
   if (t !== 'function') {
-    logError(TAG, '用例1 ✗ lynx.createSelectorQuery 类型 = ' + t + ' (应为 function)');
+    logFail(TAG, '用例1 lynx.createSelectorQuery 类型 = ' + t + ' (应为 function)');
     return false;
   }
-  logInfo(TAG, '用例1 ✅ lynx.createSelectorQuery 存在, type=function');
+  logPass(TAG, '用例1 lynx.createSelectorQuery 存在, type=function');
   return true;
 }
 
@@ -34,12 +35,12 @@ function caseSelectRect(): void {
       .select('#lxp-target')
       .invoke({
         method: 'boundingClientRect',
-        success: (res: any) => logInfo(TAG, '用例2 ✅ select+boundingClientRect → ' + JSON.stringify(res)),
-        fail: (res: any) => logError(TAG, '用例2 ✗ select+boundingClientRect fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
+        success: (res: any) => logPass(TAG, '用例2 select+boundingClientRect → ' + JSON.stringify(res)),
+        fail: (res: any) => logFail(TAG, '用例2 select+boundingClientRect fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
       })
       .exec();
   } catch (e) {
-    logError(TAG, '用例2 ✗ 抛异常: ' + String(e));
+    logFail(TAG, '用例2 抛异常: ' + String(e));
   }
 }
 
@@ -55,23 +56,22 @@ function caseSelectAllFields(): void {
       .fields(
         { unique_id: true, class: true, index: true },
         (res: any, status: any) => {
-          // status 是 {code, data} 字典(PageProxy::GetFields 打包), code=0 即成功
           const code = status && typeof status === 'object' ? status.code : status;
           const ok = code === undefined || code === null || code === 0;
           if (ok) {
             if (Array.isArray(res)) {
               sqUniqueIds = res.map((r: any) => r && r.unique_id).filter((v: any) => v != null);
             }
-            logInfo(TAG, '用例3 ✅ selectAll+fields 节点数=' + (Array.isArray(res) ? res.length : '?') + ' → ' + JSON.stringify(res));
+            logPass(TAG, '用例3 selectAll+fields 节点数=' + (Array.isArray(res) ? res.length : '?') + ' → ' + JSON.stringify(res));
             caseSelectUniqueID();
           } else {
-            logError(TAG, '用例3 ✗ selectAll+fields status=' + JSON.stringify(status) + ' res=' + JSON.stringify(res));
+            logFail(TAG, '用例3 selectAll+fields status=' + JSON.stringify(status) + ' res=' + JSON.stringify(res));
           }
         }
       )
       .exec();
   } catch (e) {
-    logError(TAG, '用例3 ✗ 抛异常: ' + String(e));
+    logFail(TAG, '用例3 抛异常: ' + String(e));
   }
 }
 
@@ -84,12 +84,12 @@ function caseSelectRootRect(): void {
       .selectRoot()
       .invoke({
         method: 'boundingClientRect',
-        success: (res: any) => logInfo(TAG, '用例4 ✅ selectRoot+boundingClientRect → ' + JSON.stringify(res)),
-        fail: (res: any) => logError(TAG, '用例4 ✗ selectRoot fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
+        success: (res: any) => logPass(TAG, '用例4 selectRoot+boundingClientRect → ' + JSON.stringify(res)),
+        fail: (res: any) => logFail(TAG, '用例4 selectRoot fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
       })
       .exec();
   } catch (e) {
-    logError(TAG, '用例4 ✗ 抛异常: ' + String(e));
+    logFail(TAG, '用例4 抛异常: ' + String(e));
   }
 }
 
@@ -102,12 +102,12 @@ function caseUnknownMethod(): void {
       .select('#lxp-target')
       .invoke({
         method: 'definitelyNotRegistered',
-        success: () => logInfo(TAG, '用例5 ⚠ 未注册方法竟然 success (异常!)'),
-        fail: (res: any) => logInfo(TAG, '用例5 ✅ 未注册方法正确走 fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
+        success: () => logFail(TAG, '用例5 未注册方法竟然 success (异常!)'),
+        fail: (res: any) => logPass(TAG, '用例5 未注册方法正确走 fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
       })
       .exec();
   } catch (e) {
-    logError(TAG, '用例5 ✗ 抛异常: ' + String(e));
+    logFail(TAG, '用例5 抛异常: ' + String(e));
   }
 }
 
@@ -116,7 +116,7 @@ function caseUnknownMethod(): void {
  *  在用例3 回调内立即执行, 保证 uid 有效。 */
 function caseSelectUniqueID(): void {
   if (sqUniqueIds.length === 0) {
-    logInfo(TAG, '用例6 ⏭ 无 unique_id(用例3 未返回), 跳过');
+    logInfo(TAG, '用例6 无 unique_id(用例3 未返回), 跳过');
     return;
   }
   try {
@@ -125,12 +125,12 @@ function caseSelectUniqueID(): void {
       .selectUniqueID(sqUniqueIds[0])
       .invoke({
         method: 'boundingClientRect',
-        success: (res: any) => logInfo(TAG, '用例6 ✅ selectUniqueID(' + sqUniqueIds[0] + ')+rect → ' + JSON.stringify(res)),
-        fail: (res: any) => logInfo(TAG, '用例6 ✗ selectUniqueID fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
+        success: (res: any) => logPass(TAG, '用例6 selectUniqueID(' + sqUniqueIds[0] + ')+rect → ' + JSON.stringify(res)),
+        fail: (res: any) => logFail(TAG, '用例6 selectUniqueID fail code=' + (res && res.code) + ' data=' + JSON.stringify(res && res.data)),
       })
       .exec();
   } catch (e) {
-    logInfo(TAG, '用例6 ✗ 抛异常: ' + String(e));
+    logFail(TAG, '用例6 抛异常: ' + String(e));
   }
 }
 
@@ -138,12 +138,12 @@ function caseSelectUniqueID(): void {
 export function testSelectorQuery(): void {
   logInfo(TAG, '═══ createSelectorQuery 测试开始 ═══');
   if (!caseApiExists()) {
-    logError(TAG, 'API 不可用, 后续用例跳过');
+    logFail(TAG, 'API 不可用, 后续用例跳过');
     return;
   }
   caseSelectRect();
   caseSelectAllFields();
   caseSelectRootRect();
   caseUnknownMethod();
-  logInfo(TAG, '═══ 已提交全部用例, 异步结果陆续打印 ═══');
+  logInfo(TAG, '═══ 已提交全部用例, 异步结果以 [PASS]/[FAIL] 陆续打印 ═══');
 }
