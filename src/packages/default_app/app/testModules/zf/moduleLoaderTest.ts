@@ -8,7 +8,7 @@
 // 触发方式: 打开页面 1.5s 后自动跑一次, 或点击 "ModuleLoader" 按钮。
 // 输出: 页面 Console 面板, tag = ML。
 
-import { logInfo, logError } from './log';
+import { logInfo, logError } from '../../utils/log';
 
 const TAG = 'ML';
 

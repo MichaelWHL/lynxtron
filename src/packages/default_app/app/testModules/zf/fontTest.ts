@@ -8,13 +8,13 @@
 // 验证思路: addFont(data URI) 同步注册 → 轮询测量 #ft-custom vs #ft-default 宽度,
 //           等异步加载完成后再下结论(不依赖固定延时)。
 
-import { logInfo } from './log';
+import { logInfo } from '../../utils/log';
 
 const TAG = 'FT';
 
 
 
-const FONT_SRC =  "url('http://192.168.19.183:8787/fonts/Bungee-Regular.ttf')"
+const FONT_SRC = "url('http://192.168.19.183:8787/fonts/Bungee-Regular.ttf')"
 
 /** 验证 lynx.addFont(data URI) 是否真正生效 */
 export function testAddFont(onReady?: () => void): void {
@@ -28,7 +28,7 @@ export function testAddFont(onReady?: () => void): void {
 
   // 用例1: 缺 font-family → 应抛异常
   try {
-    lynxAny.addFont({ src: FONT_SRC }, () => {});
+    lynxAny.addFont({ src: FONT_SRC }, () => { });
     logInfo(TAG, '用例1 ❌ 缺 font-family 未抛异常');
   } catch (e) {
     logInfo(TAG, '用例1 ✅ 缺 font-family 抛异常');
@@ -36,7 +36,7 @@ export function testAddFont(onReady?: () => void): void {
 
   // 用例2: 缺 src → 应抛异常
   try {
-    lynxAny.addFont({ 'font-family': 'sq-font' }, () => {});
+    lynxAny.addFont({ 'font-family': 'sq-font' }, () => { });
     logInfo(TAG, '用例2 ❌ 缺 src 未抛异常');
   } catch (e) {
     logInfo(TAG, '用例2 ✅ 缺 src 抛异常');
@@ -78,7 +78,7 @@ function pollFontWidth(attempt: number): void {
   let m2fail = false;
   const tryNext = () => {
     // 两个都执行完成后才进一步
-    if (!(m1 !== null || m1fail) ) return;
+    if (!(m1 !== null || m1fail)) return;
     if (!(m2 !== null || m2fail)) return;
     // 有任一查询失败(节点还没就绪) → 下一轮重试
     if (m1fail || m2fail) {
@@ -106,12 +106,16 @@ function pollFontWidth(attempt: number): void {
   };
   try {
     lynx.createSelectorQuery()
-      .select('#ft-custom').invoke({ method: 'boundingClientRect',
+      .select('#ft-custom').invoke({
+        method: 'boundingClientRect',
         success: (a: any) => { m1 = a; tryNext(); },
-        fail: (r: any) => { m1fail = true; logInfo(TAG, '测量 #ft-custom 失败 code=' + (r && r.code) + ' 节点未就绪'); tryNext(); } })
-      .select('#ft-default').invoke({ method: 'boundingClientRect',
+        fail: (r: any) => { m1fail = true; logInfo(TAG, '测量 #ft-custom 失败 code=' + (r && r.code) + ' 节点未就绪'); tryNext(); }
+      })
+      .select('#ft-default').invoke({
+        method: 'boundingClientRect',
         success: (b: any) => { m2 = b; tryNext(); },
-        fail: (r: any) => { m2fail = true; logInfo(TAG, '测量 #ft-default 失败 code=' + (r && r.code)); tryNext(); } })
+        fail: (r: any) => { m2fail = true; logInfo(TAG, '测量 #ft-default 失败 code=' + (r && r.code)); tryNext(); }
+      })
       .exec();
   } catch (err) {
     logInfo(TAG, '测量抛异常: ' + String(err));

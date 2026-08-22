@@ -6,7 +6,7 @@
 // 触发方式: 打开页面 1s 后自动跑一次, 或点击 index.tsx 里的 "SelectorQuery" 按钮。
 // 结果输出到页面 Console 面板 (LogPanel), 每条日志带 [SQ] 前缀。
 
-import { logInfo, logError } from './log';
+import { logInfo, logError } from '../../utils/log';
 
 const TAG = 'SQ';
 

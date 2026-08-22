@@ -7,7 +7,7 @@
 // 触发方式: 打开页面 1.2s 后自动跑一次, 或点击 "JSModule" 按钮。
 // 输出: 页面 Console 面板, tag = JM。
 
-import { logInfo, logError } from './log';
+import { logInfo, logError } from '../../utils/log';
 
 const TAG = 'JM';
 

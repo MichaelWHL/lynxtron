@@ -8,6 +8,8 @@
   "include": [
     "main.ts",
     "default_app.ts",
-    "../../typings"
+    "../../typings",
+    "testModules/zf/utils.ts",
+    "testModules/zf/testDemo.ts"
   ]
 }

@@ -3,7 +3,7 @@
 // LICENSE file in the root directory of this source tree.
 
 import { useEffect, useState } from '@lynx-js/react';
-import { clearLogs, subscribeLogs, type LogEntry } from './log';
+import { clearLogs, subscribeLogs, type LogEntry } from '../utils/log';
 
 /**
  * devtool 式日志面板: 订阅全局 log store,

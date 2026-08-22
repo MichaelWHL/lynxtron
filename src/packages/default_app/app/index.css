@@ -191,12 +191,248 @@
   line-height: 20px;
 }
 
-/* ── Console 面板 ── */
-.logPanel {
+/* ── 应用主体: 左菜单 + 右内容 ── */
+.appBody {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  grid-column-gap: 18px;
+}
+
+/* 左侧菜单 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 240px;
+  border-radius: 16px;
+  background: #13131b;
+  border: 1px solid #26262e;
+  padding: 16px 12px;
+  overflow: scroll;
+}
+
+.menuGroup {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 4px;
+  margin-bottom: 16px;
+}
+
+.menuGroupTitle {
+  color: rgba(255, 255, 255, 0.35);
+  font-family: Inter;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 0 12px 6px;
+}
+
+.menuItem {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  grid-column-gap: 10px;
+  padding: 12px 12px;
+  border-radius: 10px;
+}
+
+.menuItem:active {
+  background: #1c1c26;
+}
+
+.menuItem-active {
+  background: #1e2a44;
+  border: 1px solid #334a7a;
+}
+
+.menuItemDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #3a3a44;
+  flex-shrink: 0;
+}
+
+.menuItemDot-on {
+  background: #6ea8ff;
+}
+
+.menuItemText {
+  color: rgba(255, 255, 255, 0.78);
+  font-family: Inter;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.menuItem-active .menuItemText {
+  color: #ffffff;
+}
+
+/* 右侧内容区 */
+.contentArea {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 220px;
+  min-width: 0;
+  border-radius: 16px;
+  background: #13131b;
+  border: 1px solid #26262e;
+  overflow: scroll;
+}
+
+.pageSection {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.pageStack {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 16px;
+}
+
+.pageSectionHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  grid-column-gap: 10px;
+}
+
+.pageSectionBar {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: #6ea8ff;
+}
+
+.pageSectionTitle {
+  color: rgba(255, 255, 255, 0.6);
+  font-family: Inter;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.pageDesc {
+  color: rgba(255, 255, 255, 0.55);
+  font-family: Inter;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.mono {
+  font-family: "Roboto Mono", monospace;
+  color: #8ab4ff;
+}
+
+/* 首页卡片 */
+.homeCardGrid {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 12px;
+}
+
+.homeCard {
+  display: flex;
+  flex-direction: column;
+  grid-row-gap: 6px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #1a1a22;
+  border: 1px solid #2c2c38;
+}
+
+.homeCard:active {
+  background: #24242e;
+  border-color: #5a7fd0;
+}
+
+.homeCardDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #6ea8ff;
+}
+
+.homeCardTitle {
+  color: #ffffff;
+  font-family: Inter;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.homeCardDesc {
+  color: rgba(255, 255, 255, 0.45);
+  font-family: Inter;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* 选择器 / 字体测试目标行 */
+.sqTargetRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #0e0e14;
+}
+
+/* ZF 嵌套路由二级 Tab */
+.zfTabs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  grid-column-gap: 8px;
+  grid-row-gap: 8px;
+}
+
+.zfTab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: #1a1a22;
+  border: 1px solid #2c2c38;
+}
+
+.zfTab:active {
+  background: #24242e;
+  border-color: #5a7fd0;
+}
+
+.zfTab-active {
+  background: #1e2a44;
+  border-color: #334a7a;
+}
+
+.zfTabText {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: Inter;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.zfTab-active .zfTabText {
+  color: #ffffff;
+}
+
+.zfContent {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Console 面板(常驻底部) ── */
+.logPanel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 240px;
   border-radius: 16px;
   background: #101018;
   border: 1px solid #26262e;
@@ -307,7 +543,6 @@
 
 .logPanelBody {
   flex: 1;
-  height: 240px;
   overflow: scroll;
   padding: 12px 20px;
 }

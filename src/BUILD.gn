@@ -212,8 +212,13 @@ typescript_build("default_app_js") {
   sources = [
     "packages/default_app/default_app.ts",
     "packages/default_app/main.ts",
-    "packages/default_app/testDemo.ts",
+    "packages/default_app/testModules/zf/utils.ts",
+    "packages/default_app/testModules/zf/testDemo.ts",
   ]
+
+  # sources 跨了根目录与 testModules/zf 子目录, 指定 source_root 让输出的
+  # JS 保留对应目录结构 (main.js / default_app.js / testModules/zf/*.js)。
+  source_root = "packages/default_app"
 
   output_gen_dir = "${target_gen_default_app_js}"
   output_dir_name = "default_app"
@@ -228,11 +233,27 @@ action("default_app_bundle") {
     "packages/default_app/app/lynx.config.mjs",
     "packages/default_app/app/index.tsx",
     "packages/default_app/app/index.css",
-    "packages/default_app/app/components/Card.tsx",
-    "packages/default_app/app/components/FeatureGrid.tsx",
+    "packages/default_app/app/router/index.tsx",
+    "packages/default_app/app/components/LogPanel.tsx",
+    "packages/default_app/app/components/AppLayout.tsx",
+    "packages/default_app/app/pages/HomePage.tsx",
+    "packages/default_app/app/pages/BridgePage.tsx",
+    "packages/default_app/app/pages/NotFoundPage.tsx",
+    "packages/default_app/app/pages/sph/WindowPage.tsx",
+    "packages/default_app/app/pages/zf/ZfLayout.tsx",
+    "packages/default_app/app/pages/zf/ZfOverview.tsx",
+    "packages/default_app/app/pages/zf/JsModulePage.tsx",
+    "packages/default_app/app/pages/zf/SelectorQueryPage.tsx",
+    "packages/default_app/app/pages/zf/ModuleLoaderPage.tsx",
+    "packages/default_app/app/pages/zf/FontPage.tsx",
     "packages/default_app/app/assets/box.png",
     "packages/default_app/app/assets/lightning.png",
     "packages/default_app/app/assets/panel.png",
+    "packages/default_app/app/utils/log.ts",
+    "packages/default_app/app/testModules/zf/selectorQueryTest.ts",
+    "packages/default_app/app/testModules/zf/jsModuleTest.ts",
+    "packages/default_app/app/testModules/zf/moduleLoaderTest.ts",
+    "packages/default_app/app/testModules/zf/fontTest.ts",
   ]
 
   outputs = [ "$target_gen_default_app_js/default_app.bundle" ]
