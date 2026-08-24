@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: zhuliangliang <zhuliangliang@example.com>
+Date: Mon, 24 Aug 2026 12:00:00 +0800
+Subject: [PATCH] Wire frame-timings on the windowless renderer
+
+The clay `FrameTimingListener` is registered by the win/mac renderers but
+the windowless (headless) renderer never subscribed to it, so on HarmonyOS
+`win.on('frame-timings')` produced no frame data even though `Rasterizer`
+still emits timings.
+
+Mirror the win/mac bridge on `LynxUIRendererWindowless`: subscribe to
+`InstrumentationService::AddFrameTimingListener`, forward frames to
+`LynxViewClients` via `AddClient`, and detach on destruction.
+---
+ platform/embedder/windowless/lynx_ui_renderer_windowless.cc | 21 ++++++++++++++++++++-
+ platform/embedder/windowless/lynx_ui_renderer_windowless.h  |  4 ++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/platform/embedder/windowless/lynx_ui_renderer_windowless.cc b/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
+index 2bf81b43..98090405 100644
+--- a/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
++++ b/platform/embedder/windowless/lynx_ui_renderer_windowless.cc
+@@ -9,10 +9,12 @@
+ #include <utility>
+ 
+ #include "base/include/log/logging.h"
++#include "clay/common/service/service_manager.h"
+ #include "clay/lynx_adaptor/native_module/lynx_module_factory.h"
+ #include "clay/lynx_adaptor/native_view_service_desktop.h"
+ #include "clay/lynx_adaptor/resource_loader_embedder.h"
+ #include "clay/net/loader/resource_loader_creator_service.h"
++#include "clay/shell/common/services/instrumentation_service.h"
+ #include "clay/ui/component/view_context.h"
+ #include "core/base/threading/task_runner_manufactor.h"
+ 
+@@ -25,7 +27,8 @@ std::unique_ptr<LynxUIRenderer> LynxUIRenderer::CreateWindowlessUIRenderer(
+ }
+ 
+ LynxUIRendererWindowless::LynxUIRendererWindowless(lynx_view_builder_t* builder)
+-    : LynxUIRenderer(builder) {
++    : LynxUIRenderer(builder),
++      frame_timing_listener_(std::make_shared<FrameTimingListenerImpl>()) {
+ #if !defined(OS_WIN)
+   base::UIThread::Init();
+ #endif
+@@ -88,6 +91,17 @@ LynxUIRendererWindowless::LynxUIRendererWindowless(lynx_view_builder_t* builder)
+   ui_delegate_ = std::make_unique<lynx::tasm::UIDelegateClay>(
+       view_context, std::move(module_factory));
+ 
++  auto service_manager = headless_engine_->GetServiceManager();
++  if (service_manager) {
++    clay::Puppet<clay::Owner::kPlatform, clay::InstrumentationService>
++        instrumentation_service =
++            service_manager->GetService<clay::InstrumentationService>();
++    instrumentation_service.Act(
++        [frame_timing_listener = frame_timing_listener_](auto& impl) {
++          impl.AddFrameTimingListener(frame_timing_listener);
++        });
++  }
++
+ #if defined(OS_WIN) || defined(OS_MAC)
+   clay::NativeViewServiceDesktop::SetViewFactories(
+       view_context, std::move(builder->native_view_creators));
+@@ -113,12 +127,17 @@ LynxUIRendererWindowless::LynxUIRendererWindowless(lynx_view_builder_t* builder)
+ }
+ 
+ LynxUIRendererWindowless::~LynxUIRendererWindowless() {
++  frame_timing_listener_->RemoveAllClients();
+   headless_engine_->SetHeadlessDelegate(nullptr);
+   windowless_renderer_->run_task = nullptr;
+   windowless_renderer_->send_pointer_event = nullptr;
+   windowless_renderer_->send_key_event = nullptr;
+ }
+ 
++void LynxUIRendererWindowless::AddClient(LynxViewClients* client) {
++  frame_timing_listener_->AddClient(client);
++}
++
+ bool LynxUIRendererWindowless::RunsTaskOnCurrentThread() const {
+   return std::this_thread::get_id() == main_thread_id_;
+ }
+diff --git a/platform/embedder/windowless/lynx_ui_renderer_windowless.h b/platform/embedder/windowless/lynx_ui_renderer_windowless.h
+index 0fa141b8..a557ad1c 100644
+--- a/platform/embedder/windowless/lynx_ui_renderer_windowless.h
++++ b/platform/embedder/windowless/lynx_ui_renderer_windowless.h
+@@ -11,6 +11,7 @@
+ #include "clay/public/clay.h"
+ #include "clay/shell/platform/headless/clay_headless_engine.h"
+ #include "clay/shell/platform/headless/public/embdder_headless_delegate.h"
++#include "platform/embedder/frame_timing_listener_impl.h"
+ #include "platform/embedder/lynx_ui_renderer.h"
+ #include "platform/embedder/windowless/lynx_windowless_renderer_priv.h"
+ 
+@@ -44,6 +45,8 @@ class LynxUIRendererWindowless : public LynxUIRenderer,
+ 
+   void RegisterIMEHandler(void* handler, void* opaque) override {}
+ 
++  void AddClient(LynxViewClients* client) override;
++
+   /* headless delegate */
+   const char* GetClipboardData() const override;
+   void SetClipboardData(const char* data) override;
+@@ -60,6 +63,7 @@ class LynxUIRendererWindowless : public LynxUIRenderer,
+ 
+   std::unique_ptr<clay::ClayHeadlessEngine> headless_engine_;
+   std::unique_ptr<lynx::tasm::UIDelegate> ui_delegate_;
++  std::shared_ptr<FrameTimingListenerImpl> frame_timing_listener_;
+ };
+ }  // namespace embedder
+ }  // namespace lynx
