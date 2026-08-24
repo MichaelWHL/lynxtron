@@ -507,12 +507,12 @@ async function runTests() {
 }
 
 /** 独立触发 WindowManager 测试：创建专用测试窗口并执行全部用例 */
-export async function runWindowManagerTests() {
+export async function runSphTests() {
   if (mainWindow) {
-    console.log('[WindowManagerTest] test window already exists, skipping');
-    return;
+    console.log('[SphTest] test window already exists, skipping CreateWindow');
+  } else {
+    mainWindow = await createWindow();
   }
-  mainWindow = await createWindow();
   try {
     await runTests();
   } finally {

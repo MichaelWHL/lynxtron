@@ -4,6 +4,7 @@
 
 import { app, clipboard, LynxWindow } from "lynxtron";
 import { BridgeEventCallback, ensureTestFns, safeStringify } from './testModules/zf/utils.js';
+import { runSphTests } from './testModules/sph/index.js';
 
 let mainWindow: LynxWindow | null = null;
 
@@ -238,7 +239,6 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
   // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
   async runWindowManagerTests() {
     sendLog('log', '[APP][runWindowManagerTests] 触发 SPH WindowManager 测试');
-    const { runWindowManagerTests: runSphTests } = await import('./testModules/sph/index.js');
     await runSphTests();
   },
 };
