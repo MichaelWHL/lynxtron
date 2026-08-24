@@ -110,10 +110,6 @@ extern "C" __attribute__((visibility("default"))) void LynxtronRegisterWindowOpC
     int32_t window_id,
     WindowOpCallback callback);
 extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId();
-extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
-    int32_t harmony_window_id,
-    const char* state,
-    const LynxtronWindowBounds* bounds);
 
 // Called from lynxtron_napi_bridge.cc when the ArkTS side has finished creating
 // the HarmonyOS window for a C++-allocated window id. This binds the two ids
@@ -570,56 +566,6 @@ class NativeWindowHarmony : public NativeWindow {
   base::WeakPtr<NativeWindowHarmony> GetHarmonyWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
-  // --- state notifications from ArkTS (harmony id routing) ---
-  void OnHarmonyForeground() {
-    if (is_focused_) return;
-    is_focused_ = true;
-    NotifyWindowFocus();
-  }
-  void OnHarmonyBackground() {
-    if (!is_focused_) return;
-    is_focused_ = false;
-    NotifyWindowBlur();
-  }
-  void OnHarmonyMinimize() {
-    if (is_minimized_) return;
-    is_minimized_ = true;
-    NotifyWindowMinimize();
-  }
-  void OnHarmonyRestore() {
-    if (!is_minimized_ && !is_maximized_) return;
-    is_minimized_ = false;
-    is_maximized_ = false;
-    NotifyWindowRestore();
-  }
-  void OnHarmonyMaximize() {
-    if (is_maximized_) return;
-    is_maximized_ = true;
-    NotifyWindowMaximize();
-  }
-  void OnHarmonyEnterFullScreen() {
-    if (is_fullscreen_) return;
-    is_fullscreen_ = true;
-    NotifyWindowEnterFullScreen();
-  }
-  void OnHarmonyLeaveFullScreen() {
-    if (!is_fullscreen_) return;
-    is_fullscreen_ = false;
-    NotifyWindowLeaveFullScreen();
-  }
-  void OnHarmonyShow() {
-    if (is_visible_) return;
-    is_visible_ = true;
-    NotifyWindowShow();
-  }
-  void OnHarmonyHide() {
-    if (!is_visible_) return;
-    is_visible_ = false;
-    NotifyWindowHide();
-  }
-  void OnHarmonyClosed() {
-    NotifyWindowClosed();
-  }
 
   // --- progress / workspaces ---
   void SetProgressBar(double progress, const ProgressState state) override {}
@@ -931,101 +877,7 @@ gfx::ResizeEdge InferResizeEdge(const gfx::Rect& old_bounds,
   return gfx::ResizeEdge::kBottomRight;
 }
 
-void DispatchHarmonyWindowState(
-    int32_t harmony_window_id,
-    const std::string& state,
-    const std::optional<LynxtronWindowBounds>& bounds) {
-  NativeWindowHarmony* window = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_window_map_mutex);
-    auto it = g_harmony_id_to_window.find(harmony_window_id);
-    if (it != g_harmony_id_to_window.end()) window = it->second;
-  }
-  if (!window) {
-    OH_LOG_WARN(LOG_APP,
-                "[LynxtronWindow] notifyWindowState: no window for "
-                "harmony_id=%{public}d state=%{public}s",
-                harmony_window_id, state.c_str());
-    return;
-  }
-
-  OH_LOG_INFO(LOG_APP,
-              "[LynxtronWindow] notifyWindowState harmony_id=%{public}d "
-              "state=%{public}s",
-              harmony_window_id, state.c_str());
-
-  if (state == "foreground") {
-    window->OnHarmonyForeground();
-  } else if (state == "background") {
-    window->OnHarmonyBackground();
-  } else if (state == "minimize") {
-    window->OnHarmonyMinimize();
-  } else if (state == "restore") {
-    window->OnHarmonyRestore();
-  } else if (state == "maximize") {
-    window->OnHarmonyMaximize();
-  } else if (state == "enter-full-screen") {
-    window->OnHarmonyEnterFullScreen();
-  } else if (state == "leave-full-screen") {
-    window->OnHarmonyLeaveFullScreen();
-  } else if (state == "show") {
-    window->OnHarmonyShow();
-  } else if (state == "hide") {
-    window->OnHarmonyHide();
-  } else if (state == "resized") {
-    window->NotifyWindowResized();
-  } else if (state == "will-resize") {
-    if (bounds) {
-      gfx::Rect new_bounds(static_cast<int>(bounds->left),
-                           static_cast<int>(bounds->top),
-                           static_cast<int>(bounds->width),
-                           static_cast<int>(bounds->height));
-      gfx::ResizeEdge edge = InferResizeEdge(window->GetBounds(), new_bounds);
-      bool prevent_default = false;
-      window->NotifyWindowWillResize(new_bounds, edge, prevent_default);
-    }
-  } else if (state == "closed") {
-    window->OnHarmonyClosed();
-  } else {
-    OH_LOG_WARN(LOG_APP, "[LynxtronWindow] unknown state=%{public}s", state.c_str());
-  }
-}
-
 }  // namespace
-
-extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
-    int32_t harmony_window_id,
-    const char* state,
-    const LynxtronWindowBounds* bounds) {
-  if (!state || harmony_window_id <= 0) return;
-
-  // ArkTS lifecycle callbacks run inside the ArkUI / NAPI runtime. The window
-  // observers that eventually emit JS events must run on the C++ UI thread's
-  // task runner where a V8 context is active. Even if the calling pthread is
-  // the same as the C++ UI thread, we are not inside the base message loop that
-  // V8 is tied to, so always PostTask instead of calling directly.
-  if (!GlobalThread::IsThreadInitialized(GlobalThread::UI)) {
-    OH_LOG_WARN(LOG_APP,
-                "[LynxtronWindow] notifyWindowState: UI thread not ready, "
-                "dropping harmony_id=%{public}d state=%{public}s",
-                harmony_window_id, state);
-    return;
-  }
-
-  std::optional<LynxtronWindowBounds> captured_bounds;
-  if (bounds) {
-    captured_bounds = *bounds;
-  }
-
-  GlobalThread::GetUIThreadTaskRunner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          [](int32_t id, const std::string& state,
-             const std::optional<LynxtronWindowBounds>& b) {
-            DispatchHarmonyWindowState(id, state, b);
-          },
-          harmony_window_id, std::string(state), captured_bounds));
-}
 
 void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
                                             int width,

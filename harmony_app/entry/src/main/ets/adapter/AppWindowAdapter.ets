@@ -362,9 +362,6 @@ export class AppWindowAdapter {
         // Register window operation callbacks (minimize/restore/show/close/etc.).
         BaseWindowAbility.registerWindowOpCallbackForWindow(originWindowId, subWindow, parentContext);
 
-        // Keep C++ state cache in sync with manual minimize/maximize/restore/close.
-        BaseWindowAbility.registerWindowLifecycleListeners(originWindowId, subWindow);
-
         // Load UI content and show.
         subWindow.setUIContent('pages/Index', (err) => {
           if (err?.code) {

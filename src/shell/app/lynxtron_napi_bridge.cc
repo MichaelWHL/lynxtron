@@ -582,72 +582,6 @@ napi_value GetWindowId(napi_env env, napi_callback_info info) {
   return result;
 }
 
-// Reads a numeric property from |object|. Returns true and writes the value
-// when the property exists and is a number; otherwise returns false.
-bool GetObjectDoubleProperty(napi_env env,
-                             napi_value object,
-                             const char* key,
-                             double* out) {
-  napi_value value = nullptr;
-  if (napi_get_named_property(env, object, key, &value) != napi_ok) {
-    return false;
-  }
-  napi_valuetype type;
-  if (napi_typeof(env, value, &type) != napi_ok || type != napi_number) {
-    return false;
-  }
-  return napi_get_value_double(env, value, out) == napi_ok;
-}
-
-napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value args[3] = {nullptr, nullptr, nullptr};
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-  int32_t window_id = -1;
-  char state[64] = {0};
-  size_t state_len = 0;
-
-  if (argc >= 2 &&
-      napi_get_value_int32(env, args[0], &window_id) == napi_ok &&
-      napi_get_value_string_utf8(env, args[1], state, sizeof(state),
-                                 &state_len) == napi_ok) {
-    LynxtronWindowBounds bounds;
-    const LynxtronWindowBounds* bounds_ptr = nullptr;
-    if (argc >= 3) {
-      napi_valuetype arg2_type;
-      if (napi_typeof(env, args[2], &arg2_type) == napi_ok &&
-          arg2_type == napi_object &&
-          GetObjectDoubleProperty(env, args[2], "left", &bounds.left) &&
-          GetObjectDoubleProperty(env, args[2], "top", &bounds.top) &&
-          GetObjectDoubleProperty(env, args[2], "width", &bounds.width) &&
-          GetObjectDoubleProperty(env, args[2], "height", &bounds.height)) {
-        bounds_ptr = &bounds;
-      }
-    }
-
-    if (EnsureLynxtronLoaded()) {
-      auto fn = reinterpret_cast<LynxtronNotifyWindowStateFn>(
-          dlsym(g_lynxtron_handle, "LynxtronNotifyWindowState"));
-      if (fn) {
-        fn(window_id, state, bounds_ptr);
-      } else {
-        OH_LOG_ERROR(LOG_APP,
-                     "dlsym LynxtronNotifyWindowState FAILED: %{public}s",
-                     dlerror());
-      }
-    }
-  } else {
-    napi_throw_error(env, nullptr,
-                     "notifyWindowState requires (windowId, state, [bounds])");
-    return nullptr;
-  }
-
-  napi_value result = nullptr;
-  napi_get_undefined(env, &result);
-  return result;
-}
-
 // ---------------------------------------------------------------------------
 // OpenExternal handler — bridges platform_util -> ArkTS via TSFN
 //
@@ -2606,8 +2540,6 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr, napi_default, nullptr},
       {"getWindowId", nullptr, GetWindowId, nullptr, nullptr, nullptr,
        napi_default, nullptr},
-      {"notifyWindowState", nullptr, NotifyWindowState, nullptr, nullptr,
-       nullptr, napi_default, nullptr},
       {"registerWindowOpCallback", nullptr, RegisterWindowOpCallback, nullptr,
        nullptr, nullptr, napi_default, nullptr},
       {"registerWindowOpCallbackForWindow", nullptr, RegisterWindowOpCallback,

@@ -156,7 +156,6 @@ export default abstract class BaseWindowAbility extends UIAbility {
       }
 
       this.registerWindowOpCallback(windowStage);
-      BaseWindowAbility.registerWindowLifecycleListeners(this.windowId, mainWindow);
 
       // Load the page first; window decoration options (title, buttons,
       // resizable/movable, topmost, supported modes) are applied in the
@@ -173,27 +172,15 @@ export default abstract class BaseWindowAbility extends UIAbility {
 
   onWindowStageDestroy(): void {
     hilog.info(DOMAIN, TAG, 'onWindowStageDestroy windowId=%{public}d', this.windowId);
-    if (this.windowId >= 0) {
-      // Notify C++ even if the window was closed manually so the native side
-      // stops treating it as alive. This is a fallback for Ability windows;
-      // subwindows rely on the windowEvent listener registered below.
-      lynxtron.notifyWindowState(this.windowId, 'closed');
-    }
     AbilityManager.unregister(this.windowId);
   }
 
   onForeground(): void {
     hilog.info(DOMAIN, TAG, 'onForeground windowId=%{public}d', this.windowId);
-    if (this.windowId >= 0) {
-      lynxtron.notifyWindowState(this.windowId, 'foreground');
-    }
   }
 
   onBackground(): void {
     hilog.info(DOMAIN, TAG, 'onBackground windowId=%{public}d', this.windowId);
-    if (this.windowId >= 0) {
-      lynxtron.notifyWindowState(this.windowId, 'background');
-    }
     this.requestSuspendDelayForWindowOps();
   }
 
@@ -312,116 +299,6 @@ export default abstract class BaseWindowAbility extends UIAbility {
       () => this.requestSuspendDelayForWindowOps(),
       () => this.context.showAbility()
     );
-  }
-
-  // Public so AppWindowAdapter can register the same listeners for subwindows
-  // created via windowStage.createSubWindow().
-  static registerWindowLifecycleListeners(windowId: number, win: window.Window): void {
-    if (windowId < 0) {
-      hilog.warn(DOMAIN, TAG, 'registerWindowLifecycleListeners: invalid windowId');
-      return;
-    }
-
-    // Keep C++ window-state cache and JS events in sync with manual
-    // minimize/maximize/fullscreen/restore.
-    try {
-      let lastStatus = window.WindowStatusType.UNDEFINED;
-      win.on('windowStatusChange', (status: window.WindowStatusType) => {
-        if (status === lastStatus) {
-          return;
-        }
-        const previousStatus = lastStatus;
-        lastStatus = status;
-
-        hilog.info(DOMAIN, TAG,
-          'windowStatusChange windowId=%{public}d prev=%{public}d curr=%{public}d',
-          windowId, previousStatus, status);
-
-        // Transitions out of fullscreen.
-        if (previousStatus === window.WindowStatusType.FULL_SCREEN &&
-            status !== window.WindowStatusType.FULL_SCREEN) {
-          lynxtron.notifyWindowState(windowId, 'leave-full-screen');
-        }
-
-        switch (status) {
-          case window.WindowStatusType.MINIMIZE:
-            lynxtron.notifyWindowState(windowId, 'minimize');
-            break;
-          case window.WindowStatusType.MAXIMIZE:
-            lynxtron.notifyWindowState(windowId, 'maximize');
-            break;
-          case window.WindowStatusType.FULL_SCREEN:
-            lynxtron.notifyWindowState(windowId, 'enter-full-screen');
-            break;
-          default:
-            // FLOATING, SPLIT_SCREEN, UNDEFINED: window is back to a normal
-            // (non-minimized, non-maximized) state.
-            if (previousStatus === window.WindowStatusType.MINIMIZE ||
-                previousStatus === window.WindowStatusType.MAXIMIZE) {
-              lynxtron.notifyWindowState(windowId, 'restore');
-            }
-            break;
-        }
-      });
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'register windowStatusChange failed: %{public}s', String(e));
-    }
-
-    // Detect manual show/hide/close for both main Ability windows and subwindows.
-    try {
-      win.on('windowEvent', (event: window.WindowEventType) => {
-        if (event === window.WindowEventType.WINDOW_DESTROYED) {
-          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_DESTROYED windowId=%{public}d', windowId);
-          lynxtron.notifyWindowState(windowId, 'closed');
-        } else if (event === window.WindowEventType.WINDOW_SHOWN) {
-          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_SHOWN windowId=%{public}d', windowId);
-          lynxtron.notifyWindowState(windowId, 'show');
-        } else if (event === window.WindowEventType.WINDOW_HIDDEN) {
-          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_HIDDEN windowId=%{public}d', windowId);
-          lynxtron.notifyWindowState(windowId, 'hide');
-        }
-      });
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'register windowEvent failed: %{public}s', String(e));
-    }
-
-    // Forward resize completion to C++ so JS 'resized' fires. DRAG_END means
-    // the user has finished a drag-resize; RECOVER/MAXIMIZE cover restore and
-    // maximize transitions that also change the window size. DRAG_START is
-    // forwarded as 'will-resize' with the target bounds so JS can observe the
-    // resize before it completes.
-    try {
-      win.on('windowRectChange', (option: window.RectChangeOptions) => {
-        const reason = option.reason;
-        const rect = option.rect;
-        const bounds: WindowBounds | undefined = rect ? {
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        } : undefined;
-
-        if (reason === window.RectChangeReason.DRAG_START && bounds) {
-          hilog.info(DOMAIN, TAG,
-            'windowRectChange windowId=%{public}d reason=%{public}d will-resize',
-            windowId, reason);
-          lynxtron.notifyWindowState(windowId, 'will-resize', bounds);
-          return;
-        }
-
-        if (reason !== window.RectChangeReason.DRAG_END &&
-            reason !== window.RectChangeReason.RECOVER &&
-            reason !== window.RectChangeReason.MAXIMIZE) {
-          return;
-        }
-        hilog.info(DOMAIN, TAG,
-          'windowRectChange windowId=%{public}d reason=%{public}d',
-          windowId, reason);
-        lynxtron.notifyWindowState(windowId, 'resized');
-      });
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'register windowRectChange failed: %{public}s', String(e));
-    }
   }
 
   // Public so AppWindowAdapter can register window-op callbacks for subwindows
