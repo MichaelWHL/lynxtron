@@ -50,19 +50,15 @@ declare namespace lynxtron {
    */
   function setWindowId(id: number): void;
 
-  // ---- AppGallery Kit bridge ----
-  // Polled from ArkTS. Returns true when JS has requested checkAppUpdate.
+  // ---- AppGallery Kit bridge (TSFN, no polling) ----
+  // Registers a callback that receives request types from Node.js:
+  //   type=0 → checkAppUpdate, type=1 → showUpdateDialog, type=2 → loadProduct
+  function registerUpdateTSFN(callback: (type: number) => void): void;
   function consumeCheckAppUpdateRequest(): boolean;
   // Reports the JSON-serialized CheckUpdateResult back to C++.
   function resolveCheckAppUpdate(json: string): void;
-
-  // Returns true when JS has requested showUpdateDialog.
-  function consumeShowUpdateDialogRequest(): boolean;
   // Reports the ShowUpdateResultCode (int) back to C++.
   function resolveShowUpdateDialog(code: number): void;
-
-  // Returns the JSON params for loadProduct, or null if no pending request.
-  function consumeLoadProductParams(): string | null;
   // Reports the loadProduct result (JSON) back to C++.
   function resolveLoadProduct(json: string): void;
 }

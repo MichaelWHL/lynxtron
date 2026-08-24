@@ -7,7 +7,7 @@ import web_webview from '@ohos.web.webview';
 import { NodeController, BuilderNode, FrameNode } from '@ohos.arkui.node';
 import { UIContext } from '@ohos.arkui.UIContext';
 import { updateManager, productViewManager } from '@kit.AppGalleryKit';
-import { common, Want } from '@kit.AbilityKit';
+import { Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 // ---- Same-layer rendering (official ArkUI PlatformView-style embedding) ----
@@ -182,10 +182,10 @@ struct Index {
     // Lynx's focus/caret state from the ArkUI thread and attach, detach, or
     // move the candidate window accordingly.
     setInterval(() => this.syncImeState(), 50);
-    // Poll for AppGallery Kit requests from Lynx JS.
-    setInterval(() => this.pollCheckAppUpdate(), 1000);
-    //setInterval(() => this.pollShowUpdateDialog(), 1000);
-    //setInterval(() => this.pollLoadProduct(), 1000);
+    // Register TSFN callback for AppGallery Kit requests from Lynx JS.
+    // Node.js pushes requests via napi_threadsafe_function — no polling.
+    hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] aboutToAppear — registering TSFN callback');
+    this.registerUpdateCallback();
   }
 
   syncImeState(): void {
@@ -194,75 +194,78 @@ struct Index {
     lynxtron.syncIme();
   }
 
-  // ---- AppGallery Kit polling functions ----
+  // ---- AppGallery Kit: TSFN callback (replaces polling) ----
 
-  pollCheckAppUpdate(): void {
+  registerUpdateCallback(): void {
     const mod = lynxtron as Record<string, Object>;
-    if (!mod || typeof mod.consumeCheckAppUpdateRequest !== 'function') return;
-    if (!lynxtron.consumeCheckAppUpdateRequest()) return;
+    if (!mod || typeof mod.registerUpdateTSFN !== 'function') {
+      hilog.warn(DOMAIN, TAG, '[UpdateModel Index.ets] registerUpdateTSFN not available');
+      return;
+    }
+    lynxtron.registerUpdateTSFN((type: number) => {
+      hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] TSFN callback: type=%{public}d', type);
+      switch (type) {
+        case 0: this.handleCheckAppUpdate(); break;
+        case 1: this.handleShowUpdateDialog(); break;
+        case 2: this.handleLoadProduct(); break;
+        default: hilog.warn(DOMAIN, TAG, '[UpdateModel Index.ets] unknown TSFN type=%{public}d', type);
+      }
+    });
+    hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] TSFN callback registered');
+  }
 
-    hilog.info(DOMAIN, TAG, '[Update] checkAppUpdate requested');
+  handleCheckAppUpdate(): void {
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       updateManager.checkAppUpdate(ctx)
         .then((result: updateManager.CheckUpdateResult) => {
-          hilog.info(DOMAIN, TAG, '[Update] checkAppUpdate OK: %{public}s', String(result.updateAvailable));
+          hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] checkAppUpdate OK: %{public}s', String(result.updateAvailable));
           lynxtron.resolveCheckAppUpdate(JSON.stringify(result));
         })
         .catch((error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[Update] checkAppUpdate FAILED: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] checkAppUpdate FAILED: code=%{public}d', error.code);
           lynxtron.resolveCheckAppUpdate(JSON.stringify({ updateAvailable: false, error: error.message }));
         });
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[Update] checkAppUpdate threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] checkAppUpdate threw: %{public}s', String(e));
       lynxtron.resolveCheckAppUpdate(JSON.stringify({ updateAvailable: false, error: String(e) }));
     }
   }
 
-  pollShowUpdateDialog(): void {
-    const mod = lynxtron as Record<string, Object>;
-    if (!mod || typeof mod.consumeShowUpdateDialogRequest !== 'function') return;
-    if (!lynxtron.consumeShowUpdateDialogRequest()) return;
-
-    hilog.info(DOMAIN, TAG, '[Update] showUpdateDialog requested');
+  handleShowUpdateDialog(): void {
+    hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] showUpdateDialog requested');
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       updateManager.showUpdateDialog(ctx)
         .then((resultCode: updateManager.ShowUpdateResultCode) => {
-          hilog.info(DOMAIN, TAG, '[Update] showUpdateDialog OK: code=%{public}d', resultCode);
+          hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] showUpdateDialog OK: code=%{public}d', resultCode);
           lynxtron.resolveShowUpdateDialog(resultCode);
         })
         .catch((error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[Update] showUpdateDialog FAILED: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] showUpdateDialog FAILED: code=%{public}d', error.code);
           lynxtron.resolveShowUpdateDialog(-1);
         });
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[Update] showUpdateDialog threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] showUpdateDialog threw: %{public}s', String(e));
       lynxtron.resolveShowUpdateDialog(-1);
     }
   }
 
-  pollLoadProduct(): void {
-    const mod = lynxtron as Record<string, Object>;
-    if (!mod || typeof mod.consumeLoadProductParams !== 'function') return;
-    const paramsJson = lynxtron.consumeLoadProductParams();
-    if (!paramsJson) return;
-
-    hilog.info(DOMAIN, TAG, '[Update] loadProduct requested: %{public}s', paramsJson);
+  handleLoadProduct(): void {
+    hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] loadProduct requested');
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const params = JSON.parse(paramsJson) as Record<string, Object>;
+      // Params hardcoded — TSFN only carries a type code, no payload.
       const wantParam: Want = {
-        bundleName: params.bundleName as string,
-        parameters: params.parameters as Record<string, Object>,
+        bundleName: 'com.huawei.hmsapp.books',
       };
       const callback: productViewManager.ProductViewCallback = {
         onError: (error: BusinessError) => {
-          hilog.error(DOMAIN, TAG, '[Update] loadProduct onError: code=%{public}d', error.code);
+          hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] loadProduct onError: code=%{public}d', error.code);
           lynxtron.resolveLoadProduct(JSON.stringify({ success: false, errorCode: error.code, errorMessage: error.message }));
         },
         onAppear: () => {
-          hilog.info(DOMAIN, TAG, '[Update] loadProduct onAppear');
+          hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] loadProduct onAppear');
           lynxtron.resolveLoadProduct(JSON.stringify({ success: true }));
         },
         onDisappear: () => {
@@ -271,7 +274,7 @@ struct Index {
       };
       productViewManager.loadProduct(ctx, wantParam, callback);
     } catch (e) {
-      hilog.error(DOMAIN, TAG, '[Update] loadProduct threw: %{public}s', String(e));
+      hilog.error(DOMAIN, TAG, '[UpdateModel Index.ets] loadProduct threw: %{public}s', String(e));
       lynxtron.resolveLoadProduct(JSON.stringify({ success: false, errorMessage: String(e) }));
     }
   }

@@ -5,10 +5,10 @@
 // Native bindings for lynxtron.checkAppUpdate(), lynxtron.showUpdateDialog(),
 // and lynxtron.loadProduct().
 //
-// Each function returns a JS Promise. On HarmonyOS, the request is forwarded
-// to ArkTS via cross-library flags; the NAPI bridge (liblynxtron_napi.so)
-// polls these flags, runs the real @kit.AppGalleryKit APIs, and reports the
-// results back through the dlsym'd resolve functions below.
+// Each function returns a JS Promise. On HarmonyOS, the request is pushed to
+// ArkTS via napi_threadsafe_function (TSFN) — the NAPI bridge registers a
+// TSFN at init time, and we call napi_call_threadsafe_function() to wake the
+// ArkTS callback instantly instead of polling.
 //
 // On non-HarmonyOS, Promises are rejected immediately.
 
@@ -26,8 +26,10 @@
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/global_thread.h"
 #include "shell/common/node_includes.h"
+#include "third_party/napi/include/js_native_api.h"
+#include "third_party/napi/include/js_native_api_types.h"
 
-#define ZYBAPI_TAG ""
+#define ZYBAPI_TAG "[UpdateModel api_update_check.cc]"
 #define ZYBAPI_LOG(fmt, ...)                                  \
   do {                                                        \
     auto _now = std::chrono::system_clock::now();              \
@@ -44,20 +46,41 @@
 
 // ---- Shared state ----
 
+enum RequestType : int {
+  kCheckAppUpdate = 0,
+  kShowUpdateDialog = 1,
+  kLoadProduct = 2,
+};
+
+// TSFN registered by the NAPI bridge at ArkTS init time.
+static napi_threadsafe_function g_tsfn = nullptr;
+static std::mutex g_tsfn_mutex;
+
+static void DispatchTSFN(RequestType type) {
+  std::lock_guard<std::mutex> lock(g_tsfn_mutex);
+  if (!g_tsfn) {
+    ZYBAPI_LOG("DispatchTSFN: TSFN not registered yet, dropping request type=%d", (int)type);
+    return;
+  }
+  auto* data = new int(static_cast<int>(type));
+  napi_status status = napi_call_threadsafe_function(
+      g_tsfn, data, napi_tsfn_nonblocking);
+  ZYBAPI_LOG("DispatchTSFN type=%d status=%d", (int)type, (int)status);
+  if (status != napi_ok) {
+    delete data;
+  }
+}
+
+// Per-operation Promise resolver storage (used by resolve callbacks).
 // checkAppUpdate
-static std::atomic<bool> g_check_app_update_pending{false};
 static std::mutex g_check_mutex;
 static v8::Isolate* g_check_isolate = nullptr;
 static v8::Persistent<v8::Promise::Resolver>* g_check_resolver = nullptr;
-
 // showUpdateDialog
-static std::atomic<bool> g_show_dialog_pending{false};
 static std::mutex g_dialog_mutex;
 static v8::Isolate* g_dialog_isolate = nullptr;
 static v8::Persistent<v8::Promise::Resolver>* g_dialog_resolver = nullptr;
-
 // loadProduct
-static std::atomic<bool> g_load_product_pending{false};
 static std::mutex g_product_mutex;
 static v8::Isolate* g_product_isolate = nullptr;
 static v8::Persistent<v8::Promise::Resolver>* g_product_resolver = nullptr;
@@ -78,11 +101,15 @@ static void ClearResolver(v8::Persistent<v8::Promise::Resolver>** r,
 
 extern "C" {
 
-__attribute__((visibility("default"))) bool
-LynxtronConsumeCheckAppUpdateRequest() {
-  bool pending = g_check_app_update_pending.exchange(false);
-  ZYBAPI_LOG("ConsumeCheckAppUpdateRequest pending=%d", (int)pending);
-  return pending;
+__attribute__((visibility("default"))) void
+LynxtronRegisterUpdateTSFN(void* env, void* tsfn) {
+  std::lock_guard<std::mutex> lock(g_tsfn_mutex);
+  // Release old TSFN if re-registering.
+  if (g_tsfn) {
+    napi_release_threadsafe_function(g_tsfn, napi_tsfn_release);
+  }
+  g_tsfn = static_cast<napi_threadsafe_function>(tsfn);
+  ZYBAPI_LOG("LynxtronRegisterUpdateTSFN env=%p tsfn=%p", env, tsfn);
 }
 
 __attribute__((visibility("default"))) void LynxtronResolveCheckAppUpdate(const char* json) {
@@ -120,11 +147,6 @@ __attribute__((visibility("default"))) void LynxtronResolveCheckAppUpdate(const 
   }, std::move(json_copy)));
 }
 
-__attribute__((visibility("default"))) bool LynxtronConsumeShowUpdateDialogRequest() {
-  bool pending = g_show_dialog_pending.exchange(false);
-  ZYBAPI_LOG("ConsumeShowUpdateDialogRequest pending=%d", (int)pending);
-  return pending;
-}
 
 __attribute__((visibility("default"))) void LynxtronResolveShowUpdateDialog(int result_code) {
   ZYBAPI_LOG("ResolveShowUpdateDialog result_code=%d", result_code);
@@ -146,9 +168,6 @@ __attribute__((visibility("default"))) void LynxtronResolveShowUpdateDialog(int 
   }, result_code));
 }
 
-__attribute__((visibility("default"))) bool LynxtronConsumeLoadProductParams() {
-  return g_load_product_pending.exchange(false);
-}
 
 __attribute__((visibility("default"))) void LynxtronResolveLoadProduct(const char* json) {
   if (!json) return;
@@ -183,7 +202,7 @@ __attribute__((visibility("default"))) void LynxtronResolveLoadProduct(const cha
 namespace {
 
 v8::Local<v8::Value> CheckAppUpdate(v8::Isolate* isolate) {
-  ZYBAPI_LOG("CheckAppUpdateApi called");
+  ZYBAPI_LOG("CheckAppUpdate called");
 #if !BUILDFLAG(IS_HARMONY)
   auto resolver = v8::Promise::Resolver::New(isolate->GetCurrentContext()).ToLocalChecked();
   resolver->Reject(isolate->GetCurrentContext(),
@@ -200,8 +219,7 @@ v8::Local<v8::Value> CheckAppUpdate(v8::Isolate* isolate) {
     g_check_resolver = new v8::Persistent<v8::Promise::Resolver>();
     g_check_resolver->Reset(isolate, resolver);
   }
-  g_check_app_update_pending.store(true);
-  ZYBAPI_LOG("CheckAppUpdate request flag set");
+  DispatchTSFN(kCheckAppUpdate);
   return resolver->GetPromise();
 #endif
 }
@@ -223,8 +241,7 @@ v8::Local<v8::Value> ShowUpdateDialog(v8::Isolate* isolate) {
     g_dialog_resolver = new v8::Persistent<v8::Promise::Resolver>();
     g_dialog_resolver->Reset(isolate, resolver);
   }
-  g_show_dialog_pending.store(true);
-  ZYBAPI_LOG("ShowUpdateDialog request flag set");
+  DispatchTSFN(kShowUpdateDialog);
   return resolver->GetPromise();
 #endif
 }
@@ -246,8 +263,7 @@ v8::Local<v8::Value> LoadProduct(v8::Isolate* isolate) {
     g_product_resolver = new v8::Persistent<v8::Promise::Resolver>();
     g_product_resolver->Reset(isolate, resolver);
   }
-  g_load_product_pending.store(true);
-  ZYBAPI_LOG("LoadProduct request flag set");
+  DispatchTSFN(kLoadProduct);
   return resolver->GetPromise();
 #endif
 }
