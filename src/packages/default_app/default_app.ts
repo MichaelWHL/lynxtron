@@ -276,6 +276,11 @@ export const loadFile = async (appPath: string) => {
     '-lynx-invoke',
     async (callback: BridgeEventCallback, name: string, data: unknown) => {
       sendLog('log', '[default_app] bridge call:', name, data);
+      // update 相关接口 (checkAppUpdate / showUpdateDialog / loadProduct) 由
+      // lynx-window.ts 直接调用 AppGallery Kit binding 处理, 这里跳过以免重复 sendReply。
+      if (name === 'checkAppUpdate' || name === 'showUpdateDialog' || name === 'loadProduct') {
+        return;
+      }
       // 剪贴板写操作: 由 LogPanel 的复制按钮调用
       if (name === 'writeClipboard') {
         const d = (data ?? {}) as { text?: unknown };

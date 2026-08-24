@@ -191,6 +191,14 @@
   line-height: 20px;
 }
 
+.testCardCount {
+  color: #6ea8ff;
+  font-family: Inter;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
 /* ── 应用主体: 左菜单 + 右内容 ── */
 .appBody {
   display: flex;

@@ -231,6 +231,7 @@ action("default_app_bundle") {
   inputs = [
     "packages/default_app/app/package.json",
     "packages/default_app/app/lynx.config.mjs",
+    "packages/default_app/app/rspeedy-env.d.ts",
     "packages/default_app/app/index.tsx",
     "packages/default_app/app/index.css",
     "packages/default_app/app/router/index.tsx",
@@ -239,7 +240,9 @@ action("default_app_bundle") {
     "packages/default_app/app/pages/HomePage.tsx",
     "packages/default_app/app/pages/NotFoundPage.tsx",
     "packages/default_app/app/pages/sph/WindowPage.tsx",
+    "packages/default_app/app/pages/yb/AppModulePage.tsx",
     "packages/default_app/app/pages/zf/testRegistry.ts",
+    "packages/default_app/app/pages/zll/AppModulePage.tsx",
     "packages/default_app/app/pages/zf/TestModulePage.tsx",
     "packages/default_app/app/assets/box.png",
     "packages/default_app/app/assets/lightning.png",
