@@ -214,6 +214,7 @@ typescript_build("default_app_js") {
     "packages/default_app/main.ts",
     "packages/default_app/testModules/zf/utils.ts",
     "packages/default_app/testModules/zf/testDemo.ts",
+    "packages/default_app/testModules/sph/index.ts"
   ]
 
   # sources 跨了根目录与 testModules/zf 子目录, 指定 source_root 让输出的
