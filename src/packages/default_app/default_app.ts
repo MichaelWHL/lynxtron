@@ -162,35 +162,32 @@ const WIN_EVENTS = [
   'resize', 'resized', 'move', 'moved', 'will-resize',
 ] as const;
 
-const registeredWinEvents = new Set<string>();
+const wiredWinEvents = new WeakSet<LynxWindow>();
 
-function registerWinEventListeners(): number {
-  const win = mainWindow;
-  if (!win) {
-    sendLog('warn', '[WIN][events] mainWindow 未就绪');
+function registerWinEventListeners(win: LynxWindow | null): number {
+  if (!win || wiredWinEvents.has(win)) {
     return 0;
   }
+  wiredWinEvents.add(win);
   let newly = 0;
   for (const name of WIN_EVENTS) {
-    if (registeredWinEvents.has(name)) continue;
-    registeredWinEvents.add(name);
     newly++;
     (win as any).on(name, (...args: unknown[]) => {
       const detail = safeStringify(args.slice(1));
       sendLog('log', `[WIN][events] win.on("${name}") fired${detail && detail !== '[]' ? ' ' + detail : ''}`);
       try {
-        mainWindow?.sendGlobalEvent('win-event', { event: name, detail, ts: Date.now() });
+        win.sendGlobalEvent('win-event', { event: name, detail, ts: Date.now() });
       } catch {
         // 忽略发送异常
       }
     });
   }
-  sendLog('log', `[WIN][events] 注册 ${newly} 个监听(累计 ${registeredWinEvents.size})`);
+  sendLog('log', `[WIN][events] 注册 ${newly} 个窗口事件监听`);
   return newly;
 }
 
 /** App module 接口测试函数: 由 AppModulePage 按钮经 bridge 主动触发 */
-const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
+const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | Promise<void>> = {
   // ── 主动调用类 ──
   testAppSetName() {
     app.setName('醒图接口测试_runtime_1');
@@ -217,14 +214,22 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
     sendLog('log', '[APP][quit] app.quit() called');
     app.quit();
   },
-  // 新增一个普通窗口
+  // 新增一个内容与主窗口一致的新窗口
   testNewWindow(data) {
-    const opts = (data ?? {}) as { width?: number; height?: number; show?: boolean };
+    const opts = (data ?? {}) as { width?: number; height?: number };
     const width = opts.width ?? 800;
     const height = opts.height ?? 600;
-    const win = new LynxWindow({ width, height, show: opts.show ?? true });
+    const win = new LynxWindow({ width, height });
+    // 与主窗口加载同一份 app bundle
+    if (currentAppPath) {
+      win.loadFile(currentAppPath);
+    }
+    win.show();
+    // 给新窗口接上与主窗口相同的桥接与窗口事件监听
+    setupWindowBridge(win);
+    registerWinEventListeners(win);
     const id = String((win as unknown as { id?: number }).id ?? '?');
-    sendLog('log', `[APP][newWindow] 已新增窗口 ${width}x${height} id=${id}`);
+    sendLog('log', `[APP][newWindow] 已新增窗口 ${width}x${height} id=${id} (内容同主窗口)`);
   },
 
   // ── 事件/回调类 ──
@@ -291,16 +296,18 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
 
   // ── bridge 接口测试 ──
   // win.sendGlobalEvent: 主进程主动向渲染层推送自定义全局事件
-  testSendGlobalEvent(data) {
+  testSendGlobalEvent(data, win) {
     const msg = (data as { msg?: unknown } | undefined)?.msg ?? 'hello-from-main';
-    mainWindow?.sendGlobalEvent('yb-bridge-test', { type: 'sendGlobalEvent', detail: String(msg), ts: Date.now() });
+    const target = win ?? mainWindow;
+    target?.sendGlobalEvent('yb-bridge-test', { type: 'sendGlobalEvent', detail: String(msg), ts: Date.now() });
     sendLog('log', '[BRIDGE][sendGlobalEvent] 已调用 win.sendGlobalEvent("yb-bridge-test")');
   },
   // win.on("-lynx-invoke"): bridge.call 正是通过该事件送达, 能执行到这里即说明监听生效
-  testLynxInvoke(data) {
+  testLynxInvoke(data, win) {
     const msg = (data as { msg?: unknown } | undefined)?.msg ?? '(empty)';
     sendLog('log', `[BRIDGE][lynx-invoke] 收到 bridge.call, msg=${safeStringify(msg)}`);
-    mainWindow?.sendGlobalEvent('yb-bridge-test', { type: 'lynx-invoke', detail: safeStringify(msg), ts: Date.now() });
+    const target = win ?? mainWindow;
+    target?.sendGlobalEvent('yb-bridge-test', { type: 'lynx-invoke', detail: safeStringify(msg), ts: Date.now() });
   },
 
   // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
@@ -309,6 +316,90 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
     await runSphTests(currentAppPath ?? undefined);
   },
 };
+
+/**
+ * 给指定窗口接上渲染层 bridge 事件的桥接:
+ *  - '-lynx-invoke': bridge.call(channel, data, cb) 分发到 APP_TEST_FNS
+ *  - '-lynx-message': bridge.send(channel, data) 转发回该窗口的渲染层
+ */
+function setupWindowBridge(win: LynxWindow): void {
+  // @ts-ignore -lynx-invoke 为 Lynxtron 内部事件名
+  win.on(
+    '-lynx-invoke',
+    async (callback: BridgeEventCallback, name: string, data: unknown) => {
+      sendLog('log', '[default_app] bridge call:', name, data);
+      // update 相关接口 (checkAppUpdate / showUpdateDialog / loadProduct) 由
+      // lynx-window.ts 的每窗口 _init 处理, 这里跳过以免重复 sendReply。
+      if (name === 'checkAppUpdate' || name === 'showUpdateDialog' || name === 'loadProduct') {
+        return;
+      }
+      // 剪贴板写操作: 由 LogPanel 的复制按钮调用
+      if (name === 'writeClipboard') {
+        const d = (data ?? {}) as { text?: unknown };
+        if (typeof d.text !== 'string' || !d.text) {
+          callback.sendReply({ ok: false, error: 'text must be a non-empty string' });
+          return;
+        }
+        try {
+          clipboard.writeText(d.text);
+          callback.sendReply({ ok: true });
+        } catch (e) {
+          sendLog('error', '[default_app] writeClipboard failed:', e);
+          callback.sendReply({ ok: false, error: String(e) });
+        }
+        return;
+      }
+      // 渲染层 LogPanel 已注册 bridge-log 监听并上报就绪, 此时补发初始化前的缓存日志
+      if (name === 'logChannelReady') {
+        logChannelReady = true;
+        flushPendingLogs();
+        callback.sendReply({ ok: true });
+        return;
+      }
+      // App module 接口测试(由 AppModulePage 按钮触发, 日志格式 [APP][xxx])
+      const appFn = APP_TEST_FNS[name];
+      if (appFn) {
+        try {
+          await appFn(data, win);
+          callback.sendReply({ ok: true, data: null });
+        } catch (e) {
+          sendLog('error', '[default_app]', name, 'failed:', e);
+          callback.sendReply({ ok: false, error: String(e) });
+        }
+        return;
+      }
+      const fns = await ensureTestFns();
+      const fn = fns[name];
+      if (!fn) {
+        sendLog('error', '[default_app] unknown method:', name);
+        callback.sendReply({ ok: false, error: `unknown method: ${name}` });
+        return;
+      }
+      try {
+        const result = await fn();
+        callback.sendReply({ ok: true, data: result });
+      } catch (e) {
+        sendLog('error', '[default_app]', name, 'failed:', e);
+        callback.sendReply({ ok: false, error: String(e) });
+      }
+    }
+  );
+
+  // bridge.send(channel, data) 触发 -lynx-message, 转发回该窗口的渲染层
+  (win as any).on('-lynx-message', (channel: string, data: unknown) => {
+    sendLog('log', `[BRIDGE][lynx-message] channel="${channel}" data=${safeStringify(data)}`);
+    try {
+      win.sendGlobalEvent('yb-bridge-test', {
+        type: 'lynx-message',
+        channel,
+        detail: safeStringify(data),
+        ts: Date.now(),
+      });
+    } catch {
+      // 忽略发送异常
+    }
+  });
+}
 
 async function createWindow() {
   app.setName("醒图接口测试_dev");
@@ -347,88 +438,12 @@ export const loadFile = async (appPath: string) => {
   // 窗口的操作(最小化/最大化/全屏/拖拽缩放/失焦/显隐等), 触发后经 sendGlobalEvent
   // 推送给页面做显示。
   setTimeout(() => {
-    registerWinEventListeners();
+    registerWinEventListeners(mainWindow);
   }, 2000);
 
   // ── app 生命周期/事件监听测试 (日志格式与 [APP][setName] 对齐) ──
   // 说明: 事件监听改为由 AppModulePage 按钮触发注册(app.on), 避免重复监听。
 
-  // 桥接主线程: 处理来自 Lynx UI 的 bridge 调用, 分发到 testDemo 的对应测试方法
-  // @ts-ignore -lynx-invoke 为 Lynxtron 内部事件名
-  mainWindow.on(
-    '-lynx-invoke',
-    async (callback: BridgeEventCallback, name: string, data: unknown) => {
-      sendLog('log', '[default_app] bridge call:', name, data);
-      // update 相关接口 (checkAppUpdate / showUpdateDialog / loadProduct) 由
-      // lynx-window.ts 直接调用 AppGallery Kit binding 处理, 这里跳过以免重复 sendReply。
-      if (name === 'checkAppUpdate' || name === 'showUpdateDialog' || name === 'loadProduct') {
-        return;
-      }
-      // 剪贴板写操作: 由 LogPanel 的复制按钮调用
-      if (name === 'writeClipboard') {
-        const d = (data ?? {}) as { text?: unknown };
-        if (typeof d.text !== 'string' || !d.text) {
-          callback.sendReply({ ok: false, error: 'text must be a non-empty string' });
-          return;
-        }
-        try {
-          clipboard.writeText(d.text);
-          callback.sendReply({ ok: true });
-        } catch (e) {
-          sendLog('error', '[default_app] writeClipboard failed:', e);
-          callback.sendReply({ ok: false, error: String(e) });
-        }
-        return;
-      }
-      // 渲染层 LogPanel 已注册 bridge-log 监听并上报就绪, 此时补发初始化前的缓存日志
-      if (name === 'logChannelReady') {
-        logChannelReady = true;
-        flushPendingLogs();
-        callback.sendReply({ ok: true });
-        return;
-      }
-      // App module 接口测试(由 AppModulePage 按钮触发, 日志格式 [APP][xxx])
-      const appFn = APP_TEST_FNS[name];
-      if (appFn) {
-        try {
-          await appFn(data);
-          callback.sendReply({ ok: true, data: null });
-        } catch (e) {
-          sendLog('error', '[default_app]', name, 'failed:', e);
-          callback.sendReply({ ok: false, error: String(e) });
-        }
-        return;
-      }
-      const fns = await ensureTestFns();
-      const fn = fns[name];
-      if (!fn) {
-        sendLog('error', '[default_app] unknown method:', name);
-        callback.sendReply({ ok: false, error: `unknown method: ${name}` });
-        return;
-      }
-      try {
-        const result = await fn();
-        callback.sendReply({ ok: true, data: result });
-      } catch (e) {
-        sendLog('error', '[default_app]', name, 'failed:', e);
-        callback.sendReply({ ok: false, error: String(e) });
-      }
-    }
-  );
-
-  // 测试 win.on('-lynx-message'): 渲染层 NativeModules.bridge.send(channel, data)
-  // 会触发该事件(注意 send 只有两个参数, 没有 callback)。
-  (mainWindow as any).on('-lynx-message', (channel: string, data: unknown) => {
-    sendLog('log', `[BRIDGE][lynx-message] channel="${channel}" data=${safeStringify(data)}`);
-    try {
-      mainWindow?.sendGlobalEvent('yb-bridge-test', {
-        type: 'lynx-message',
-        channel,
-        detail: safeStringify(data),
-        ts: Date.now(),
-      });
-    } catch {
-      // 忽略发送异常
-    }
-  });
+  // 给主窗口接上 bridge 桥接(-lynx-invoke 分发 + -lynx-message 转发)
+  setupWindowBridge(mainWindow);
 };
