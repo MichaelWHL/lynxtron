@@ -54,6 +54,8 @@ export default function AppLayout() {
     };
     emitter.addListener('bridge-log', handler, lynx);
     log('[Layout] 已连接主进程日志通道');
+    // 通知主进程: bridge-log 监听已就绪, 可以补发初始化前的缓存日志
+    NativeModules.bridge.call('logChannelReady', {}, () => {});
     return () => {
       if (typeof emitter.removeListener === 'function') {
         emitter.removeListener('bridge-log', handler, lynx);
