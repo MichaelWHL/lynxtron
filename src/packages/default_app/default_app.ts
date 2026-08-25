@@ -215,6 +215,15 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
     sendLog('log', '[APP][quit] app.quit() called');
     app.quit();
   },
+  // 新增一个普通窗口
+  testNewWindow(data) {
+    const opts = (data ?? {}) as { width?: number; height?: number; show?: boolean };
+    const width = opts.width ?? 800;
+    const height = opts.height ?? 600;
+    const win = new LynxWindow({ width, height, show: opts.show ?? true });
+    const id = String((win as unknown as { id?: number }).id ?? '?');
+    sendLog('log', `[APP][newWindow] 已新增窗口 ${width}x${height} id=${id}`);
+  },
 
   // ── 事件/回调类 ──
   testAppWhenReady() {
@@ -276,6 +285,20 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
       win.setFrameTimingsEnabled(false);
       sendLog('log', '[APP][frame-timings] 已停止帧率监控');
     }
+  },
+
+  // ── bridge 接口测试 ──
+  // win.sendGlobalEvent: 主进程主动向渲染层推送自定义全局事件
+  testSendGlobalEvent(data) {
+    const msg = (data as { msg?: unknown } | undefined)?.msg ?? 'hello-from-main';
+    mainWindow?.sendGlobalEvent('yb-bridge-test', { type: 'sendGlobalEvent', detail: String(msg), ts: Date.now() });
+    sendLog('log', '[BRIDGE][sendGlobalEvent] 已调用 win.sendGlobalEvent("yb-bridge-test")');
+  },
+  // win.on("-lynx-invoke"): bridge.call 正是通过该事件送达, 能执行到这里即说明监听生效
+  testLynxInvoke(data) {
+    const msg = (data as { msg?: unknown } | undefined)?.msg ?? '(empty)';
+    sendLog('log', `[BRIDGE][lynx-invoke] 收到 bridge.call, msg=${safeStringify(msg)}`);
+    mainWindow?.sendGlobalEvent('yb-bridge-test', { type: 'lynx-invoke', detail: safeStringify(msg), ts: Date.now() });
   },
 
   // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
@@ -389,4 +412,20 @@ export const loadFile = async (appPath: string) => {
       }
     }
   );
+
+  // 测试 win.on('-lynx-message'): 渲染层 NativeModules.bridge.send(channel, data)
+  // 会触发该事件(注意 send 只有两个参数, 没有 callback)。
+  (mainWindow as any).on('-lynx-message', (channel: string, data: unknown) => {
+    sendLog('log', `[BRIDGE][lynx-message] channel="${channel}" data=${safeStringify(data)}`);
+    try {
+      mainWindow?.sendGlobalEvent('yb-bridge-test', {
+        type: 'lynx-message',
+        channel,
+        detail: safeStringify(data),
+        ts: Date.now(),
+      });
+    } catch {
+      // 忽略发送异常
+    }
+  });
 };

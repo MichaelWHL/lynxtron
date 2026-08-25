@@ -23,7 +23,7 @@ export interface MenuItem {
 export const MENU_ITEMS: MenuItem[] = [
   { path: '/', label: 'App', group: '首页' },
   { path: '/zll', label: ' APP MODULE API', group: 'part1' },
-  { path: '/yb', label: 'yb API', group: 'part2' },
+  { path: '/yb', label: 'update and win.on API', group: 'part2' },
   ...TEST_MODULES.filter((m) => m.tests.length > 0).map((m) => ({
     path: `/zf/${m.id}`,
     label: m.label,
