@@ -12,6 +12,17 @@ import lynxtron from 'liblynxtron_napi.so';
 import { AbilityManager } from '../common/AbilityManager';
 import { WindowBounds } from '../adapter/AppWindowAdapter';
 
+// Matches gfx::ResizeEdge in shell/ui/gfx/geometry/resize_utils.h and the
+// plain-C enum duplicated in lynxtron_napi_bridge.cc / native_window_harmony.cc.
+const RESIZE_EDGE_BOTTOM = 0;
+const RESIZE_EDGE_BOTTOM_LEFT = 1;
+const RESIZE_EDGE_BOTTOM_RIGHT = 2;
+const RESIZE_EDGE_LEFT = 3;
+const RESIZE_EDGE_RIGHT = 4;
+const RESIZE_EDGE_TOP = 5;
+const RESIZE_EDGE_TOP_LEFT = 6;
+const RESIZE_EDGE_TOP_RIGHT = 7;
+
 // JSON payloads received from the C++ window operation bridge.
 interface BoundsPayload {
   x: number;
@@ -83,6 +94,158 @@ export default abstract class BaseWindowAbility extends UIAbility {
   protected originWindowId: number = -1;
   protected launchOptions: WindowLaunchOptions = { windowId: -1, type: 'main' };
   protected suspendDelayInfo?: backgroundTaskManager.DelaySuspendInfo;
+
+static registerWindowLifecycleListeners(windowId: number, win: window.Window): void {
+    if (windowId < 0) {
+      hilog.warn(DOMAIN, TAG, 'registerWindowLifecycleListeners: invalid windowId');
+      return;
+    }
+
+    // Keep C++ window-state cache and JS events in sync with manual
+    // minimize/maximize/fullscreen/restore.
+    try {
+      let lastStatus = window.WindowStatusType.UNDEFINED;
+      win.on('windowStatusChange', (status: window.WindowStatusType) => {
+        if (status === lastStatus) {
+          return;
+        }
+        const previousStatus = lastStatus;
+        lastStatus = status;
+
+        hilog.info(DOMAIN, TAG,
+          'windowStatusChange windowId=%{public}d prev=%{public}d curr=%{public}d',
+          windowId, previousStatus, status);
+
+        // Transitions out of fullscreen.
+        if (previousStatus === window.WindowStatusType.MAXIMIZE &&
+          status !== window.WindowStatusType.MAXIMIZE) {
+          lynxtron.notifyWindowState(windowId, 'leave-full-screen');
+        }
+
+        switch (status) {
+          case window.WindowStatusType.MINIMIZE:
+            lynxtron.notifyWindowState(windowId, 'minimize');
+            break;
+          case window.WindowStatusType.MAXIMIZE:
+            // lynxtron.notifyWindowState(windowId, 'maximize');
+            lynxtron.notifyWindowState(windowId, 'enter-full-screen');
+            break;
+          case window.WindowStatusType.FULL_SCREEN:
+            lynxtron.notifyWindowState(windowId, 'enter-full-screen');
+            break;
+          default:
+          // FLOATING, SPLIT_SCREEN, UNDEFINED: window is back to a normal
+          // (non-minimized, non-maximized) state.
+            if (previousStatus === window.WindowStatusType.MINIMIZE ||
+              previousStatus === window.WindowStatusType.MAXIMIZE) {
+              lynxtron.notifyWindowState(windowId, 'restore');
+            }
+            break;
+        }
+      });
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'register windowStatusChange failed: %{public}s', String(e));
+    }
+
+    // Detect manual show/hide/close for both main Ability windows and subwindows.
+    try {
+      win.on('windowEvent', (event: window.WindowEventType) => {
+        if (event === window.WindowEventType.WINDOW_DESTROYED) {
+          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_DESTROYED windowId=%{public}d', windowId);
+          lynxtron.notifyWindowState(windowId, 'close');
+        } else if (event === window.WindowEventType.WINDOW_SHOWN) {
+          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_SHOWN windowId=%{public}d', windowId);
+          lynxtron.notifyWindowState(windowId, 'show');
+        } else if (event === window.WindowEventType.WINDOW_HIDDEN) {
+          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_HIDDEN windowId=%{public}d', windowId);
+          lynxtron.notifyWindowState(windowId, 'hide');
+        } else if (event === window.WindowEventType.WINDOW_INACTIVE) {
+          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_INACTIVE windowId=%{public}d', windowId);
+          lynxtron.notifyWindowState(windowId, 'blur');
+        }
+      });
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'register windowEvent failed: %{public}s', String(e));
+    }
+
+    // Forward resize completion to C++ so JS 'resized' fires. DRAG_END means
+    // the user has finished a drag-resize; RECOVER/MAXIMIZE cover restore and
+    // maximize transitions that also change the window size.
+    //
+    // The resize edge must not be derived from getLastPointerPosition(): while
+    // dragging a window edge the pointer lives in the window frame (outside the
+    // XComponent), so the cached position is stale and wildly wrong for the
+    // top/bottom edges. Instead, snapshot the rect at DRAG_START and diff it
+    // against the first DRAG rect — the edge that moved is the one being
+    // dragged. 'will-resize' therefore fires on the first DRAG instead of
+    // DRAG_START, but with a correct edge.
+    try {
+      let dragStartRect: window.Rect | null = null;
+      win.on('windowRectChange', (option: window.RectChangeOptions) => {
+        const reason = option.reason;
+
+        if (reason === window.RectChangeReason.DRAG_START && option.rect) {
+          dragStartRect = option.rect;
+          return;
+        }
+
+        if (reason === window.RectChangeReason.DRAG && option.rect && dragStartRect) {
+          const edge = BaseWindowAbility.computeResizeEdgeFromDelta(dragStartRect, option.rect);
+          dragStartRect = null;
+          hilog.info(DOMAIN, TAG,
+            'windowRectChange windowId=%{public}d reason=%{public}d will-resize edge=%{public}d',
+            windowId, reason, edge);
+          lynxtron.notifyWindowState(windowId, 'will-resize', edge);
+          return;
+        }
+
+        if (reason === window.RectChangeReason.DRAG_END) {
+          dragStartRect = null;
+          hilog.info(DOMAIN, TAG,
+            'windowRectChange windowId=%{public}d reason=%{public}d',
+            windowId, reason);
+          lynxtron.notifyWindowState(windowId, 'resized');
+          return;
+        }
+      });
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'register windowRectChange failed: %{public}s', String(e));
+    }
+  }
+
+  // Determines which edge/corner was dragged by diffing the rect captured at
+  // DRAG_START against the first DRAG rect. The edge whose coordinate moved is
+  // the one being resized. Returns a gfx::ResizeEdge value so it can be passed
+  // straight to notifyWindowState(..., 'will-resize', edge).
+  private static computeResizeEdgeFromDelta(before: window.Rect, after: window.Rect): number {
+    const leftChanged = before.left != after.left;
+    const rightChanged = (before.left + before.width) != (after.left + after.width);
+    const topChanged = before.top != after.top;
+    const bottomChanged = (before.top + before.height) != (after.top + after.height);
+
+    if (leftChanged && topChanged) {
+      return RESIZE_EDGE_TOP_LEFT;
+    }
+    if (rightChanged && topChanged) {
+      return RESIZE_EDGE_TOP_RIGHT;
+    }
+    if (leftChanged && bottomChanged) {
+      return RESIZE_EDGE_BOTTOM_LEFT;
+    }
+    if (rightChanged && bottomChanged) {
+      return RESIZE_EDGE_BOTTOM_RIGHT;
+    }
+    if (leftChanged) {
+      return RESIZE_EDGE_LEFT;
+    }
+    if (rightChanged) {
+      return RESIZE_EDGE_RIGHT;
+    }
+    if (topChanged) {
+      return RESIZE_EDGE_TOP;
+    }
+    return RESIZE_EDGE_BOTTOM;
+  }
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     const params = want.parameters as Record<string, Object> | undefined;
@@ -161,6 +324,9 @@ export default abstract class BaseWindowAbility extends UIAbility {
       // resizable/movable, topmost, supported modes) are applied in the
       // loadContent callback once the window is actually ready.
       this.onWindowCreated(windowStage, mainWindow);
+
+      // register window events
+      BaseWindowAbility.registerWindowLifecycleListeners(this.windowId, mainWindow);
 
       hilog.info(DOMAIN, TAG,
         'windowId=%{public}d originWindowId=%{public}d cppWindowId=%{public}d registered',

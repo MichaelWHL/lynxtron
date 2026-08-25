@@ -61,6 +61,22 @@ declare namespace lynxtron {
   function resolveShowUpdateDialog(code: number): void;
   // Reports the loadProduct result (JSON) back to C++.
   function resolveLoadProduct(json: string): void;
+  
+  /**
+   * Forwards a HarmonyOS window state change into the native window observer
+   * pipeline, which emits the matching JS event on the LynxWindow.
+   *
+   * Supported states: foreground, background, show, hide, minimize, restore,
+   * maximize, enter-full-screen, leave-full-screen, resize, resized, move,
+   * moved, will-resize, close, closed.
+   *
+   * bounds is optional and only used by resize/resized/move/moved/will-resize.
+   */
+  function notifyWindowState(
+    windowId: number,
+    state: string,
+    resizeEdge?: number,
+  ): void;
 }
 
 export default lynxtron;

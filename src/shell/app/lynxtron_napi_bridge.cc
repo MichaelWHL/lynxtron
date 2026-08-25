@@ -51,14 +51,18 @@
 
 namespace {
 
-// Optional bounds carried by ArkTS for will-resize events. Passed as a plain
-// C struct across the dlopen boundary so the NAPI bridge and liblynxtron.so
-// do not share C++ headers.
-struct LynxtronWindowBounds {
-  double left;
-  double top;
-  double width;
-  double height;
+// Plain C enum matching gfx::ResizeEdge in
+// shell/ui/gfx/geometry/resize_utils.h. The NAPI bridge and liblynxtron.so do
+// not share C++ headers, so the values are duplicated here on purpose.
+enum LynxtronResizeEdge {
+  kLynxtronResizeEdgeBottom = 0,
+  kLynxtronResizeEdgeBottomLeft = 1,
+  kLynxtronResizeEdgeBottomRight = 2,
+  kLynxtronResizeEdgeLeft = 3,
+  kLynxtronResizeEdgeRight = 4,
+  kLynxtronResizeEdgeTop = 5,
+  kLynxtronResizeEdgeTopLeft = 6,
+  kLynxtronResizeEdgeTopRight = 7,
 };
 
 using LynxtronMainFn = int (*)(int, char**);
@@ -67,7 +71,7 @@ using LynxtronRegisterWindowOpCallbackFn =
     void (*)(int32_t, void (*)(int32_t, const char*, const char*));
 using LynxtronGetWindowIdFn = int32_t (*)();
 using LynxtronNotifyWindowStateFn =
-    void (*)(int32_t, const char*, const LynxtronWindowBounds*);
+    void (*)(int32_t, const char*, int32_t);
 using LynxtronHandleOpenURLFn = void (*)(const char*);
 using LynxtronHandleOpenPathFn = void (*)(const char*);
 using LynxtronQuitFn = void (*)();
@@ -1744,6 +1748,58 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
   }
 }
 
+napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
+  OH_LOG_INFO(LOG_APP, "[WINEVENT] NotifyWindowState called");
+  size_t argc = 3;
+  napi_value args[3] = {nullptr, nullptr, nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  int32_t window_id = -1;
+  char state[64] = {0};
+  size_t state_len = 0;
+  int32_t resize_edge = kLynxtronResizeEdgeBottomRight;
+
+  if (argc >= 2 &&
+      napi_get_value_int32(env, args[0], &window_id) == napi_ok &&
+      napi_get_value_string_utf8(env, args[1], state, sizeof(state),
+                                 &state_len) == napi_ok) {
+    if (argc >= 3) {
+      napi_get_value_int32(env, args[2], &resize_edge);
+    }
+
+    OH_LOG_INFO(LOG_APP,
+                "[WINEVENT] notifyWindowState windowId=%{public}d "
+                "state=%{public}s resizeEdge=%{public}d argc=%{public}d",
+                window_id, state, resize_edge, (int)argc);
+
+    if (EnsureLynxtronLoaded()) {
+      auto fn = reinterpret_cast<LynxtronNotifyWindowStateFn>(
+          dlsym(g_lynxtron_handle, "LynxtronNotifyWindowState"));
+      if (fn) {
+        fn(window_id, state, resize_edge);
+      } else {
+        OH_LOG_ERROR(LOG_APP,
+                     "dlsym LynxtronNotifyWindowState FAILED: %{public}s",
+                     dlerror());
+      }
+    } else {
+      OH_LOG_ERROR(LOG_APP,
+                   "[WINEVENT] notifyWindowState: liblynxtron.so not loaded");
+    }
+  } else {
+    OH_LOG_ERROR(LOG_APP,
+                 "[WINEVENT] notifyWindowState: bad args argc=%{public}d",
+                 (int)argc);
+    napi_throw_error(env, nullptr,
+                     "notifyWindowState requires (windowId, state, [resizeEdge])");
+    return nullptr;
+  }
+
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // HarmonyOS native input method client
 //
@@ -2707,6 +2763,8 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr, nullptr, nullptr, napi_default, nullptr},
 	   {"registerUpdateTSFN", nullptr, RegisterUpdateTSFN,
        nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"notifyWindowState", nullptr, NotifyWindowState, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);

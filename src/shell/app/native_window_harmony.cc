@@ -37,13 +37,18 @@
 
 namespace lynxtron {
 
-// Plain C struct matching the NAPI bridge's LynxtronWindowBounds, used to pass
-// optional bounds for will-resize events across the dlopen boundary.
-struct LynxtronWindowBounds {
-  double left;
-  double top;
-  double width;
-  double height;
+// Plain C enum matching gfx::ResizeEdge in
+// shell/ui/gfx/geometry/resize_utils.h. liblynxtron.so and the NAPI bridge do
+// not share headers, so the values are duplicated here on purpose.
+enum LynxtronResizeEdge {
+  kLynxtronResizeEdgeBottom = 0,
+  kLynxtronResizeEdgeBottomLeft = 1,
+  kLynxtronResizeEdgeBottomRight = 2,
+  kLynxtronResizeEdgeLeft = 3,
+  kLynxtronResizeEdgeRight = 4,
+  kLynxtronResizeEdgeTop = 5,
+  kLynxtronResizeEdgeTopLeft = 6,
+  kLynxtronResizeEdgeTopRight = 7,
 };
 
 static std::string g_harmony_window_title;
@@ -117,6 +122,10 @@ extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId();
 extern "C" __attribute__((visibility("default"))) void LynxtronOnHarmonyWindowCreated(
     int32_t cpp_window_id,
     int32_t harmony_window_id);
+extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
+    int32_t harmony_window_id,
+    const char* state,
+    int32_t resize_edge);
 
 // HarmonyOS NativeWindow — minimal concrete implementation.
 //
@@ -857,24 +866,105 @@ extern "C" __attribute__((visibility("default"))) int32_t LynxtronGetWindowId() 
 // update observers.
 namespace {
 
-// Infer which resize edge moved by comparing the current bounds with the new
-// bounds reported by ArkTS. Defaults to kBottomRight when no edge changed.
-gfx::ResizeEdge InferResizeEdge(const gfx::Rect& old_bounds,
-                                const gfx::Rect& new_bounds) {
-  const bool left_moved = old_bounds.x() != new_bounds.x();
-  const bool top_moved = old_bounds.y() != new_bounds.y();
-  const bool right_moved = old_bounds.right() != new_bounds.right();
-  const bool bottom_moved = old_bounds.bottom() != new_bounds.bottom();
+// Converts the plain-C resize edge passed across the dlopen boundary into the
+// C++ gfx::ResizeEdge used by the observer pipeline.
+gfx::ResizeEdge ToResizeEdge(int32_t edge) {
+  switch (edge) {
+    case kLynxtronResizeEdgeBottom:
+      return gfx::ResizeEdge::kBottom;
+    case kLynxtronResizeEdgeBottomLeft:
+      return gfx::ResizeEdge::kBottomLeft;
+    case kLynxtronResizeEdgeBottomRight:
+      return gfx::ResizeEdge::kBottomRight;
+    case kLynxtronResizeEdgeLeft:
+      return gfx::ResizeEdge::kLeft;
+    case kLynxtronResizeEdgeRight:
+      return gfx::ResizeEdge::kRight;
+    case kLynxtronResizeEdgeTop:
+      return gfx::ResizeEdge::kTop;
+    case kLynxtronResizeEdgeTopLeft:
+      return gfx::ResizeEdge::kTopLeft;
+    case kLynxtronResizeEdgeTopRight:
+      return gfx::ResizeEdge::kTopRight;
+    default:
+      return gfx::ResizeEdge::kBottomRight;
+  }
+}
 
-  if (left_moved && top_moved) return gfx::ResizeEdge::kTopLeft;
-  if (right_moved && top_moved) return gfx::ResizeEdge::kTopRight;
-  if (left_moved && bottom_moved) return gfx::ResizeEdge::kBottomLeft;
-  if (right_moved && bottom_moved) return gfx::ResizeEdge::kBottomRight;
-  if (left_moved) return gfx::ResizeEdge::kLeft;
-  if (right_moved) return gfx::ResizeEdge::kRight;
-  if (top_moved) return gfx::ResizeEdge::kTop;
-  if (bottom_moved) return gfx::ResizeEdge::kBottom;
-  return gfx::ResizeEdge::kBottomRight;
+void DispatchHarmonyWindowState(
+    int32_t harmony_window_id,
+    const std::string& state,
+    int32_t resize_edge) {
+  NativeWindowHarmony* window = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_window_map_mutex);
+    auto it = g_harmony_id_to_window.find(harmony_window_id);
+    if (it != g_harmony_id_to_window.end()) window = it->second;
+  }
+  if (!window) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] dispatch: no native window for "
+                "harmony_id=%{public}d state=%{public}s (was setWindowId / "
+                "setWindowIdForWindow called?)",
+                harmony_window_id, state.c_str());
+    return;
+  }
+
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] dispatch harmony_id=%{public}d "
+              "window_id=%{public}d state=%{public}s",
+              harmony_window_id, window->window_id(), state.c_str());
+
+  if (state == "foreground") {
+    window->NotifyWindowFocus();
+  } else if (state == "background") {
+    window->NotifyWindowBlur();
+  } else if (state == "minimize") {
+    window->NotifyWindowMinimize();
+  } else if (state == "restore") {
+    window->NotifyWindowRestore();
+  } else if (state == "maximize") {
+    window->NotifyWindowMaximize();
+  } else if (state == "enter-full-screen") {
+    window->NotifyWindowEnterFullScreen();
+  } else if (state == "leave-full-screen") {
+    window->NotifyWindowLeaveFullScreen();
+  } else if (state == "show") {
+    window->NotifyWindowShow();
+  } else if (state == "hide") {
+    window->NotifyWindowHide();
+  } else if (state == "blur") {
+    window->NotifyWindowBlur();
+  } else if (state == "close") {
+    // Ask observers (JS `close` handler) before actually closing.
+    window->NotifyWindowCloseButtonClicked();
+  } else if (state == "closed") {
+    window->NotifyWindowClosed();
+  } else if (state == "resize") {
+    window->NotifyWindowResize();
+  } else if (state == "resized") {
+    window->NotifyWindowResized();
+  } else if (state == "move") {
+    window->NotifyWindowMove();
+  } else if (state == "moved") {
+    window->NotifyWindowMoved();
+  } else if (state == "will-resize") {
+    const gfx::ResizeEdge edge =
+        ToResizeEdge(resize_edge);
+    bool prevent_default = false;
+    OH_LOG_INFO(LOG_APP, "[LynxtronWindow] will-resize edge=%{public}d",
+                static_cast<int>(edge));
+    // HarmonyOS has no prospective size at DRAG_START (the rect has not
+    // changed yet), so pass the current bounds; the meaningful payload is the
+    // edge computed by ArkTS from the mouse position and window rect.
+    window->NotifyWindowWillResize(window->GetBounds(), edge, prevent_default);
+    OH_LOG_INFO(LOG_APP,
+                "[LynxtronWindow] will-resize prevent_default=%{public}d",
+                prevent_default);
+  } else {
+    OH_LOG_WARN(LOG_APP, "[LynxtronWindow] unknown state=%{public}s",
+                state.c_str());
+  }
 }
 
 }  // namespace
@@ -951,6 +1041,50 @@ void UpdateHarmonyNativeWindowSize(int width, int height) {
             }
           },
           std::move(window), width, height));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
+    int32_t harmony_window_id,
+    const char* state,
+    int32_t resize_edge) {
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] notifyWindowState entry harmony_id=%{public}d "
+              "state=%{public}s resizeEdge=%{public}d",
+              harmony_window_id, state ? state : "(null)", resize_edge);
+
+  if (!state || harmony_window_id <= 0) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] notifyWindowState: invalid args, dropping "
+                "(harmony_id=%{public}d state=%{public}s)",
+                harmony_window_id, state ? state : "(null)");
+    return;
+  }
+
+  // ArkTS lifecycle callbacks run inside the ArkUI / NAPI runtime. The window
+  // observers that eventually emit JS events must run on the C++ UI thread's
+  // task runner where a V8 context is active. Even if the calling pthread is
+  // the same as the C++ UI thread, we are not inside the base message loop that
+  // V8 is tied to, so always PostTask instead of calling directly.
+  if (!GlobalThread::IsThreadInitialized(GlobalThread::UI)) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] notifyWindowState: UI thread not ready, "
+                "dropping harmony_id=%{public}d state=%{public}s",
+                harmony_window_id, state);
+    return;
+  }
+
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] posting state dispatch to UI thread "
+              "(harmony_id=%{public}d)",
+              harmony_window_id);
+
+  GlobalThread::GetUIThreadTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](int32_t id, const std::string& state, int32_t edge) {
+            DispatchHarmonyWindowState(id, state, edge);
+          },
+          harmony_window_id, std::string(state), resize_edge));
 }
 
 // static
