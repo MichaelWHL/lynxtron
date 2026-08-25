@@ -26,13 +26,42 @@ function stringifyResult(res: unknown): string {
   }
 }
 
+// ── 窗口事件监听测试(最近一次提交「窗口事件」新增) ──
+const WIN_EVENT_NAMES = [
+  'resized', 'will-resize', 'close', 'blur', 
+  'minimize', 'enter-full-screen', 'leave-full-screen',
+//   'closed','show', 'hide', 'restore',
+//   'resize', 'move', 'moved', 'focus',
+];
+
 /** yb module: update 相关接口测试页 */
 export default function YbModulePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, { trigger: number; success: number }>>({});
+  const [winEventCounts, setWinEventCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     logInfo('[YB] yb module 页面已加载, 待测试 update 相关接口');
+  }, []);
+
+  useEffect(() => {
+    const emitter = lynx.getJSModule('GlobalEventEmitter') as any;
+    const handler = (payload: any) => {
+      if (payload && typeof payload.event === 'string') {
+        setWinEventCounts((prev) => ({
+          ...prev,
+          [payload.event]: (prev[payload.event] ?? 0) + 1,
+        }));
+      }
+    };
+    emitter.addListener('win-event', handler, lynx);
+    return () => {
+      if (typeof emitter.removeListener === 'function') {
+        emitter.removeListener('win-event', handler, lynx);
+      } else if (typeof emitter.off === 'function') {
+        emitter.off('win-event', handler, lynx);
+      }
+    };
   }, []);
 
   const bump = (name: string, key: 'trigger' | 'success') => {
@@ -84,6 +113,25 @@ export default function YbModulePage() {
             </view>
           );
         })}
+      </view>
+
+      <view className="pageSectionHeader">
+        <view className="pageSectionBar" />
+        <text className="pageSectionTitle">yb module · window 事件监听测试</text>
+      </view>
+
+      <view className="winEventPanel">
+        <view className="winEventPanelHeader">
+          <text className="winEventPanelTitle">
+            win.on(...) 事件触发计数(主进程已自动监听)
+          </text>
+        </view>
+        {WIN_EVENT_NAMES.map((name) => (
+          <view className="winEventRow" key={name}>
+            <text className="winEventName">win.on("{name}")</text>
+            <text className="winEventCount">{winEventCounts[name] ?? 0}</text>
+          </view>
+        ))}
       </view>
     </view>
   );

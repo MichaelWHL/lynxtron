@@ -199,6 +199,54 @@
   line-height: 18px;
 }
 
+.winEventPanel {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  grid-column-gap: 12px;
+  grid-row-gap: 12px;
+}
+
+.winEventPanelHeader {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.winEventPanelTitle {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: Inter;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.winEventRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  grid-column-gap: 12px;
+  flex-shrink: 0;
+  width: 280px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #1a1a22;
+  border: 1px solid #2c2c38;
+}
+
+.winEventName {
+  color: rgba(255, 255, 255, 0.75);
+  font-family: Inter;
+  font-size: 14px;
+}
+
+.winEventCount {
+  color: #6ea8ff;
+  font-family: Inter;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 /* ── 应用主体: 左菜单 + 右内容 ── */
 .appBody {
   display: flex;

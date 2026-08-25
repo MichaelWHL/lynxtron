@@ -150,6 +150,43 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
   }
 };
 
+// ── 窗口事件监听测试 (win.on('blur'|'focus'|...) ) ──
+// 最近一次提交「窗口事件」新增了 ArkTS→C++→JS 的窗口状态事件管线。这里在主进程
+// 注册监听, 每次触发时推送到渲染层 GlobalEventEmitter('win-event') 供页面计数。
+const WIN_EVENTS = [
+  'blur', 'focus', 'show', 'hide',
+  'minimize', 'restore', 'maximize', 'unmaximize',
+  'enter-full-screen', 'leave-full-screen',
+  'resize', 'resized', 'move', 'moved', 'will-resize',
+] as const;
+
+const registeredWinEvents = new Set<string>();
+
+function registerWinEventListeners(): number {
+  const win = mainWindow;
+  if (!win) {
+    sendLog('warn', '[WIN][events] mainWindow 未就绪');
+    return 0;
+  }
+  let newly = 0;
+  for (const name of WIN_EVENTS) {
+    if (registeredWinEvents.has(name)) continue;
+    registeredWinEvents.add(name);
+    newly++;
+    (win as any).on(name, (...args: unknown[]) => {
+      const detail = safeStringify(args.slice(1));
+      sendLog('log', `[WIN][events] win.on("${name}") fired${detail && detail !== '[]' ? ' ' + detail : ''}`);
+      try {
+        mainWindow?.sendGlobalEvent('win-event', { event: name, detail, ts: Date.now() });
+      } catch {
+        // 忽略发送异常
+      }
+    });
+  }
+  sendLog('log', `[WIN][events] 注册 ${newly} 个监听(累计 ${registeredWinEvents.size})`);
+  return newly;
+}
+
 /** App module 接口测试函数: 由 AppModulePage 按钮经 bridge 主动触发 */
 const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
   // ── 主动调用类 ──
@@ -266,6 +303,13 @@ export const loadFile = async (appPath: string) => {
 
   // 窗口已就绪: 重定向 console 输出到渲染层 LogPanel, 主进程 console 日志可见
   installConsoleForward();
+
+  // 窗口事件监听: 延迟 2 秒注册(等待窗口与渲染层完全就绪), 之后只监听用户对
+  // 窗口的操作(最小化/最大化/全屏/拖拽缩放/失焦/显隐等), 触发后经 sendGlobalEvent
+  // 推送给页面做显示。
+  setTimeout(() => {
+    registerWinEventListeners();
+  }, 2000);
 
   // ── app 生命周期/事件监听测试 (日志格式与 [APP][setName] 对齐) ──
   // 说明: 事件监听改为由 AppModulePage 按钮触发注册(app.on), 避免重复监听。
