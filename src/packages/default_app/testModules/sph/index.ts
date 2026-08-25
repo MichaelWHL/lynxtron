@@ -1,4 +1,4 @@
-import { app, LynxWindow, clipboard, LynxTemplateData } from 'lynxtron';
+import { app, LynxWindow, LynxTemplateData } from 'lynxtron';
 
 let mainWindow: LynxWindow | null = null;
 const recordedEvents: { type: string; ts: number }[] = [];
@@ -506,6 +506,22 @@ async function runTests() {
   }
 }
 
+/** 独立触发 WindowManager 测试：创建专用测试窗口并执行全部用例 */
+export async function runSphTests() {
+  if (mainWindow) {
+    console.log('[SphTest] test window already exists, skipping CreateWindow');
+  } else {
+    mainWindow = await createWindow();
+  }
+  try {
+    await runTests();
+  } finally {
+    mainWindow = null;
+    eventListenersAttached = false;
+    recordedEvents.length = 0;
+  }
+}
+
 async function createWindow() {
   app.setName("LYNXTRON-ZLL")
   await app.whenReady().then(()=>{
@@ -554,50 +570,6 @@ async function createWindow() {
   return mainWindow;
 }
 
-// bridge 调用回调类型: sendReply 用于把结果返回给 Lynx UI 侧
-type BridgeEventCallback = { sendReply: (result?: unknown) => void };
-
-type TestFn = () => Promise<void> | void;
-
-// testDemo.ts 中暴露的全部测试方法名
-const TEST_FN_NAMES = [
-  'testOpenExternal',
-  'testOpenPath',
-  'testShowOpenDialog',
-  'testShowSaveDialog',
-  'testCreateFromPath',
-  'testCreateFromBitmap',
-  'testOnlock',
-  'testFetchJson',
-  // ── poll() 替代 select() 回归测试 (node_bindings_harmony.cc PollEvents) ──
-  'testPollHttpBasic',
-  'testPollHttpConcurrent',
-  'testPollTimerPrecision',
-  'testPollTimerAndIO',
-  'testPollConnectRefused',
-  'testPollRequestTimeout',
-  'testPollHttpLoop',
-  'testPollNoTimerIO',
-  //
-  'testGetPrimaryDisplay',
-  "testClipboardWriteText"
-] as const;
-
-let testFns: Record<string, TestFn> | null = null;
-
-async function ensureTestFns(): Promise<Record<string, TestFn>> {
-  if (!testFns) {
-    const mod: Record<string, unknown> = await import('./testDemo.js');
-    testFns = {};
-    for (const name of TEST_FN_NAMES) {
-      if (typeof mod[name] === 'function') {
-        testFns[name] = mod[name] as TestFn;
-      }
-    }
-  }
-  return testFns;
-}
-
 function safeStringify(v: unknown): string {
   if (typeof v === 'string') return v;
   if (v === undefined) return 'undefined';
@@ -635,55 +607,4 @@ export const loadFile = async (appPath: string) => {
   console.error = (...args: unknown[]) => {
     sendLog('error', ...args);
   };
-
-  // 桥接主线程: 处理来自 Lynx UI 的 bridge 调用, 分发到 testDemo 的对应测试方法
-  // @ts-ignore -lynx-invoke 为 Lynxtron 内部事件名
-  mainWindow.on(
-    '-lynx-invoke',
-    async (callback: BridgeEventCallback, name: string, data: unknown) => {
-      console.log('[default_app] bridge call:', name, data);
-      // 剪贴板写操作: 由 LogPanel 的复制按钮调用
-      if (name === 'writeClipboard') {
-        const d = (data ?? {}) as { text?: unknown };
-        if (typeof d.text !== 'string' || !d.text) {
-          callback.sendReply({ ok: false, error: 'text must be a non-empty string' });
-          return;
-        }
-        try {
-          clipboard.writeText(d.text);
-          callback.sendReply({ ok: true });
-        } catch (e) {
-          console.error('[default_app] writeClipboard failed:', e);
-          callback.sendReply({ ok: false, error: String(e) });
-        }
-        return;
-      }
-
-      // Window 管理测试: 由 SPH WindowPage 的测试按钮触发
-      if (name === 'runWindowManagerTests') {
-        console.log('[WindowManagerTest] UI triggered runWindowManagerTests');
-        callback.sendReply({ ok: true, data: 'started' });
-        runTests().catch((err) => {
-          console.error('[WindowManagerTest] ERROR:', err);
-        });
-        return;
-      }
-
-      const fns = await ensureTestFns();
-      const fn = fns[name];
-      if (!fn) {
-        console.error('[default_app] unknown method:', name);
-        callback.sendReply({ ok: false, error: `unknown method: ${name}` });
-        return;
-      }
-      try {
-        const result = await fn();
-        callback.sendReply({ ok: true, data: result });
-      } catch (e) {
-        console.error('[default_app]', name, 'failed:', e);
-        callback.sendReply({ ok: false, error: String(e) });
-      }
-    }
-  );
-
 };

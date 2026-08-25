@@ -4,6 +4,7 @@
 
 import { app, clipboard, LynxWindow } from "lynxtron";
 import { BridgeEventCallback, ensureTestFns, safeStringify } from './testModules/zf/utils.js';
+import { runSphTests } from './testModules/sph/index.js';
 
 let mainWindow: LynxWindow | null = null;
 
@@ -239,6 +240,12 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
       sendLog('log', '[APP][frame-timings] 已停止帧率监控');
     }
   },
+
+  // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
+  async runWindowManagerTests() {
+    sendLog('log', '[APP][runWindowManagerTests] 触发 SPH WindowManager 测试');
+    await runSphTests();
+  },
 };
 
 async function createWindow() {
@@ -282,6 +289,11 @@ export const loadFile = async (appPath: string) => {
     '-lynx-invoke',
     async (callback: BridgeEventCallback, name: string, data: unknown) => {
       sendLog('log', '[default_app] bridge call:', name, data);
+      // update 相关接口 (checkAppUpdate / showUpdateDialog / loadProduct) 由
+      // lynx-window.ts 直接调用 AppGallery Kit binding 处理, 这里跳过以免重复 sendReply。
+      if (name === 'checkAppUpdate' || name === 'showUpdateDialog' || name === 'loadProduct') {
+        return;
+      }
       // 剪贴板写操作: 由 LogPanel 的复制按钮调用
       if (name === 'writeClipboard') {
         const d = (data ?? {}) as { text?: unknown };

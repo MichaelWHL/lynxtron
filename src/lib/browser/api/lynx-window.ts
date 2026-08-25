@@ -108,6 +108,42 @@ LynxWindow.prototype._init = function (this: LWT) {
     nativeSetBounds.call(this, bounds, ...opts);
   };
 
+  // Handle bridge.call() invocations from the Lynx renderer (TSX).
+  // The LynxBridgeModule calls EmitWithoutEvent("-lynx-invoke", callback, channel, args)
+  // which triggers this event with (callback, channel, data). The first argument
+  // is a LynxEmitEvent wrapper exposing sendReply() — it is NOT a plain function.
+  // We resolve known channels to C++ linked bindings and reply through sendReply.
+  this.on('-lynx-invoke', function (this: LWT, callback: any, channel: string, data: any) {
+    console.log('lynx-window -lynx-invoke channel=', channel);
+    const reply = (result: any) => {
+      if (callback && typeof callback.sendReply === 'function') {
+        callback.sendReply(result);
+      } else {
+        console.log('lynx-window -lynx-invoke missing sendReply for channel=', channel);
+      }
+    };
+    if (channel === 'checkAppUpdate') {
+      console.log('lynx-window dispatching checkAppUpdate');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      bindings.checkAppUpdate()
+        .then((result: any) => { console.log('lynx-window checkAppUpdate resolved:', JSON.stringify(result).substring(0, 200)); reply(result); })
+        .catch((err: any) => { console.log('lynx-window checkAppUpdate rejected:', err); reply({ error: true, message: String(err) }); });
+    } else if (channel === 'showUpdateDialog') {
+      console.log('lynx-window dispatching showUpdateDialog');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      bindings.showUpdateDialog()
+        .then((result: any) => { console.log('lynx-window showUpdateDialog resolved:', result); reply({ resultCode: result }); })
+        .catch((err: any) => { console.log('lynx-window showUpdateDialog rejected:', err); reply({ error: true, message: String(err) }); });
+    } else if (channel === 'loadProduct') {
+      console.log('lynx-window dispatching loadProduct');
+      const bindings = process._linkedBinding('lynxtron_binding_update_check');
+      // Params for loadProduct are hardcoded on the ArkTS side.
+      bindings.loadProduct()
+        .then((result: any) => { console.log('lynx-window loadProduct resolved:', JSON.stringify(result).substring(0, 200)); reply(result); })
+        .catch((err: any) => { console.log('lynx-window loadProduct rejected:', err); reply({ error: true, message: String(err) }); });
+    }
+  });
+
   // Dispatch messages from lynx window to the LynxBridgeMain module.
   // this.on('-lynx-message', function (this: LWT, event, channel, args) {
   //   lynxBridgeMain.emit(channel, event, args);

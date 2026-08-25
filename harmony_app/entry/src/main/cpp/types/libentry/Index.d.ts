@@ -50,88 +50,17 @@ declare namespace lynxtron {
    */
   function setWindowId(id: number): void;
 
-  /** Binds a C++-allocated window id to its HarmonyOS origin window id. */
-  function setWindowIdForWindow(cppWindowId: number, harmonyWindowId: number): void;
-
-  /** Returns the first native window id in this process. */
-  function getWindowId(): number;
-
-  /**
-   * Notifies liblynxtron of a window lifecycle/state change. The optional
-   * |bounds| parameter (left/top/width/height) is used by 'will-resize'.
-   */
-  function notifyWindowState(
-    windowId: number,
-    state: string,
-    bounds?: { left: number; top: number; width: number; height: number }
-  ): void;
-
-  /**
-    * Registers a callback that receives window operation requests from
-    * liblynxtron for a specific window id. The callback runs on the ArkUI
-    * thread and should call the matching ArkTS Window methods on the Ability
-    * instance that owns that window.
-    */
-  function registerWindowOpCallbackForWindow(
-    windowId: number,
-    callback: (windowId: number, op: string, value?: boolean) => void
-  ): void;
-  /**
-    * Backward-compatible overload: registers a callback for window id 0.
-    */
-  function registerWindowOpCallback(
-    callback: (op: string, value?: boolean) => void
-  ): void;
-
-  /** Notifies native powerMonitor listeners that the screen was locked. */
-  function notifyPowerMonitorLockScreen(): void;
-
-  /** Notifies native powerMonitor listeners that the screen was unlocked. */
-  function notifyPowerMonitorUnlockScreen(): void;
-
-  /**
-   * Registers the ArkTS handler for dialog.showOpenDialog(). The handler
-   * receives a request id plus the serialized dialog settings JSON, opens
-   * the system file picker, and reports the result via resolveShowOpenDialog.
-   */
-  function registerShowOpenDialog(
-    callback: (id: number, settings: string) => void
-  ): void;
-
-  /**
-   * Resolves a pending showOpenDialog request from ArkTS. `uris` are the raw
-   * picker URIs (used by C++ for OH_FileShare_PersistPermission — must be
-   * file://docs URIs, not paths), `paths` are the real filesystem paths
-   * converted by the ArkTS side (returned to JS as filePaths).
-   */
-  function resolveShowOpenDialog(
-    id: number,
-    uris: string[],
-    paths: string[],
-    canceled: boolean
-  ): void;
-
-  /**
-   * Registers the ArkTS handler for dialog.showSaveDialog(). The handler
-   * receives a request id plus the serialized dialog settings JSON, opens
-   * the system save picker, and reports the result via resolveShowSaveDialog.
-   */
-  function registerShowSaveDialog(
-    callback: (id: number, settings: string) => void
-  ): void;
-
-  /**
-   * Resolves a pending showSaveDialog request from ArkTS. `uri` is the raw
-   * picker URI (used by C++ for OH_FileShare_PersistPermission — must be a
-   * file://docs URI, not a path), `path` is the real filesystem path converted
-   * by the ArkTS side (returned to JS as filePath).
-   */
-  function resolveShowSaveDialog(
-    id: number,
-    uri: string,
-    path: string,
-    canceled: boolean
-  ): void;
+  // ---- AppGallery Kit bridge (TSFN, no polling) ----
+  // Registers a callback that receives request types from Node.js:
+  //   type=0 → checkAppUpdate, type=1 → showUpdateDialog, type=2 → loadProduct
+  function registerUpdateTSFN(callback: (type: number) => void): void;
+  function consumeCheckAppUpdateRequest(): boolean;
+  // Reports the JSON-serialized CheckUpdateResult back to C++.
+  function resolveCheckAppUpdate(json: string): void;
+  // Reports the ShowUpdateResultCode (int) back to C++.
+  function resolveShowUpdateDialog(code: number): void;
+  // Reports the loadProduct result (JSON) back to C++.
+  function resolveLoadProduct(json: string): void;
 }
 
 export default lynxtron;

@@ -47,6 +47,8 @@
 #define LOG_DOMAIN 0x0000
 #define LOG_TAG "LynxtronBridge"
 
+#define ZYBAPI_TAG ""
+
 namespace {
 
 // Optional bounds carried by ArkTS for will-resize events. Passed as a plain
@@ -1406,6 +1408,79 @@ GetTextInputStateFn g_get_text_input_state = nullptr;
 GetTitleFn g_get_title = nullptr;
 SetWindowCommandHandlerFn g_set_window_command_handler = nullptr;
 
+// ---- Update check / AppGallery Kit bridge ----
+// Uses NAPI ThreadSafe Function for instant Node.js → ArkTS communication.
+
+#define UPDATEMODEL_LOG(fmt, ...) OH_LOG_INFO(LOG_APP, "[UpdateModel lynxtron_napi_bridge.cc] " fmt, ##__VA_ARGS__)
+
+using ResolveCheckFn = void (*)(const char*);
+using ResolveDialogFn = void (*)(int);
+using ResolveProductFn = void (*)(const char*);
+using RegisterTSFNFn = void (*)(void* env, void* tsfn);
+
+ResolveCheckFn g_resolve_check = nullptr;
+ResolveDialogFn g_resolve_dialog = nullptr;
+ResolveProductFn g_resolve_product = nullptr;
+napi_threadsafe_function g_update_tsfn = nullptr;
+
+// Called by ArkTS at init time: lynxtron.registerUpdateTSFN(callback).
+// Creates a NAPI ThreadSafe Function that Node.js can wake from any thread,
+// then registers it with the C++ binding via dlsym.
+napi_value RegisterUpdateTSFN(napi_env env, napi_callback_info info) {
+  UPDATEMODEL_LOG("RegisterUpdateTSFN ENTER");
+  // Ensure liblynxtron.so is loaded so we can dlsym LynxtronRegisterUpdateTSFN.
+  // aboutToAppear() runs before XComponent.onLoad → Start() → EnsureLynxtronLoaded(),
+  // so g_lynxtron_handle may still be null here.
+  EnsureLynxtronLoaded();
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok ||
+      argc < 1) {
+    OH_LOG_ERROR(LOG_APP, "[UpdateModel lynxtron_napi_bridge.cc] RegisterUpdateTSFN: missing callback arg");
+    napi_value r; napi_get_undefined(env, &r); return r;
+  }
+  // Create TSFN from the ArkTS callback.
+  napi_value res_name;
+  napi_create_string_utf8(env, "UpdateTSFN", NAPI_AUTO_LENGTH, &res_name);
+  napi_create_threadsafe_function(
+      env, argv[0], nullptr, res_name, 4, 1, nullptr,
+      [](napi_env, void*, void* ctx) {
+        // TSFN finalizer — cleanup context if needed.
+      },
+      nullptr,
+      [](napi_env tsfn_env, napi_value js_callback, void* context, void* data) {
+        // Called on ArkTS main thread when Node.js pushes a request.
+        auto* type_ptr = static_cast<int*>(data);
+        int request_type = *type_ptr;
+        delete type_ptr;
+        UPDATEMODEL_LOG("TSFN callback: type=%{public}d", request_type);
+        napi_value argv_cb[1];
+        napi_create_int32(tsfn_env, request_type, &argv_cb[0]);
+        napi_value global;
+        napi_get_global(tsfn_env, &global);
+        napi_call_function(tsfn_env, global, js_callback, 1, argv_cb, nullptr);
+      },
+      &g_update_tsfn);
+  UPDATEMODEL_LOG("RegisterUpdateTSFN: TSFN created tsfn=%{public}p",
+              (void*)g_update_tsfn);
+
+  // Register the TSFN with the C++ binding so Node.js can use it.
+  if (g_lynxtron_handle) {
+    auto reg = reinterpret_cast<RegisterTSFNFn>(
+        dlsym(g_lynxtron_handle, "LynxtronRegisterUpdateTSFN"));
+    if (reg) {
+      reg(env, g_update_tsfn);
+      UPDATEMODEL_LOG("RegisterUpdateTSFN: registered with C++ binding");
+    } else {
+      OH_LOG_ERROR(LOG_APP, "[UpdateModel lynxtron_napi_bridge.cc] RegisterUpdateTSFN: dlsym LynxtronRegisterUpdateTSFN failed: %{public}s", dlerror());
+    }
+  } else {
+    OH_LOG_ERROR(LOG_APP, "[UpdateModel lynxtron_napi_bridge.cc] RegisterUpdateTSFN: g_lynxtron_handle is null even after EnsureLynxtronLoaded");
+  }
+
+  napi_value r; napi_get_undefined(env, &r); return r;
+}
+
 // Lynx logical key ids (see ToLynxLogicalKey below for the full mapping).
 constexpr uint64_t kLogicalBackspace = 0x00100000008ULL;
 constexpr uint64_t kLogicalEnter = 0x0010000000dULL;
@@ -2221,6 +2296,70 @@ napi_value OpenPath(napi_env env, napi_callback_info info) {
   napi_get_undefined(env, &result);
   return result;
 }
+// The ArkTS TSFN callback receives the request type, runs the
+// @kit.AppGalleryKit API, and reports results back through these functions.
+
+napi_value ResolveCheckAppUpdate(napi_env env, napi_callback_info info) {
+  UPDATEMODEL_LOG("ResolveCheckAppUpdate ENTER");
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    if (len > 0) {
+      std::string json(len + 1, '\0');
+      napi_get_value_string_utf8(env, argv[0], json.data(), json.size(), &len);
+      json.resize(len);
+      UPDATEMODEL_LOG("ResolveCheckAppUpdate json=%{public}s", json.c_str());
+      if (!g_resolve_check && g_lynxtron_handle)
+        g_resolve_check = reinterpret_cast<ResolveCheckFn>(
+            dlsym(g_lynxtron_handle, "LynxtronResolveCheckAppUpdate"));
+      if (g_resolve_check) g_resolve_check(json.c_str());
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value ResolveShowUpdateDialog(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    int32_t code = 0;
+    napi_get_value_int32(env, argv[0], &code);
+    UPDATEMODEL_LOG("ResolveShowUpdateDialog code=%{public}d", code);
+    if (!g_resolve_dialog && g_lynxtron_handle)
+      g_resolve_dialog = reinterpret_cast<ResolveDialogFn>(
+          dlsym(g_lynxtron_handle, "LynxtronResolveShowUpdateDialog"));
+    if (g_resolve_dialog) g_resolve_dialog(code);
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value ResolveLoadProduct(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1] = {};
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) == napi_ok && argc >= 1) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    if (len > 0) {
+      std::string json(len + 1, '\0');
+      napi_get_value_string_utf8(env, argv[0], json.data(), json.size(), &len);
+      json.resize(len);
+      UPDATEMODEL_LOG("ResolveLoadProduct json=%{public}s", json.c_str());
+      if (!g_resolve_product && g_lynxtron_handle)
+        g_resolve_product = reinterpret_cast<ResolveProductFn>(
+            dlsym(g_lynxtron_handle, "LynxtronResolveLoadProduct"));
+      if (g_resolve_product) g_resolve_product(json.c_str());
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
 
 // Polled from the ArkUI thread. Attaching there keeps GetTextConfig on the
 // UI thread, which is what the NDK documents for the config callback.
@@ -2560,6 +2699,14 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"openPath", nullptr, OpenPath, nullptr, nullptr, nullptr, napi_default,
        nullptr},
+      {"resolveCheckAppUpdate", nullptr, ResolveCheckAppUpdate,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowUpdateDialog", nullptr, ResolveShowUpdateDialog,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveLoadProduct", nullptr, ResolveLoadProduct,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
+	   {"registerUpdateTSFN", nullptr, RegisterUpdateTSFN,
+       nullptr, nullptr, nullptr, napi_default, nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);
