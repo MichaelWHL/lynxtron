@@ -7,7 +7,7 @@ import { BridgeEventCallback, ensureTestFns, safeStringify } from './testModules
 
 let mainWindow: LynxWindow | null = null;
 
-// 日志通道就绪标志: loadFile 完成后置 true。
+// 日志通道就绪标志: 渲染层 LogPanel 注册完 bridge-log 监听并上报后置 true。
 let logChannelReady = false;
 
 // 待发送日志队列: 按产生顺序缓存 mainWindow 就绪前的日志。
@@ -153,7 +153,7 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
 const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
   // ── 主动调用类 ──
   testAppSetName() {
-    app.setName('醒图接口测试');
+    app.setName('醒图接口测试_runtime_1');
     sendLog('log', '[APP][setName] setName success');
     sendLog('log', '[APP][getName]', app.getName());
   },
@@ -163,10 +163,15 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
   testAppGetPath() {
     testAppGetPath();
   },
-  // 去掉 OHOS 原生边框: 创建 frame:false 的无边框窗口
+  // 去掉 OHOS 原生边框: 等价于 setWindowDecorVisible(false) + setWindowTitleButtonVisible(false,false,false)
   testAppFrameless() {
-    const win = new LynxWindow({ frame: false, width: 600, height: 400 });
-    sendLog('log', '[APP][frameless] 已创建无边框窗口 frame=false, id =', String((win as unknown as { id?: number }).id ?? '?'));
+    const win = mainWindow;
+    if (!win) {
+      sendLog('warn', '[APP][frameless] mainWindow 未就绪');
+      return;
+    }
+    win.setWindowButtonVisibility(false);
+    sendLog('log', '[APP][frameless] 已隐藏 OHOS 原生装饰(主窗口)');
   },
   testAppQuit() {
     sendLog('log', '[APP][quit] app.quit() called');
@@ -237,14 +242,22 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
 };
 
 async function createWindow() {
-  app.setName("醒图接口测试");
+  app.setName("醒图接口测试_dev");
   await app.whenReady().then(() => {
     sendLog('log', '[APP][whenReady] ready, app name:', app.getName());
   });
   sendLog('log', '[APP][setName] setName success');
   sendLog('log', '[APP][getName]', app.getName());
   testAppGetPath();
-  mainWindow = new LynxWindow();
+  //
+  APP_TEST_FNS.testAppOpenUrl()
+  APP_TEST_FNS.testAppBeforeQuit()
+  APP_TEST_FNS.testAppWindowAllClosed()
+
+  mainWindow = new LynxWindow({
+    width: 2000,
+    height: 1200
+  });
   return mainWindow;
 }
 
@@ -253,9 +266,9 @@ export const loadFile = async (appPath: string) => {
   mainWindow.loadFile(appPath);
   mainWindow.show();
 
-  // mainWindow 与 LynxView 已就绪, 把初始化之前缓存的日志按序发送
-  logChannelReady = true;
-  flushPendingLogs();
+  // 日志通道真正就绪的时机以渲染层上报为准(见下方 logChannelReady 处理):
+  // 此刻 LynxView 尚未加载完 bundle, bridge-log 监听还没注册, 提前 flush 会被丢弃,
+  // 因此这里不再置 logChannelReady, 初始化前的日志继续缓存在 pendingLogs 中。
 
   // 窗口已就绪: 重定向 console 输出到渲染层 LogPanel, 主进程 console 日志可见
   installConsoleForward();
@@ -283,6 +296,13 @@ export const loadFile = async (appPath: string) => {
           sendLog('error', '[default_app] writeClipboard failed:', e);
           callback.sendReply({ ok: false, error: String(e) });
         }
+        return;
+      }
+      // 渲染层 LogPanel 已注册 bridge-log 监听并上报就绪, 此时补发初始化前的缓存日志
+      if (name === 'logChannelReady') {
+        logChannelReady = true;
+        flushPendingLogs();
+        callback.sendReply({ ok: true });
         return;
       }
       // App module 接口测试(由 AppModulePage 按钮触发, 日志格式 [APP][xxx])
