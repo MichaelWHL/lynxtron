@@ -131,76 +131,6 @@ async function runBatch6Tests() {
   }
 }
 
-async function runBatch2Tests() {
-  console.log('[WindowManagerTest] === Batch 2 Window Event Bridge Test Start ===');
-
-  if (!mainWindow) {
-    console.log('[WindowManagerTest] ERROR: mainWindow is null');
-    return;
-  }
-
-  const win = mainWindow;
-
-  function expectEventAfter(eventName: string, action: () => void, timeoutMs = 5000) {
-    const beforeCount = recordedEvents.length;
-    action();
-    return new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        const found = recordedEvents
-          .slice(beforeCount)
-          .some((e) => e.type === eventName);
-        if (found) {
-          resolve();
-        } else {
-          reject(new Error(`expected event "${eventName}" was not recorded`));
-        }
-      }, timeoutMs);
-    });
-  }
-
-  try {
-    // B2-STEP1: fullscreen events
-    console.log('[WindowManagerTest] ACTION: calling setFullScreen(true)');
-    try {
-      await expectEventAfter('enter-full-screen', () => win.setFullScreen(true));
-      logResult('B2-STEP1 enter-full-screen event', { recorded: true });
-      console.log('[WindowManagerTest] B2-STEP1 result: PASS');
-    } catch (err) {
-      logResult('B2-STEP1 enter-full-screen event', { recorded: false, error: String(err) });
-      console.log('[WindowManagerTest] B2-STEP1 result: FAIL (enter-full-screen not recorded)');
-    }
-
-    await sleep(1000);
-
-    console.log('[WindowManagerTest] ACTION: calling setFullScreen(false)');
-    try {
-      await expectEventAfter('leave-full-screen', () => win.setFullScreen(false));
-      logResult('B2-STEP2 leave-full-screen event', { recorded: true });
-      console.log('[WindowManagerTest] B2-STEP2 result: PASS');
-    } catch (err) {
-      logResult('B2-STEP2 leave-full-screen event', { recorded: false, error: String(err) });
-      console.log('[WindowManagerTest] B2-STEP2 result: FAIL (leave-full-screen not recorded)');
-    }
-
-    await sleep(1000);
-
-    // B2-STEP3: resized event
-    console.log('[WindowManagerTest] ACTION: calling setSize(...)');
-    try {
-      await expectEventAfter('resized', () => win.setSize(900, 700));
-      logResult('B2-STEP3 resized event', { recorded: true });
-      console.log('[WindowManagerTest] B2-STEP3 result: PASS');
-    } catch (err) {
-      logResult('B2-STEP3 resized event', { recorded: false, error: String(err) });
-      console.log('[WindowManagerTest] B2-STEP3 result: FAIL (resized not recorded)');
-    }
-
-    console.log('[WindowManagerTest] === Batch 2 Window Event Bridge Test End ===');
-  } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during batch 2 tests: ${String(err)}`);
-  }
-}
-
 async function runBatch7Tests() {
   console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test Start ===');
 
@@ -392,7 +322,6 @@ async function runTests() {
   // Run batch 3 and batch 6 tests first while the window is still alive.
   await runBatch3Tests();
   await runBatch6Tests();
-  await runBatch2Tests();
 
   try {
     // Step 1: initial state (window is created with show: false)

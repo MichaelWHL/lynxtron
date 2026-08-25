@@ -473,9 +473,9 @@ class NativeWindowHarmony : public NativeWindow {
     InvokeWindowOp(harmony_window_id_, "setSize", SizeToJson(size).c_str());
     NotifyWindowResize();
   }
-  gfx::Rect GetBounds() const override { return window_bounds_; }
+  gfx::Rect GetBounds() const override { return bounds_; }
   float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
-  gfx::Rect GetNormalBounds() const override { return window_bounds_; }
+  gfx::Rect GetNormalBounds() const override { return bounds_; }
 
   // --- size constraints ---
   void SetSizeConstraints(const SizeConstraints& window_constraints) override {
