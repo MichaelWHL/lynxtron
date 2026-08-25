@@ -239,6 +239,7 @@ class NativeWindowHarmony : public NativeWindow {
                 "%{public}dx%{public}d window_id=%{public}d harmony_id=%{public}d",
                 x, y, w, h, window_id_, harmony_window_id_);
     bounds_ = gfx::Rect(x, y, w, h);
+    window_bounds_ = bounds_;
 
     // If this window's XComponent surface has already arrived, size the window
     // to it instead of the requested dimensions. This keeps LynxView's viewport
@@ -455,23 +456,26 @@ class NativeWindowHarmony : public NativeWindow {
   // --- geometry ---
   void SetBounds(const gfx::Rect& bounds, bool animate) override {
     bounds_ = bounds;
+    window_bounds_ = bounds;
     InvokeWindowOp(harmony_window_id_, "setBounds", RectToJson(bounds).c_str());
     NotifyWindowResize();
     NotifyWindowMove();
   }
   void SetPosition(const gfx::Point& position, bool animate) override {
     bounds_.set_origin(position);
+    window_bounds_.set_origin(position);
     InvokeWindowOp(harmony_window_id_, "setPosition", PointToJson(position).c_str());
     NotifyWindowMove();
   }
   void SetSize(const gfx::Size& size, bool animate) override {
     bounds_.set_size(size);
+    window_bounds_.set_size(size);
     InvokeWindowOp(harmony_window_id_, "setSize", SizeToJson(size).c_str());
     NotifyWindowResize();
   }
-  gfx::Rect GetBounds() const override { return bounds_; }
+  gfx::Rect GetBounds() const override { return window_bounds_; }
   float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
-  gfx::Rect GetNormalBounds() const override { return bounds_; }
+  gfx::Rect GetNormalBounds() const override { return window_bounds_; }
 
   // --- size constraints ---
   void SetSizeConstraints(const SizeConstraints& window_constraints) override {
@@ -514,9 +518,8 @@ class NativeWindowHarmony : public NativeWindow {
     }
   }
   ui::ZOrderLevel GetZOrderLevel() const override { return z_order_; }
-  void Center() override {
-    InvokeWindowOp(harmony_window_id_, "center", SizeToJson(bounds_.size()).c_str());
-  }
+  // Center() is not part of the HarmonyOS window adaptation scope.
+  void Center() override {}
   void SetTitle(const std::string& title) override {
     title_ = title;
     InvokeWindowOp(harmony_window_id_, "setTitle", TitleToJson(title).c_str());
@@ -635,7 +638,8 @@ class NativeWindowHarmony : public NativeWindow {
            ",\"maxHeight\":" + std::to_string(max_size.height()) + "}";
   }
 
-  gfx::Rect bounds_;
+  gfx::Rect bounds_;             // Surface/content bounds (drawable rect).
+  gfx::Rect window_bounds_;      // Window rect including system decorations.
   std::string title_;
   void* surface_ = nullptr;  // OHOS XComponent surface, set by HAP later.
 

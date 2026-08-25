@@ -8,6 +8,8 @@ import { runSphTests } from './testModules/sph/index.js';
 
 let mainWindow: LynxWindow | null = null;
 
+// The currently loaded app path; passed to runSphTests by runWindowManagerTests.
+let currentAppPath: string | null = null;
 // 日志通道就绪标志: 渲染层 LogPanel 注册完 bridge-log 监听并上报后置 true。
 let logChannelReady = false;
 
@@ -304,7 +306,7 @@ const APP_TEST_FNS: Record<string, (data?: unknown) => void | Promise<void>> = {
   // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
   async runWindowManagerTests() {
     sendLog('log', '[APP][runWindowManagerTests] 触发 SPH WindowManager 测试');
-    await runSphTests();
+    await runSphTests(currentAppPath ?? undefined);
   },
 };
 
@@ -329,6 +331,7 @@ async function createWindow() {
 }
 
 export const loadFile = async (appPath: string) => {
+  currentAppPath = appPath;
   mainWindow = await createWindow();
   mainWindow.loadFile(appPath);
   mainWindow.show();

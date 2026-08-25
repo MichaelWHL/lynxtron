@@ -334,19 +334,7 @@ async function runBatch8Tests() {
 
     await sleep(500);
 
-    // B8-STEP5: center
-    console.log('[WindowManagerTest] ACTION: calling center()');
-    const beforeCenter = win.getPosition();
-    win.center();
-    await sleep(1000);
-    const afterCenter = win.getPosition();
-    logResult('B8-STEP5 center', { before: beforeCenter, after: afterCenter });
-    const centerPass = afterCenter[0] !== beforeCenter[0] || afterCenter[1] !== beforeCenter[1];
-    console.log(`[WindowManagerTest] B8-STEP5 result: ${centerPass ? 'PASS' : 'FAIL'} (expected position changed)`);
-
-    await sleep(500);
-
-    // B8-STEP6: hide / show
+    // B8-STEP5: hide / show
     console.log('[WindowManagerTest] ACTION: calling hide()');
     win.hide();
     await sleep(1000);
@@ -355,12 +343,12 @@ async function runBatch8Tests() {
     win.show();
     await sleep(1000);
     const shownVisible = win.isVisible();
-    logResult('B8-STEP6 hide/show', { hiddenVisible, shownVisible });
-    console.log(`[WindowManagerTest] B8-STEP6 result: ${hiddenVisible === false && shownVisible === true ? 'PASS' : 'FAIL'} (expected hidden=false, shown=true)`);
+    logResult('B8-STEP5 hide/show', { hiddenVisible, shownVisible });
+    console.log(`[WindowManagerTest] B8-STEP5 result: ${hiddenVisible === false && shownVisible === true ? 'PASS' : 'FAIL'} (expected hidden=false, shown=true)`);
 
     await sleep(500);
 
-    // B8-STEP7: focus false / true + blur event
+    // B8-STEP6: focus false / true + blur event
     console.log('[WindowManagerTest] ACTION: calling focus(false)');
     const blurEvents: string[] = [];
     win.on('blur' as any, () => blurEvents.push('blur'));
@@ -373,8 +361,8 @@ async function runBatch8Tests() {
     win.focus();
     await sleep(1000);
     const focused = win.isFocused();
-    logResult('B8-STEP7 focus/blur', { blurred, focused, events: blurEvents });
-    console.log(`[WindowManagerTest] B8-STEP7 result: ${blurred && focused ? 'PASS' : 'FAIL'} (expected blurred=true, focused=true)`);
+    logResult('B8-STEP6 focus/blur', { blurred, focused, events: blurEvents });
+    console.log(`[WindowManagerTest] B8-STEP6 result: ${blurred && focused ? 'PASS' : 'FAIL'} (expected blurred=true, focused=true)`);
   } catch (err) {
     console.log(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
   } finally {
@@ -413,7 +401,7 @@ async function runTests() {
 
     // Step 2: show (window starts hidden)
     console.log('[WindowManagerTest] ACTION: calling show()');
-    await sleep(30000);
+    await sleep(5000);
     win.show();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP2 after show', s);
@@ -430,7 +418,7 @@ async function runTests() {
 
     // Step 3: minimize (verify isMinimized state)
     console.log('[WindowManagerTest] ACTION: calling minimize()');
-    await sleep(10000);
+    await sleep(5000);
     win.minimize();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP3 after minimize', s);
@@ -438,7 +426,7 @@ async function runTests() {
 
     // Step 4: restore from minimized state
     console.log('[WindowManagerTest] ACTION: calling restore()');
-    await sleep(10000);
+    await sleep(5000);
     win.restore();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP4 after restore', s);
@@ -446,7 +434,7 @@ async function runTests() {
 
     // Step 5: maximize (verify isMaximized state)
     console.log('[WindowManagerTest] ACTION: calling maximize()');
-    await sleep(10000);
+    await sleep(5000);
     win.maximize();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP5 after maximize', s);
@@ -454,7 +442,7 @@ async function runTests() {
 
     // Step 6: restore from maximized state
     console.log('[WindowManagerTest] ACTION: calling restore()');
-    await sleep(10000);
+    await sleep(5000);
     win.restore();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP6 after restore from maximized', s);
@@ -462,7 +450,7 @@ async function runTests() {
 
     // Step 7: focus
     console.log('[WindowManagerTest] ACTION: calling focus()');
-    await sleep(30000);
+    await sleep(5000);
     win.focus();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP7 after focus', s);
@@ -470,14 +458,14 @@ async function runTests() {
 
     // Step 8: setAlwaysOnTop true
     console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(true)');
-    await sleep(30000);
+    await sleep(5000);
     win.setAlwaysOnTop(true);
     logResult('STEP8 after setAlwaysOnTop(true)', { alwaysOnTop: true });
     console.log('[WindowManagerTest] STEP8 result: PASS (no getter, visual check)');
 
     // Step 9: setAlwaysOnTop false
     console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(false)');
-    await sleep(30000);
+    await sleep(5000);
     win.setAlwaysOnTop(false);
     logResult('STEP9 after setAlwaysOnTop(false)', { alwaysOnTop: false });
     console.log('[WindowManagerTest] STEP9 result: PASS (no getter, visual check)');
@@ -491,7 +479,7 @@ async function runTests() {
     // Also verifies batch 2 'close' and 'closed' events.
     console.log('[WindowManagerTest] ACTION: calling close()');
     const beforeCloseCount = recordedEvents.length;
-    await sleep(30000);
+    await sleep(5000);
     win.close();
     await sleep(1000);
     const closeEvents = recordedEvents.slice(beforeCloseCount);
@@ -507,7 +495,7 @@ async function runTests() {
 }
 
 /** 独立触发 WindowManager 测试：创建专用测试窗口并执行全部用例 */
-export async function runSphTests() {
+export async function runSphTests(appPath: string | undefined) {
   if (mainWindow) {
     console.log('[SphTest] test window already exists, skipping CreateWindow');
   } else {

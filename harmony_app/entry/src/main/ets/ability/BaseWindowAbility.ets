@@ -640,30 +640,6 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
               .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', BaseWindowAbility.errText(e)));
             break;
           }
-          case 'center': {
-            const rect = args ? JSON.parse(args) as SizePayload : undefined;
-            if (!rect) {
-              BaseWindowAbility.recordWindowOpResult('center', 'ERR', 'missing-args');
-              break;
-            }
-            if (BaseWindowAbility.skipIfImmersive(win, 'center')) {
-              break;
-            }
-            try {
-              const disp = display.getDefaultDisplaySync();
-              const borders = BaseWindowAbility.getWindowBorders(win);
-              const totalWidth = rect.width + borders.leftBorder + borders.rightBorder;
-              const totalHeight = rect.height + borders.topBorder + borders.bottomBorder;
-              const left = Math.round((disp.width - totalWidth) / 2);
-              const top = Math.round((disp.height - totalHeight) / 2);
-              win.moveWindowToAsync(left, top)
-                .then(() => BaseWindowAbility.recordWindowOpResult('center', 'OK'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('center', 'ERR', BaseWindowAbility.errText(e)));
-            } catch (e) {
-              BaseWindowAbility.recordWindowOpResult('center', 'ERR', String(e));
-            }
-            break;
-          }
           case 'setTitle': {
             const titlePayload = args ? JSON.parse(args) as TitlePayload : undefined;
             const title = titlePayload?.title ?? '';
