@@ -126,6 +126,12 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
     int32_t harmony_window_id,
     const char* state,
     int32_t resize_edge);
+extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
+    int32_t harmony_window_id,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height);
 
 // HarmonyOS NativeWindow — minimal concrete implementation.
 //
@@ -476,6 +482,13 @@ class NativeWindowHarmony : public NativeWindow {
   gfx::Rect GetBounds() const override { return bounds_; }
   float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
   gfx::Rect GetNormalBounds() const override { return bounds_; }
+  gfx::Rect GetWindowBounds() const override { return window_bounds_; }
+  gfx::Size GetWindowSize() const override { return window_bounds_.size(); }
+
+  // Updates the cached window rect (windowRect) reported by ArkTS. This is the
+  // actual OS window size including decorations/avoidance areas, which differs
+  // from bounds_ (the drawable/content rect).
+  void SetWindowBoundsFromArkTS(const gfx::Rect& rect) { window_bounds_ = rect; }
 
   // --- size constraints ---
   void SetSizeConstraints(const SizeConstraints& window_constraints) override {
@@ -971,6 +984,32 @@ void DispatchHarmonyWindowState(
   }
 }
 
+void DispatchHarmonyWindowRect(int32_t harmony_window_id,
+                               const gfx::Rect& rect) {
+  NativeWindowHarmony* window = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_window_map_mutex);
+    auto it = g_harmony_id_to_window.find(harmony_window_id);
+    if (it != g_harmony_id_to_window.end()) {
+      window = it->second;
+    }
+  }
+  if (!window) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] dispatch rect: no native window for "
+                "harmony_id=%{public}d",
+                harmony_window_id);
+    return;
+  }
+
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] dispatch rect harmony_id=%{public}d "
+              "rect=%{public}d,%{public}d,%{public}dx%{public}d",
+              harmony_window_id, rect.x(), rect.y(), rect.width(),
+              rect.height());
+  window->SetWindowBoundsFromArkTS(rect);
+}
+
 }  // namespace
 
 void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
@@ -1089,6 +1128,42 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
             DispatchHarmonyWindowState(id, state, edge);
           },
           harmony_window_id, std::string(state), resize_edge));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
+    int32_t harmony_window_id,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height) {
+  OH_LOG_INFO(LOG_APP,
+              "[LynxtronWindow] notifyWindowRect entry harmony_id=%{public}d "
+              "rect=%{public}d,%{public}d,%{public}dx%{public}d",
+              harmony_window_id, x, y, width, height);
+
+  if (harmony_window_id <= 0 || width <= 0 || height <= 0) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] notifyWindowRect: invalid args, dropping "
+                "(harmony_id=%{public}d rect=%{public}d,%{public}d,%{public}dx%{public}d)",
+                harmony_window_id, x, y, width, height);
+    return;
+  }
+
+  if (!GlobalThread::IsThreadInitialized(GlobalThread::UI)) {
+    OH_LOG_WARN(LOG_APP,
+                "[LynxtronWindow] notifyWindowRect: UI thread not ready, "
+                "dropping harmony_id=%{public}d",
+                harmony_window_id);
+    return;
+  }
+
+  GlobalThread::GetUIThreadTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](int32_t id, int32_t rx, int32_t ry, int32_t rw, int32_t rh) {
+            DispatchHarmonyWindowRect(id, gfx::Rect(rx, ry, rw, rh));
+          },
+          harmony_window_id, x, y, width, height));
 }
 
 // static

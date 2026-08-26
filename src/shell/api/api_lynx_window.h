@@ -5,6 +5,7 @@
 #ifndef LYNXTRON_SHELL_API_API_LYNX_WINDOW_H_
 #define LYNXTRON_SHELL_API_API_LYNX_WINDOW_H_
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -61,6 +62,13 @@ class LynxWindow : public BaseWindow, public lynxtron::LynxViewClient {
 
   void SetFpsMonitorEnabled(bool enabled,
                             std::optional<uint32_t> sample_interval_millis);
+
+#if BUILDFLAG(IS_HARMONY)
+  // Returns the actual OS window size (windowRect), including decorations and
+  // avoidance areas. This differs from getSize(), which returns the drawable
+  // (surface/content) size on Harmony.
+  std::array<int, 2U> GetWindowSize() const;
+#endif
 
  protected:
   LynxWindow(gin::Arguments* args, const gin_helper::Dictionary& options);

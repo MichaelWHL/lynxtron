@@ -371,7 +371,10 @@ export class AppWindowAdapter {
           hilog.info(DOMAIN, TAG, 'subWindow setUIContent OK');
           if (options.show !== false) {
             subWindow.showWindow()
-              .then(() => hilog.info(DOMAIN, TAG, 'subWindow showWindow OK'))
+              .then(() => {
+                hilog.info(DOMAIN, TAG, 'subWindow showWindow OK');
+                BaseWindowAbility.reportWindowRect(originWindowId, subWindow);
+              })
               .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'subWindow showWindow failed: %{public}s', JSON.stringify(e)));
           }
         });

@@ -5,6 +5,7 @@
 #include "shell/api/api_lynx_window.h"
 
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <memory>
 #include <string_view>
@@ -610,6 +611,13 @@ void LynxWindow::SetFpsMonitorEnabled(
   StartFpsMonitorTask();
 }
 
+#if BUILDFLAG(IS_HARMONY)
+std::array<int, 2U> LynxWindow::GetWindowSize() const {
+  gfx::Size size = window()->GetWindowSize();
+  return {size.width(), size.height()};
+}
+#endif
+
 void LynxWindow::StartFpsMonitorTask() {
   fps_monitor_task_.Reset(base::BindOnce(
       [](base::WeakPtr<LynxWindow> window) {
@@ -1075,7 +1083,7 @@ gin_helper::WrappableBase* LynxWindow::New(gin_helper::ErrorThrower thrower,
 void LynxWindow::BuildPrototype(v8::Isolate* isolate,
                                 v8::Local<v8::FunctionTemplate> prototype) {
   prototype->SetClassName(gin::StringToV8(isolate, "LynxWindow"));
-  gin_helper::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
+  auto builder = gin_helper::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
       .SetMethod("loadFile", &LynxWindow::LoadFile)
       .SetMethod("loadURL", &LynxWindow::LoadUrl)
       .SetMethod("loadBundle", &LynxWindow::LoadBundle)
@@ -1083,6 +1091,9 @@ void LynxWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("setGlobalProps", &LynxWindow::SetGlobalProps)
       .SetMethod("sendGlobalEvent", &LynxWindow::SendGlobalEvent)
       .SetMethod("setFrameTimingsEnabled", &LynxWindow::SetFpsMonitorEnabled);
+#if BUILDFLAG(IS_HARMONY)
+  builder.SetMethod("getWindowSize", &LynxWindow::GetWindowSize);
+#endif
 }
 
 // static

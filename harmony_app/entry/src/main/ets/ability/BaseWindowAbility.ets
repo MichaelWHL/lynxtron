@@ -184,6 +184,13 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       win.on('windowRectChange', (option: window.RectChangeOptions) => {
         const reason = option.reason;
 
+        // Report the actual OS window rect (windowRect) back to C++. This is
+        // independent of the existing drag/resize event handling and does not
+        // modify the original logic below.
+        if (option.rect) {
+          BaseWindowAbility.reportWindowRect(windowId, win);
+        }
+
         if (reason === window.RectChangeReason.DRAG_START && option.rect) {
           dragStartRect = option.rect;
           return;
@@ -245,6 +252,27 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       return RESIZE_EDGE_TOP;
     }
     return RESIZE_EDGE_BOTTOM;
+  }
+
+  // Reports the actual OS window rect (windowRect) to the C++ layer. The C++
+  // layer keeps this separate from bounds_, which tracks the drawable/content
+  // rect updated by XComponent surface callbacks.
+  public static reportWindowRect(windowId: number, win: window.Window): void {
+    try {
+      const rect = win.getWindowProperties().windowRect;
+      if (!rect) {
+        return;
+      }
+      (lynxtron as any).notifyWindowRect(
+        windowId,
+        rect.left ?? 0,
+        rect.top ?? 0,
+        rect.width ?? 0,
+        rect.height ?? 0
+      );
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'reportWindowRect failed: %{public}s', String(e));
+    }
   }
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -437,6 +465,10 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
         hilog.error(DOMAIN, TAG, 'setWindowLimits failed: %{public}s', String(e));
       }
     }
+
+    // Report the initial real window rect to C++ so getWindowSize() reflects the
+    // actual OS window size rather than the drawable/content size.
+    BaseWindowAbility.reportWindowRect(this.windowId, mainWindow);
   }
 
   // Keep the Ability alive long enough to perform window operations (especially
