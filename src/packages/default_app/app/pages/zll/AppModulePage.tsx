@@ -2,8 +2,8 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-import { useEffect, useState } from '@lynx-js/react';
-import { log, logError, logInfo } from '../../utils/log';
+import { useEffect, useRef, useState } from '@lynx-js/react';
+import { log, logError, logInfo, logPass, logFail, subscribeLogs } from '../../utils/log';
 
 // ── 主动调用类 App 接口 ──
 const ACTIVE_APIS: Array<{ name: string; label: string; desc: string }> = [
@@ -23,6 +23,21 @@ const EVENT_APIS: Array<{ name: string; label: string; desc: string }> = [
   { name: 'testFrameTimings', label: 'win.on(frame-timings)', desc: '帧率监控开关(结果在上方看板)' },
 ];
 
+// ── 一键启动测试: 依次运行全部 App 接口 ──
+// testAppQuit 会直接退出应用, 不能放进批量测试
+// log: 每个接口主进程会打印的日志标记, 以此为通过判据(见 APP_TEST_FNS 内 sendLog 格式)
+const BATCH_TESTS: Array<{ name: string; label: string; log: string }> = [
+  { name: 'testAppSetName', label: 'app.setName', log: '[APP][setName]' },
+  { name: 'testAppGetName', label: 'app.getName()', log: '[APP][getName]' },
+  { name: 'testAppGetPath', label: 'app.getPath()', log: '[APP][getPath]' },
+  { name: 'testAppFrameless', label: '无边框窗口', log: '[APP][frameless]' },
+  { name: 'testAppWhenReady', label: 'app.whenReady()', log: '[APP][whenReady]' },
+  { name: 'testAppOpenUrl', label: 'app.on(open-url)', log: '[APP][open-url]' },
+  { name: 'testAppBeforeQuit', label: 'app.on(before-quit)', log: '[APP][before-quit]' },
+  { name: 'testAppWindowAllClosed', label: 'app.on(window-all-closed)', log: '[APP][window-all-closed]' },
+  { name: 'testFrameTimings', label: 'win.on(frame-timings)', log: '[APP][frame-timings]' },
+];
+
 interface FpsStats {
   fps: number;
   avgMs: number;
@@ -34,6 +49,26 @@ interface FpsStats {
 export default function AppModulePage() {
   const [stats, setStats] = useState<FpsStats | null>(null);
   const [monitoring, setMonitoring] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [summary, setSummary] = useState({ total: 0, passed: 0 });
+  // 主进程日志采集缓冲: 订阅全局 log store, 判断每个接口是否打印了预期日志标记
+  const logBuffer = useRef<string[]>([]);
+  const seenLogId = useRef(0);
+
+  useEffect(() => {
+    const unsubscribe = subscribeLogs((entries) => {
+      for (const e of entries) {
+        if (e.id > seenLogId.current) {
+          seenLogId.current = e.id;
+          logBuffer.current.push(e.text);
+          if (logBuffer.current.length > 200) {
+            logBuffer.current.splice(0, logBuffer.current.length - 200);
+          }
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     logInfo('[AppModule] App module API 页面已加载');
@@ -99,6 +134,68 @@ export default function AppModulePage() {
       }
     });
   };
+
+  // 调用单个主进程测试接口, 等待其执行完并返回(是否 ok 不再作为判据, 仅作同步屏障)
+  const callApi = (name: string, data: any = {}): Promise<void> =>
+    new Promise((resolve) => {
+      NativeModules.bridge.call(name, data, () => {
+        resolve();
+      });
+    });
+
+  const clearLogBuffer = (): void => {
+    logBuffer.current = [];
+  };
+
+  // 轮询日志缓冲, 判断是否在超时前打印了预期标记
+  const waitForMarker = (marker: string, timeoutMs: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      const timer = setInterval(() => {
+        if (logBuffer.current.some((t) => t.includes(marker))) {
+          clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, 50);
+    });
+
+  // 一键启动测试: 依次运行全部 App 接口, 以「是否打印了预期日志标记」判定通过
+  const runAllTests = async () => {
+    if (running) return;
+    setRunning(true);
+    setSummary({ total: BATCH_TESTS.length, passed: 0 });
+    logInfo(`▶ 一键启动测试: 共 ${BATCH_TESTS.length} 个接口, 以日志打印判通过`);
+    let passed = 0;
+    for (const t of BATCH_TESTS) {
+      clearLogBuffer();
+      try {
+        if (t.name === 'testFrameTimings') {
+          await callApi(t.name, { enabled: true });
+        } else {
+          await callApi(t.name);
+        }
+      } catch (e) {
+        logFail(`✗ ${t.label} bridge 调用异常: ${String(e)}`);
+      }
+      const ok = await waitForMarker(t.log, 3000);
+      if (ok) {
+        passed++;
+        logPass(`✓ ${t.label} 通过(已打印 ${t.log})`);
+      } else {
+        logFail(`✗ ${t.label} 未通过(未检测到日志 ${t.log})`);
+      }
+      setSummary({ total: BATCH_TESTS.length, passed });
+    }
+    logInfo(`一键测试完成: 通过 ${passed}/${BATCH_TESTS.length}`);
+    setRunning(false);
+  };
+
+  const pct = (ok: number, total: number): number => (total > 0 ? Math.round((ok / total) * 100) : 0);
 
   return (
     <view className="pageStack">
@@ -174,6 +271,30 @@ export default function AppModulePage() {
             <text className="testCardDesc">{t.desc}</text>
           </view>
         ))}
+      </view>
+
+      {/* ── 一键启动测试 ── */}
+      <view className="pageSectionHeader">
+        <view className="pageSectionBar" />
+        <text className="pageSectionTitle">App module · 一键测试</text>
+        <text className="pageSectionStats">
+          {summary.total} 个接口 · 通过 {summary.passed} · {pct(summary.passed, summary.total)}%
+        </text>
+      </view>
+      <view className="testGrid">
+        <view className="testCard">
+          <view className="testButton" bindtap={runAllTests}>
+            <view className="testButtonDot" />
+            <text className="testButtonText">{running ? '测试中…' : '一键启动测试'}</text>
+            <text className="testButtonArrow">›</text>
+          </view>
+          <text className="testCardDesc">
+            依次运行全部 App API (已排除 app.quit()), 采集主进程日志并按其是否打印标记判通过
+          </text>
+          <text className="testCardCount">
+            总个数 {summary.total} · 通过 {summary.passed} · {pct(summary.passed, summary.total)}%
+          </text>
+        </view>
       </view>
     </view>
   );
