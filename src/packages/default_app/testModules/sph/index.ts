@@ -440,9 +440,8 @@ async function runTests() {
     const hasClosed = closeEvents.some((e) => e.type === 'closed');
     logResult('STEP11 close events', { close: hasClose, closed: hasClosed, events: closeEvents });
     recordTestResult('STEP11 close events', hasClose && hasClosed, 'expected close=true, closed=true');
-
-    logTestSummary();
     console.log('[WindowManagerTest] === Batch 1 Window Manager Test End ===');
+    logTestSummary();
   } catch (err) {
     console.log(`[WindowManagerTest] ERROR during tests: ${String(err)}`);
   }
