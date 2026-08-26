@@ -58,7 +58,7 @@ function recordTestResult(step: string, pass: boolean, details?: string) {
   console.log(`[WindowManagerTest] ${step} result: ${pass ? 'PASS' : 'FAIL'}${detailText}`);
 }
 function logTestSummary() {
-  const percentage = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+  const percentage = totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : '0.00';
   console.log(`[WindowManagerTest] Ran ${totalTests} tests，${passedTests} Passed，${failedTests} Failed，Pass Percentage：${percentage}%`);
 }
 
