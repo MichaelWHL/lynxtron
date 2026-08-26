@@ -40,11 +40,11 @@ export async function testOpenExternal() {
   for (const { label, url } of testCases) {
     try {
       await shell.openExternal(url);
-      console.log(`  ✓ [${label}] ${url}`);
+      console.log(`  [PASS] [${label}] ${url}`);
       passed++;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ✗ [${label}] ${url} → ${message}`);
+      console.error(`  [FAIL] [${label}] ${url} → ${message}`);
       failed++;
     }
   }
@@ -97,15 +97,15 @@ export async function testOpenPath() {
       const errorMsg = await shell.openPath(path);
       if (errorMsg) {
         // openPath 通过返回非空字符串来表示失败
-        console.error(`  ✗ [${label}] ${path} → ${errorMsg}`);
+        console.error(`  [FAIL] [${label}] ${path} → ${errorMsg}`);
         failed++;
       } else {
-        console.log(`  ✓ [${label}] ${path}`);
+        console.log(`  [PASS] [${label}] ${path}`);
         passed++;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ✗ [${label}] ${path} → ${message}`);
+      console.error(`  [FAIL] [${label}] ${path} → ${message}`);
       failed++;
     }
   }
@@ -170,18 +170,18 @@ export async function testShowOpenDialog() {
       const result = await dialog.showOpenDialog(options);
       const filePaths: string[] = result.filePaths ?? [];
       if (result.canceled) {
-        console.log(`  ✓ [${label}] canceled=true (用户取消)`);
+        console.log(`  [PASS] [${label}] canceled=true (用户取消)`);
         passed++;
       } else if (filePaths.length > 0) {
-        console.log(`  ✓ [${label}] filePaths=${JSON.stringify(filePaths)}`);
+        console.log(`  [PASS] [${label}] filePaths=${JSON.stringify(filePaths)}`);
         passed++;
       } else {
-        console.error(`  ✗ [${label}] canceled=false 但 filePaths 为空`);
+        console.error(`  [FAIL] [${label}] canceled=false 但 filePaths 为空`);
         failed++;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ✗ [${label}] 抛异常 → ${message}`);
+      console.error(`  [FAIL] [${label}] 抛异常 → ${message}`);
       failed++;
     }
   }
@@ -268,18 +268,18 @@ export async function testShowSaveDialog() {
       const result = await dialog.showSaveDialog(options);
       const filePath: string = result.filePath ?? '';
       if (result.canceled) {
-        console.log(`  ✓ [${label}] canceled=true (用户取消)`);
+        console.log(`  [PASS] [${label}] canceled=true (用户取消)`);
         passed++;
       } else if (filePath.length > 0) {
-        console.log(`  ✓ [${label}] filePath=${JSON.stringify(filePath)}`);
+        console.log(`  [PASS] [${label}] filePath=${JSON.stringify(filePath)}`);
         passed++;
       } else {
-        console.error(`  ✗ [${label}] canceled=false 但 filePath 为空`);
+        console.error(`  [FAIL] [${label}] canceled=false 但 filePath 为空`);
         failed++;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ✗ [${label}] 抛异常 → ${message}`);
+      console.error(`  [FAIL] [${label}] 抛异常 → ${message}`);
       failed++;
     }
   }

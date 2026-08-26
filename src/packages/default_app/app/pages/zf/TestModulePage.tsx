@@ -7,28 +7,77 @@ import { useParams } from 'react-router';
 import { TEST_MODULES } from './testRegistry';
 import type { TestItem } from './testRegistry';
 import { logInfo } from '../../utils/log';
+import * as testStats from './testStats';
+import { fontInput } from '../../testModules/zf/fontTest';
 
 /**
  * ZF 测试 · 模块页
  * 一级菜单即模块导航: 当前模块由路由参数 /zf/:moduleId 决定;
  * lynx 模块额外渲染 SelectorQuery / AddFont 所需的目标节点区。
+ *
+ * 【统计】页头展示: 本模块总接口数量 / 通过 / 失败 / 通过率。
+ *  - 自动执行 + 手动触发共用 testStats 统计(数 [PASS]/[FAIL] 日志)。
+ * 【执行】不再一进入就自动触发, 由页头按钮"▶ 自动执行非交互用例"手动触发;
+ *          交互(manual)用例需逐个点击按钮并按卡片提示操作。
+ * 【addFont】卡片含输入框, 可自填 FONT_SRC 与 font-family 后运行。
  */
+const AUTO_RUN_DELAY_MS = 800; // 布局就绪等待(渲染层 selectorQuery 等需要)
+const AUTO_RUN_GAP_MS = 600; // 自动执行相邻用例间隔
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export default function TestModulePage() {
   const enabled = TEST_MODULES.filter((m) => m.tests.length > 0);
   const { moduleId } = useParams();
   const [fontReady, setFontReady] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [stats, setStats] = useState<testStats.StatsSnapshot>(() => testStats.getSnapshot());
+  // addFont 输入框(FONT_SRC 由用户填, 字体名固定 sq-font)
+  const [fontSrc, setFontSrc] = useState('');
   const active = enabled.find((m) => m.id === moduleId) ?? enabled[0];
   const isLynx = active?.id === 'lynx';
 
-  // 模块切换(路由变化)时重置 addFont 渲染状态
+  // 订阅统计 store 变更 → 刷新页头统计
+  useEffect(() => {
+    return testStats.subscribe(() => setStats(testStats.getSnapshot()));
+  }, []);
+
+  // 模块切换(路由变化)时: 仅重置统计, 不自动触发
   useEffect(() => {
     setFontReady(false);
-    if (active) logInfo(`[ZF] 当前模块: ${active.label}`);
+    if (!active) return;
+    testStats.beginModule(active.id);
+    logInfo(`[ZF] 当前模块: ${active.label}`);
   }, [moduleId]);
 
-  const runTest = (t: TestItem) => {
-    logInfo(`▶ 运行测试: ${t.label}`);
+  const runTest = (t: TestItem, auto = false) => {
+    logInfo(`▶ ${auto ? '[自动]' : '[手动]'} 运行测试: ${t.label}`);
+    testStats.setCurrentTest(t.id);
     t.run(() => setFontReady(true));
+  };
+
+  // 自动执行本模块所有非交互(manual=false)用例
+  const runAutoAll = async () => {
+    if (!active) return;
+    if (running) {
+      logInfo('[ZF] 上一轮自动执行尚未结束, 请稍候');
+      return;
+    }
+    const auto = active.tests.filter((t) => !t.manual);
+    if (auto.length === 0) {
+      logInfo('[ZF] 本模块没有可自动执行的用例(全部为交互用例, 请手动触发)');
+      return;
+    }
+    setRunning(true);
+    logInfo(`[ZF] 开始自动执行 ${auto.length} 项非交互用例…`);
+    await sleep(AUTO_RUN_DELAY_MS);
+    for (const t of auto) {
+      testStats.setCurrentTest(t.id);
+      runTest(t, true);
+      await sleep(AUTO_RUN_GAP_MS);
+    }
+    logInfo(testStats.formatSummary(active.label));
+    setRunning(false);
   };
 
   if (!active) return null;
@@ -38,7 +87,28 @@ export default function TestModulePage() {
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
         <text className="pageSectionTitle">{active.label}</text>
+        <text className="pageSectionStats">
+          本模块总接口数量:{stats.total} 通过:{stats.passed} 失败:{stats.failed} 通过率:{stats.rate}%
+        </text>
       </view>
+
+      {/* 自动执行按钮 */}
+      <view
+        bindtap={() => runAutoAll()}
+        style={{
+          marginTop: '10px',
+          padding: '10px 14px',
+          borderRadius: '8px',
+          backgroundColor: running ? '#4a4d55' : '#2f6feb',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <text style={{ color: '#fff', fontSize: '14px', fontWeight: '600' }}>
+          {running ? '⏳ 自动执行中…' : '▶ 自动执行本模块非交互用例'}
+        </text>
+      </view>
+
       <text className="testModuleDesc">{active.desc}</text>
 
       {/* lynx 模块: SelectorQuery / AddFont 测试目标节点区 */}
@@ -142,16 +212,69 @@ export default function TestModulePage() {
       )}
 
       <view className="testGrid">
-        {active.tests.map((t) => (
-          <view className="testCard" key={t.id}>
-            <view className="testButton" bindtap={() => runTest(t)}>
-              <view className="testButtonDot" />
-              <text className="testButtonText">{t.label}</text>
-              <text className="testButtonArrow">›</text>
+        {active.tests.map((t) => {
+          const c = stats.perTest[t.id];
+          const passed = c?.passed ?? 0;
+          const failed = c?.failed ?? 0;
+          const isFont = t.id === 'addFont';
+          return (
+            <view className="testCard" key={t.id}>
+              <view className="testButton" bindtap={() => runTest(t)}>
+                <view className="testButtonDot" />
+                <text className="testButtonText">{t.label}{t.manual ? ' ⚠' : ''}</text>
+                <text className="testButtonArrow">›</text>
+              </view>
+              <text className="testCardDesc">{t.desc}</text>
+
+              {/* addFont: 输入框 */}
+              {isFont && (
+                <view style={{ marginTop: '8px' }}>
+                  <text style={{ color: '#8a8f98', fontSize: '11px', marginBottom: '4px' }}>
+                    FONT_SRC(字体地址)
+                  </text>
+                  <input
+                    placeholder="url('http://.../xx.ttf') 或 data:URI"
+                    style={{
+                      width: '100%',
+                      height: '34px',
+                      borderRadius: '6px',
+                      backgroundColor: '#1e2024',
+                      color: '#e8e9ea',
+                      padding: '0 8px',
+                      fontSize: '12px',
+                      border: '1px solid #3a3d45',
+                    }}
+                    bindinput={(e: any) => {
+                      const v = e?.detail?.value ?? '';
+                      setFontSrc(v);
+                      fontInput.src = v;
+                    }}
+                  />
+                </view>
+              )}
+
+              <text className="testCardCount">
+                {t.manual ? '手动 ' : ''}通过 {passed} · 失败 {failed}
+              </text>
+              {t.manual && t.manualGuide ? (
+                <view style={{ marginTop: '6px' }}>
+                  {(t.manualGuide as string[]).map((line, i) => (
+                    <text
+                      key={i}
+                      style={{
+                        color: '#f5c26b',
+                        fontSize: '12px',
+                        lineHeight: '17px',
+                      }}
+                    >
+                      {line}
+                    </text>
+                  ))}
+                </view>
+              ) : null}
             </view>
-            <text className="testCardDesc">{t.desc}</text>
-          </view>
-        ))}
+          );
+        })}
       </view>
     </view>
   );
