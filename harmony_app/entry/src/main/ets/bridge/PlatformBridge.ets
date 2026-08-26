@@ -128,7 +128,9 @@ export class PlatformBridge {
     const uri = fileUri.getUriFromPath(filePath);
     const want: Want = {
       action: 'ohos.want.action.viewData',
-      uri: uri
+      uri: uri,
+      flags: wantConstant.Flags.FLAG_AUTH_WRITE_URI_PERMISSION |
+        wantConstant.Flags.FLAG_AUTH_READ_URI_PERMISSION,
     };
     try {
       this.ctx.startAbility(want);

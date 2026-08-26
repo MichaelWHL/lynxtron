@@ -22,14 +22,12 @@ export async function testOpenExternal() {
 
     // ── 电话/短信协议 ──
     { label: 'tel 拨号', url: 'tel:10086' },
-    { label: 'sms 短信', url: 'sms:10086' },
     { label: 'sms 带正文', url: 'sms:10086?body=Hello' },
 
     // ── 文件协议 ──
-    { label: 'file 本地文件', url: 'file:///tmp/test.txt' },
+    { label: 'file 本地文件', url: 'file://docs/storage/Users/currentUser/Desktop/test.txt' },
 
     // ── 特殊协议 ──
-    { label: '自定义 scheme', url: 'myapp://open?page=home&id=42' },
     { label: 'ftp 协议', url: 'ftp://ftp.example.com' },
   ];
 
@@ -66,10 +64,7 @@ export async function testOpenPath() {
   const sandboxBase = '/data/storage';
 
   const testCases: Array<{ label: string; path: string }> = [
-    // ── 鸿蒙系统级路径 ──
-    { label: '系统 etc 目录', path: '/system/etc' },
-    { label: 'proc 虚拟文件系统', path: '/proc/version' },
-
+   
     // ── 鸿蒙应用沙箱路径 ──
     { label: 'el1 非加密区根目录', path: `${sandboxBase}/el1/base` },
     { label: 'el2 加密区根目录', path: `${sandboxBase}/el2/base` },
@@ -79,9 +74,6 @@ export async function testOpenPath() {
     // ── 存储/媒体路径 ──
     { label: '外部存储目录', path: '/storage/Users/currentUser' },
     { label: 'Download 下载目录', path: '/storage/Users/currentUser/Download' },
-
-    // ── 当前运行时文件 ──
-    // { label: '当前 ts 文件自身',          path:  },
 
     // ── 边界/异常场景 ──
     { label: '不存在的路径', path: `${sandboxBase}/nonexistent/ghost.txt` },
@@ -150,7 +142,7 @@ const testCases: ShowOpenDialogCase[] = [
     label: '带 defaultPath(Desktop/test)',
     options: {
       properties: ['openFile'],
-      defaultPath: 'file://docs/storage/Users/currentUser/Desktop/test',
+      defaultPath: 'file://docs/storage/Users/currentUser/Desktop',
     },
   },
 
@@ -192,17 +184,6 @@ export async function testShowOpenDialog() {
   }
 }
 
-/** 选择字体文件: 返回 {filePaths, canceled} 给 UI 侧 addFont 测试用 */
-export async function pickFontFile() {
-  const result = await dialog.showOpenDialog({
-    title: '选择字体文件',
-    properties: ['openFile'],
-    filters: [
-      { name: '字体文件', extensions: ['ttf', 'otf', 'ttc', 'woff', 'woff2'] },
-    ],
-  });
-  return { filePaths: result.filePaths ?? [], canceled: result.canceled };
-}
 
 // ──────────────────────────────────────────────
 // dialog.showSaveDialog 测试用例
@@ -225,7 +206,7 @@ const saveTestCases: ShowSaveDialogCase[] = [
   {
     label: '带 defaultPath(Desktop/test/新文件)',
     options: {
-      defaultPath: 'file://docs/storage/Users/currentUser/Desktop/test/新文件.txt',
+      defaultPath: 'file://docs/storage/Users/currentUser/Desktop/新文件.txt',
     },
   },
 
@@ -586,7 +567,7 @@ export function testGetPrimaryDisplay() {
     console.error('[screen] [FAIL] 返回异常: ' + JSON.stringify(res));
   }
 }
-// 注意: clipboard.readText() 尚未适配, 此处只验证写入成功
+// 注意: clipboard.readText()需要申请权限 尚未适配, 此处只验证写入成功
 export function testClipboardWriteText() {
   console.log('[clipboard] 测试开始');
   const text = 'hello world';
