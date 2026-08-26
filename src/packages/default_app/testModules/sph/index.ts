@@ -454,6 +454,7 @@ export async function runSphTests(appPath: string | undefined) {
   } else {
     mainWindow = await createWindow();
   }
+  batch3LoadFileResult = mainWindow.loadFile(appPath || '');
   try {
     await runTests();
   } finally {
@@ -523,29 +524,21 @@ function safeStringify(v: unknown): string {
   }
 }
 
-export const loadFile = async (appPath: string) => {
-  mainWindow = await createWindow();
-  batch3LoadFileResult = mainWindow.loadFile(appPath);
-  console.log(`[default_app] loadFile returned: ${batch3LoadFileResult}`);
-  mainWindow.show();
-  mainWindow.loadFile(appPath);
-
-  // devtool 式日志转发: 把主进程 console 输出实时推送到 Lynx UI 的 LogPanel
-  const sendLog = (level: 'log' | 'warn' | 'error', ...args: unknown[]) => {
-    const text = args.map(safeStringify).join(' ');
-    try {
-      mainWindow?.sendGlobalEvent('bridge-log', { level, text, from: 'main' });
-    } catch {
-      // 窗口尚未就绪时忽略
-    }
-  };
-  console.log = (...args: unknown[]) => {
-    sendLog('log', ...args);
-  };
-  console.warn = (...args: unknown[]) => {
-    sendLog('warn', ...args);
-  };
-  console.error = (...args: unknown[]) => {
-    sendLog('error', ...args);
-  };
+// devtool 式日志转发: 把主进程 console 输出实时推送到 Lynx UI 的 LogPanel
+const sendLog = (level: 'log' | 'warn' | 'error', ...args: unknown[]) => {
+  const text = args.map(safeStringify).join(' ');
+  try {
+    mainWindow?.sendGlobalEvent('bridge-log', { level, text, from: 'main' });
+  } catch {
+    // 窗口尚未就绪时忽略
+  }
+};
+console.log = (...args: unknown[]) => {
+  sendLog('log', ...args);
+};
+console.warn = (...args: unknown[]) => {
+  sendLog('warn', ...args);
+};
+console.error = (...args: unknown[]) => {
+  sendLog('error', ...args);
 };
