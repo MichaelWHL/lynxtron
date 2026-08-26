@@ -39,6 +39,29 @@ function logResult(step: string, details: any) {
   console.log(`[WindowManagerTest] ${step}: ${JSON.stringify(details)}`);
 }
 
+let totalTests = 0;
+let passedTests = 0;
+let failedTests = 0;
+function resetTestStats() {
+  totalTests = 0;
+  passedTests = 0;
+  failedTests = 0;
+}
+function recordTestResult(step: string, pass: boolean, details?: string) {
+  totalTests++;
+  if (pass) {
+    passedTests++;
+  } else {
+    failedTests++;
+  }
+  const detailText = details ? ` (${details})` : '';
+  console.log(`[WindowManagerTest] ${step} result: ${pass ? 'PASS' : 'FAIL'}${detailText}`);
+}
+function logTestSummary() {
+  const percentage = totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : '0.00';
+  console.log(`[WindowManagerTest] Ran ${totalTests} tests，${passedTests} Passed，${failedTests} Failed，Pass Percentage：${percentage}%`);
+}
+
 async function runBatch3Tests() {
   console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test Start ===');
 
@@ -60,11 +83,11 @@ async function runBatch3Tests() {
       actual.width === (expected.width || 800) &&
       actual.height === (expected.height || 600) &&
       actual.show === (expected.show !== undefined ? expected.show : true);
-    console.log(`[WindowManagerTest] B3-STEP1 result: ${constructorPass ? 'PASS' : 'FAIL'} (expected width=${expected.width || 800}, height=${expected.height || 600}, show=${expected.show !== undefined ? expected.show : true})`);
+    recordTestResult('B3-STEP1 constructor options', constructorPass, `expected width=${expected.width || 800}, height=${expected.height || 600}, show=${expected.show !== undefined ? expected.show : true}`);
 
     // Step B3-2: verify loadFile returned true
     logResult('B3-STEP2 loadFile result', { loadFileReturned: batch3LoadFileResult });
-    console.log(`[WindowManagerTest] B3-STEP2 result: ${batch3LoadFileResult === true ? 'PASS' : 'FAIL'} (expected loadFile() to return true)`);
+    recordTestResult('B3-STEP2 loadFile', batch3LoadFileResult === true, 'expected loadFile() to return true');
 
     console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test End ===');
   } catch (err) {
@@ -100,30 +123,30 @@ async function runBatch6Tests() {
       meta: { updateData: { from: 'updateMetaData' }, globalProps: { from: 'updateMetaData' } },
       returned: batch6UpdateMetaResult
     });
-    console.log(`[WindowManagerTest] B6-STEP1 result: ${batch6UpdateMetaResult === true ? 'PASS' : 'FAIL'} (expected pre-load updateMetaData() to return true)`);
+    recordTestResult('B6-STEP1 updateMetaData cache', batch6UpdateMetaResult === true, 'expected pre-load updateMetaData() to return true');
 
     logResult('B6-STEP2 first pre-load setGlobalProps result', {
       globalProps: { step: 'first' },
       returned: batch6FirstPropsResult
     });
-    console.log(`[WindowManagerTest] B6-STEP2 result: ${batch6FirstPropsResult === true ? 'PASS' : 'FAIL'} (expected first pre-load setGlobalProps() to return true)`);
+    recordTestResult('B6-STEP2 first pre-load setGlobalProps', batch6FirstPropsResult === true, 'expected first pre-load setGlobalProps() to return true');
 
     logResult('B6-STEP3 empty pre-load setGlobalProps result', {
       globalProps: {},
       returned: batch6EmptyPropsResult
     });
-    console.log(`[WindowManagerTest] B6-STEP3 result: ${batch6EmptyPropsResult === true ? 'PASS' : 'FAIL'} (expected empty pre-load setGlobalProps({}) to return true)`);
+    recordTestResult('B6-STEP3 empty pre-load setGlobalProps', batch6EmptyPropsResult === true, 'expected empty pre-load setGlobalProps({}) to return true');
 
     logResult('B6-STEP4 final pre-load setGlobalProps result', {
       globalProps: preloadProps,
       returned: batch6PreloadSetGlobalPropsResult
     });
-    console.log(`[WindowManagerTest] B6-STEP4 result: ${batch6PreloadSetGlobalPropsResult === true ? 'PASS' : 'FAIL'} (expected final pre-load setGlobalProps() to return true)`);
+    recordTestResult('B6-STEP4 final pre-load setGlobalProps', batch6PreloadSetGlobalPropsResult === true, 'expected final pre-load setGlobalProps() to return true');
 
     console.log('[WindowManagerTest] ACTION: calling post-load setGlobalProps(...)');
     const postloadResult = mainWindow.setGlobalProps(postloadProps);
     logResult('B6-STEP5 post-load setGlobalProps result', { globalProps: postloadProps, returned: postloadResult });
-    console.log(`[WindowManagerTest] B6-STEP5 result: ${postloadResult === true ? 'PASS' : 'FAIL'} (expected post-load setGlobalProps() to return true)`);
+    recordTestResult('B6-STEP5 post-load setGlobalProps', postloadResult === true, 'expected post-load setGlobalProps() to return true');
 
     console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test End ===');
   } catch (err) {
@@ -151,7 +174,7 @@ async function runBatch7Tests() {
     await sleep(3000);
     const fsState = { isFullScreen: fsWin.isFullScreen(), eventReceived: fsEvents.includes('enter-full-screen') };
     logResult('B7-STEP1 fullscreen creation', fsState);
-    console.log(`[WindowManagerTest] B7-STEP1 result: ${fsState.isFullScreen === true ? 'PASS' : 'FAIL'} (expected isFullScreen=true, eventReceived=${fsState.eventReceived})`);
+    recordTestResult('B7-STEP1 fullscreen creation', fsState.isFullScreen === true, `expected isFullScreen=true, eventReceived=${fsState.eventReceived}`);
 
     await sleep(500);
 
@@ -168,10 +191,10 @@ async function runBatch7Tests() {
     });
     cleanupWindows.push(constrainedWin);
     await sleep(2000);
-    const initialSize = constrainedWin.getSize();
+    const initialSize = constrainedWin.getWindowSize();
     logResult('B7-STEP2 size constraints creation', { initialSize, limits: { minWidth: 400, minHeight: 300, maxWidth: 800, maxHeight: 600 } });
     const constrainedPass = initialSize[0] === 600 && initialSize[1] === 400;
-    console.log(`[WindowManagerTest] B7-STEP2 result: ${constrainedPass ? 'PASS' : 'FAIL'} (expected initial size 600x400; drag-resize limits verified visually)`);
+    recordTestResult('B7-STEP2 size constraints creation', constrainedPass, 'expected initial window size 600x400; drag-resize limits verified visually');
 
     await sleep(500);
 
@@ -182,7 +205,7 @@ async function runBatch7Tests() {
     await sleep(2000);
     const subState = { isVisible: subWin.isVisible(), parentMatches: subWin.getParentWindow() === mainWindow };
     logResult('B7-STEP3 sub window creation', subState);
-    console.log(`[WindowManagerTest] B7-STEP3 result: ${subState.isVisible === true && subState.parentMatches === true ? 'PASS' : 'FAIL'} (expected visible=true, parentMatches=true)`);
+    recordTestResult('B7-STEP3 sub window creation', subState.isVisible === true && subState.parentMatches === true, 'expected visible=true, parentMatches=true');
 
     await sleep(500);
 
@@ -193,7 +216,7 @@ async function runBatch7Tests() {
     await sleep(2000);
     const dialogState = { isVisible: dialogWin.isVisible(), isModal: dialogWin.isModal() };
     logResult('B7-STEP4 modal dialog creation', dialogState);
-    console.log(`[WindowManagerTest] B7-STEP4 result: ${dialogState.isVisible === true && dialogState.isModal === true ? 'PASS' : 'FAIL'} (expected visible=true, isModal=true)`);
+    recordTestResult('B7-STEP4 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
   } catch (err) {
     console.log(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
   } finally {
@@ -227,7 +250,7 @@ async function runBatch8Tests() {
     await sleep(500);
     const title = win.getTitle();
     logResult('B8-STEP1 setTitle', { title });
-    console.log(`[WindowManagerTest] B8-STEP1 result: ${title === 'batch8-test-title' ? 'PASS' : 'FAIL'} (expected title='batch8-test-title')`);
+    recordTestResult('B8-STEP1 setTitle', title === 'batch8-test-title', "expected title='batch8-test-title'");
 
     await sleep(500);
 
@@ -238,7 +261,7 @@ async function runBatch8Tests() {
     const bounds = win.getBounds();
     logResult('B8-STEP2 setBounds', bounds);
     const boundsPass = bounds.x === 100 && bounds.y === 100 && bounds.width === 500 && bounds.height === 350;
-    console.log(`[WindowManagerTest] B8-STEP2 result: ${boundsPass ? 'PASS' : 'FAIL'} (expected x=100,y=100,w=500,h=350)`);
+    recordTestResult('B8-STEP2 setBounds', boundsPass, 'expected x=100,y=100,w=500,h=350');
 
     await sleep(500);
 
@@ -249,7 +272,7 @@ async function runBatch8Tests() {
     const pos = win.getPosition();
     logResult('B8-STEP3 setPosition', { pos });
     const posPass = pos[0] === 120 && pos[1] === 130;
-    console.log(`[WindowManagerTest] B8-STEP3 result: ${posPass ? 'PASS' : 'FAIL'} (expected x=120,y=130)`);
+    recordTestResult('B8-STEP3 setPosition', posPass, 'expected x=120,y=130');
 
     await sleep(500);
 
@@ -260,7 +283,7 @@ async function runBatch8Tests() {
     const size = win.getSize();
     logResult('B8-STEP4 setSize', { size });
     const sizePass = size[0] === 520 && size[1] === 360;
-    console.log(`[WindowManagerTest] B8-STEP4 result: ${sizePass ? 'PASS' : 'FAIL'} (expected 520x360)`);
+    recordTestResult('B8-STEP4 setSize', sizePass, 'expected 520x360');
 
     await sleep(500);
 
@@ -274,7 +297,7 @@ async function runBatch8Tests() {
     await sleep(1000);
     const shownVisible = win.isVisible();
     logResult('B8-STEP5 hide/show', { hiddenVisible, shownVisible });
-    console.log(`[WindowManagerTest] B8-STEP5 result: ${hiddenVisible === false && shownVisible === true ? 'PASS' : 'FAIL'} (expected hidden=false, shown=true)`);
+    recordTestResult('B8-STEP5 hide/show', hiddenVisible === false && shownVisible === true, 'expected hidden=false, shown=true');
 
     await sleep(500);
 
@@ -292,7 +315,7 @@ async function runBatch8Tests() {
     await sleep(1000);
     const focused = win.isFocused();
     logResult('B8-STEP6 focus/blur', { blurred, focused, events: blurEvents });
-    console.log(`[WindowManagerTest] B8-STEP6 result: ${blurred && focused ? 'PASS' : 'FAIL'} (expected blurred=true, focused=true)`);
+    recordTestResult('B8-STEP6 focus/blur', blurred && focused, 'expected blurred=true, focused=true');
   } catch (err) {
     console.log(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
   } finally {
@@ -318,6 +341,7 @@ async function runTests() {
 
   const win = mainWindow;
   recordedEvents.length = 0;
+  resetTestStats();
 
   // Run batch 3 and batch 6 tests first while the window is still alive.
   await runBatch3Tests();
@@ -334,7 +358,7 @@ async function runTests() {
     win.show();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP2 after show', s);
-    console.log(`[WindowManagerTest] STEP2 result: ${s.isVisible === true ? 'PASS' : 'FAIL'} (expected isVisible=true)`);
+    recordTestResult('STEP2 after show', s.isVisible === true, 'expected isVisible=true');
 
     // Batch 7: exercise new window creation options (fullscreen, size limits,
     // sub/panel/dialog OS-level parent relationship, modal). Run while the
@@ -351,7 +375,7 @@ async function runTests() {
     win.minimize();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP3 after minimize', s);
-    console.log(`[WindowManagerTest] STEP3 result: ${s.isMinimized === true ? 'PASS' : 'FAIL'} (expected isMinimized=true)`);
+    recordTestResult('STEP3 after minimize', s.isMinimized === true, 'expected isMinimized=true');
 
     // Step 4: restore from minimized state
     console.log('[WindowManagerTest] ACTION: calling restore()');
@@ -359,7 +383,7 @@ async function runTests() {
     win.restore();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP4 after restore', s);
-    console.log(`[WindowManagerTest] STEP4 result: ${s.isMinimized === false ? 'PASS' : 'FAIL'} (expected isMinimized=false)`);
+    recordTestResult('STEP4 after restore from minimized', s.isMinimized === false, 'expected isMinimized=false');
 
     // Step 5: maximize (verify isMaximized state)
     console.log('[WindowManagerTest] ACTION: calling maximize()');
@@ -367,7 +391,7 @@ async function runTests() {
     win.maximize();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP5 after maximize', s);
-    console.log(`[WindowManagerTest] STEP5 result: ${s.isMaximized === true ? 'PASS' : 'FAIL'} (expected isMaximized=true)`);
+    recordTestResult('STEP5 after maximize', s.isMaximized === true, 'expected isMaximized=true');
 
     // Step 6: restore from maximized state
     console.log('[WindowManagerTest] ACTION: calling restore()');
@@ -375,7 +399,7 @@ async function runTests() {
     win.restore();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP6 after restore from maximized', s);
-    console.log(`[WindowManagerTest] STEP6 result: ${s.isMaximized === false ? 'PASS' : 'FAIL'} (expected isMaximized=false)`);
+    recordTestResult('STEP6 after restore from maximized', s.isMaximized === false, 'expected isMaximized=false');
 
     // Step 7: focus
     console.log('[WindowManagerTest] ACTION: calling focus()');
@@ -383,26 +407,26 @@ async function runTests() {
     win.focus();
     s = { isMinimized: win.isMinimized(), isVisible: win.isVisible(), isFocused: win.isFocused(), isMaximized: win.isMaximized() };
     logResult('STEP7 after focus', s);
-    console.log(`[WindowManagerTest] STEP7 result: ${s.isFocused === true ? 'PASS' : 'FAIL'} (expected isFocused=true)`);
+    recordTestResult('STEP7 after focus', s.isFocused === true, 'expected isFocused=true');
 
     // Step 8: setAlwaysOnTop true
     console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(true)');
     await sleep(5000);
     win.setAlwaysOnTop(true);
     logResult('STEP8 after setAlwaysOnTop(true)', { alwaysOnTop: true });
-    console.log('[WindowManagerTest] STEP8 result: PASS (no getter, visual check)');
+    recordTestResult('STEP8 after setAlwaysOnTop(true)', true, 'no getter, visual check');
 
     // Step 9: setAlwaysOnTop false
     console.log('[WindowManagerTest] ACTION: calling setAlwaysOnTop(false)');
     await sleep(5000);
     win.setAlwaysOnTop(false);
     logResult('STEP9 after setAlwaysOnTop(false)', { alwaysOnTop: false });
-    console.log('[WindowManagerTest] STEP9 result: PASS (no getter, visual check)');
+    recordTestResult('STEP9 after setAlwaysOnTop(false)', true, 'no getter, visual check');
 
     // Step 10: events recorded
     const events = recordedEvents.slice();
     logResult('STEP10 events recorded', events);
-    console.log(`[WindowManagerTest] STEP10 result: ${events.length > 0 ? 'PASS' : 'FAIL'} (${events.length} events)`);
+    recordTestResult('STEP10 events recorded', events.length > 0, `${events.length} events`);
 
     // Step 11: close (destroys the window, must be last)
     // Also verifies batch 2 'close' and 'closed' events.
@@ -415,9 +439,9 @@ async function runTests() {
     const hasClose = closeEvents.some((e) => e.type === 'close');
     const hasClosed = closeEvents.some((e) => e.type === 'closed');
     logResult('STEP11 close events', { close: hasClose, closed: hasClosed, events: closeEvents });
-    console.log(`[WindowManagerTest] STEP11 result: ${hasClose && hasClosed ? 'PASS' : 'FAIL'} (expected close=true, closed=true)`);
-
+    recordTestResult('STEP11 close events', hasClose && hasClosed, 'expected close=true, closed=true');
     console.log('[WindowManagerTest] === Batch 1 Window Manager Test End ===');
+    logTestSummary();
   } catch (err) {
     console.log(`[WindowManagerTest] ERROR during tests: ${String(err)}`);
   }

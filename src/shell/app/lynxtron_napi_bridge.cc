@@ -72,6 +72,8 @@ using LynxtronRegisterWindowOpCallbackFn =
 using LynxtronGetWindowIdFn = int32_t (*)();
 using LynxtronNotifyWindowStateFn =
     void (*)(int32_t, const char*, int32_t);
+using LynxtronNotifyWindowRectFn =
+    void (*)(int32_t, int32_t, int32_t, int32_t, int32_t);
 using LynxtronHandleOpenURLFn = void (*)(const char*);
 using LynxtronHandleOpenPathFn = void (*)(const char*);
 using LynxtronQuitFn = void (*)();
@@ -1800,6 +1802,56 @@ napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
   return result;
 }
 
+static napi_value NotifyWindowRect(napi_env env, napi_callback_info info) {
+  size_t argc = 5;
+  napi_value args[5] = {nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  int32_t window_id = -1;
+  int32_t x = 0;
+  int32_t y = 0;
+  int32_t width = 0;
+  int32_t height = 0;
+
+  if (argc >= 5 &&
+      napi_get_value_int32(env, args[0], &window_id) == napi_ok &&
+      napi_get_value_int32(env, args[1], &x) == napi_ok &&
+      napi_get_value_int32(env, args[2], &y) == napi_ok &&
+      napi_get_value_int32(env, args[3], &width) == napi_ok &&
+      napi_get_value_int32(env, args[4], &height) == napi_ok) {
+    OH_LOG_INFO(LOG_APP,
+                "[WINEVENT] notifyWindowRect windowId=%{public}d "
+                "rect=%{public}d,%{public}d,%{public}dx%{public}d",
+                window_id, x, y, width, height);
+
+    if (EnsureLynxtronLoaded()) {
+      auto fn = reinterpret_cast<LynxtronNotifyWindowRectFn>(
+          dlsym(g_lynxtron_handle, "LynxtronNotifyWindowRect"));
+      if (fn) {
+        fn(window_id, x, y, width, height);
+      } else {
+        OH_LOG_ERROR(LOG_APP,
+                     "dlsym LynxtronNotifyWindowRect FAILED: %{public}s",
+                     dlerror());
+      }
+    } else {
+      OH_LOG_ERROR(LOG_APP,
+                   "[WINEVENT] notifyWindowRect: liblynxtron.so not loaded");
+    }
+  } else {
+    OH_LOG_ERROR(LOG_APP,
+                 "[WINEVENT] notifyWindowRect: bad args argc=%{public}d",
+                 (int)argc);
+    napi_throw_error(env, nullptr,
+                     "notifyWindowRect requires (windowId, x, y, width, height)");
+    return nullptr;
+  }
+
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // HarmonyOS native input method client
 //
@@ -2764,6 +2816,8 @@ napi_value Init(napi_env env, napi_value exports) {
 	   {"registerUpdateTSFN", nullptr, RegisterUpdateTSFN,
        nullptr, nullptr, nullptr, napi_default, nullptr},
       {"notifyWindowState", nullptr, NotifyWindowState, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"notifyWindowRect", nullptr, NotifyWindowRect, nullptr, nullptr,
        nullptr, napi_default, nullptr},
   };
   napi_status status = napi_define_properties(

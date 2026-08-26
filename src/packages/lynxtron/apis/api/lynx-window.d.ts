@@ -335,4 +335,10 @@ export declare class LynxWindow extends BaseWindow {
    * pairs collected since the previous emission.
    */
   setFrameTimingsEnabled(enabled: boolean, sampleIntervalMs?: number): void;
+  /**
+   * Returns the actual OS window size (windowRect), including decorations and
+   * avoidance areas. On Harmony this differs from getSize(), which returns the
+   * drawable/content size.
+   */
+  getWindowSize(): number[];
 }

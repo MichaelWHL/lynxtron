@@ -28,6 +28,14 @@ extern "C" void LynxtronSetHarmonySurfaceSizeForWindow(int32_t harmony_window_id
                                                        int width,
                                                        int height);
 
+// Called from lynxtron_napi_bridge.cc when the ArkTS side reports the real
+// window rect (windowRect), which includes decorations/avoidance areas.
+extern "C" void LynxtronNotifyWindowRect(int32_t harmony_window_id,
+                                         int32_t x,
+                                         int32_t y,
+                                         int32_t width,
+                                         int32_t height);
+
 }  // namespace lynxtron
 
 #endif  // SHELL_APP_NATIVE_WINDOW_HARMONY_H_

@@ -195,6 +195,13 @@ class NativeWindow : public base::SupportsUserData {
   // window id, this is assigned when NativeWindowHarmony is constructed, so it
   // is available before the ArkTS side finishes binding the HarmonyOS id.
   virtual int32_t GetCppWindowId() const { return -1; }
+  // Returns the native window rect including system decorations and avoidance
+  // areas. On Harmony this differs from GetBounds(), which returns the
+  // drawable/content rect. Defaults to GetBounds() for other platforms.
+  virtual gfx::Rect GetWindowBounds() const { return GetBounds(); }
+  // Returns the native window size (windowRect). Defaults to GetSize() for
+  // other platforms.
+  virtual gfx::Size GetWindowSize() const { return GetWindowBounds().size(); }
 #endif
 
   // Taskbar/Dock APIs.
