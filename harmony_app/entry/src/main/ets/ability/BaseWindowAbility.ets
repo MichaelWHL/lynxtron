@@ -263,7 +263,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       if (!rect) {
         return;
       }
-      (lynxtron as any).notifyWindowRect(
+      lynxtron.notifyWindowRect(
         windowId,
         rect.left ?? 0,
         rect.top ?? 0,
