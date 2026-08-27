@@ -1,6 +1,5 @@
 import { OpenLinkOptions, Want, wantConstant } from '@kit.AbilityKit';
 import common from '@ohos.app.ability.common';
-import wantConstant from '@ohos.app.ability.wantConstant';
 import fileUri from '@ohos.file.fileuri';
 import hilog from '@ohos.hilog';
 import lynxtron from 'liblynxtron_napi.so';

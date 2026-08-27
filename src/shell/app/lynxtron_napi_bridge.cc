@@ -1799,10 +1799,11 @@ uint64_t ToLynxLogicalKey(OH_NativeXComponent_KeyCode code) {
       if (code >= KEY_A && code <= KEY_Z) return static_cast<uint64_t>('a' + code - KEY_A);
       if (code >= KEY_0 && code <= KEY_9) return static_cast<uint64_t>('0' + code - KEY_0);
       // HarmonyOS reports the numeric keypad independently from the number
-      // row.  Both must resolve to the same DOM/keyboard digit key so number
-      // input works with NumLock enabled on HarmonyOS PC.
+      // row.  Preserve the dedicated NumPad logical-key range; Lynx uses it
+      // to distinguish keypad navigation from digit input when NumLock is on.
       if (code >= KEY_NUMPAD_0 && code <= KEY_NUMPAD_9) {
-        return static_cast<uint64_t>('0' + code - KEY_NUMPAD_0);
+        return 0x00200000230ULL +
+               static_cast<uint64_t>(code - KEY_NUMPAD_0);
       }
       if (code >= KEY_F1 && code <= KEY_F12) return 0x00100000800ULL + code - KEY_F1 + 1;
       return 0;
@@ -1825,6 +1826,28 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
     int32_t surface_window_id = GetSurfaceWindowId(component);
     if (surface_window_id <= 0) {
       surface_window_id = g_current_harmony_window_id;
+    }
+    // HarmonyOS PC delivers some hardware number-row keys as keypad-style
+    // events.  A key event carries no character payload, so Clay cannot turn
+    // those events into text even though letters work.  Forward the digit as
+    // committed text on key-down as well as the logical key event; this keeps
+    // cursor/navigation semantics while making numeric input reliable.
+    if (action != OH_NATIVEXCOMPONENT_KEY_ACTION_UP &&
+        ((code >= KEY_0 && code <= KEY_9) ||
+         (code >= KEY_NUMPAD_0 && code <= KEY_NUMPAD_9))) {
+      if (!g_send_text && g_lynxtron_handle) {
+        g_send_text = reinterpret_cast<SendTextFn>(
+            dlsym(g_lynxtron_handle, "LynxtronSendTextInputForWindow"));
+      }
+      if (g_send_text) {
+        char digit[2] = {
+            static_cast<char>('0' +
+                              ((code >= KEY_NUMPAD_0)
+                                   ? code - KEY_NUMPAD_0
+                                   : code - KEY_0)),
+            '\0'};
+        g_send_text(surface_window_id, digit, NowMicros());
+      }
     }
     g_send_key(surface_window_id,
                action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
