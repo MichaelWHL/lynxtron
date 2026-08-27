@@ -1798,6 +1798,12 @@ uint64_t ToLynxLogicalKey(OH_NativeXComponent_KeyCode code) {
     default:
       if (code >= KEY_A && code <= KEY_Z) return static_cast<uint64_t>('a' + code - KEY_A);
       if (code >= KEY_0 && code <= KEY_9) return static_cast<uint64_t>('0' + code - KEY_0);
+      // HarmonyOS reports the numeric keypad independently from the number
+      // row.  Both must resolve to the same DOM/keyboard digit key so number
+      // input works with NumLock enabled on HarmonyOS PC.
+      if (code >= KEY_NUMPAD_0 && code <= KEY_NUMPAD_9) {
+        return static_cast<uint64_t>('0' + code - KEY_NUMPAD_0);
+      }
       if (code >= KEY_F1 && code <= KEY_F12) return 0x00100000800ULL + code - KEY_F1 + 1;
       return 0;
   }
