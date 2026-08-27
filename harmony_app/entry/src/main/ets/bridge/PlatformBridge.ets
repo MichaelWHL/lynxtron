@@ -1,4 +1,4 @@
-import { OpenLinkOptions, Want } from '@kit.AbilityKit';
+import { OpenLinkOptions, Want, wantConstant } from '@kit.AbilityKit';
 import common from '@ohos.app.ability.common';
 import fileUri from '@ohos.file.fileuri';
 import hilog from '@ohos.hilog';
