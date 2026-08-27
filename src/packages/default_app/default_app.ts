@@ -108,18 +108,6 @@ function testAppGetPath(): void {
     sendLog('log', `[APP][getPath] ${name.padEnd(12)} -> ${safeGetPath(name)}`);
   }
   // 派生关系验证
-  const appData = safeGetPath('appData');
-  const userData = safeGetPath('userData');
-  const logs = safeGetPath('logs');
-  const appName = app.getName();
-  sendLog(
-    'log',
-    `[APP][getPath] [DERIVED] userData = appData + appName ? ${userData === appData + '/' + appName ? '✅ YES' : '❌ NO'}`
-  );
-  sendLog(
-    'log',
-    `[APP][getPath] [DERIVED] logs = userData + "logs" ? ${logs === userData + '/logs' ? '✅ YES' : '❌ NO'}`
-  );
   sendLog('log', '[APP][getPath] ═══ 完成 ═══');
 }
 
