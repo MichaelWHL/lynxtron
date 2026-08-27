@@ -15,6 +15,7 @@
 // libelectron.so stays out of the import path.
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <arkui/ui_input_event.h>
 #include <dlfcn.h>
 #include <hilog/log.h>
 
@@ -1391,12 +1392,26 @@ using SendPointerFn = void (*)(int32_t harmony_window_id,
                                int32_t device, int kind, size_t timestamp);
 SendPointerFn g_send_pointer = nullptr;
 
+using SendScrollFn = void (*)(int32_t harmony_window_id, double x, double y,
+                              double delta_x, double delta_y,
+                              size_t timestamp, bool precise);
+SendScrollFn g_send_scroll = nullptr;
+
 // ArkUI reports mouse events with no device id and may report the primary
 // touch contact as id 0.  Lynx keys pointer state by `device`, so sharing 0
 // makes a touch Down reuse the mouse Hover pointer and prevents a tap from
 // getting its required Add -> Down -> Up sequence.
 constexpr int32_t kLynxtronMouseDeviceId = 1;
 constexpr int32_t kLynxtronTouchDeviceIdBase = 1000;
+
+// OH_NativeXComponent_MouseEvent::button identifies the button that changed
+// for press/release events.  It is normally NONE for a MOVE event, even while
+// the user is holding the primary button down.  Keep the state per Harmony
+// window so a desktop drag is delivered to Lynx as Down -> Move -> Up rather
+// than Down -> Hover -> Up.  The latter prevents ScrollView/List from
+// recognizing a pan gesture.
+std::mutex g_mouse_buttons_mutex;
+std::unordered_map<int32_t, int64_t> g_mouse_buttons_by_window;
 
 using SendKeyFn = void (*)(int32_t harmony_window_id,
                            int type, uint64_t logical, uint64_t physical,
@@ -1525,6 +1540,26 @@ void ForwardPointer(int32_t harmony_window_id,
   g_send_pointer(harmony_window_id, phase, x, y, buttons, device, kind, timestamp);
 }
 
+void ForwardScroll(int32_t harmony_window_id, double x, double y,
+                   double delta_x, double delta_y, bool precise,
+                   size_t timestamp) {
+  if (!g_lynxtron_handle) return;
+  if (!g_send_scroll) {
+    g_send_scroll = reinterpret_cast<SendScrollFn>(
+        dlsym(g_lynxtron_handle, "LynxtronSendScrollEventForWindow"));
+  }
+  if (!g_send_scroll) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[XC] dlsym LynxtronSendScrollEventForWindow failed: %{public}s",
+                 dlerror());
+    return;
+  }
+  OH_LOG_INFO(LOG_APP,
+              "[XC] scroll x=%{public}f y=%{public}f dx=%{public}f dy=%{public}f",
+              x, y, delta_x, delta_y);
+  g_send_scroll(harmony_window_id, x, y, delta_x, delta_y, timestamp, precise);
+}
+
 // Try to read the HarmonyOS window id encoded in the XComponent id string
 // (e.g. "lynxtron_surface_12345"). Falls back to -1 if the id is missing or
 // not in the expected format.
@@ -1602,6 +1637,9 @@ void OnSurfaceChanged(OH_NativeXComponent* component, void* window) {
 
 void OnSurfaceDestroyed(OH_NativeXComponent* component, void* window) {
   OH_LOG_INFO(LOG_APP, "[XC] OnSurfaceDestroyed");
+  const int32_t surface_window_id = GetSurfaceWindowId(component);
+  std::lock_guard<std::mutex> lock(g_mouse_buttons_mutex);
+  g_mouse_buttons_by_window.erase(surface_window_id);
   g_native_window = nullptr;
 }
 
@@ -1656,31 +1694,50 @@ OH_NativeXComponent_Callback g_xc_callback = {
 void DispatchMouseEvent(OH_NativeXComponent* component, void* window) {
   OH_NativeXComponent_MouseEvent me;
   if (OH_NativeXComponent_GetMouseEvent(component, window, &me) != 0) return;
-  int64_t buttons = 0;
-  if (me.button == OH_NATIVEXCOMPONENT_LEFT_BUTTON) buttons = 1;
-  else if (me.button == OH_NATIVEXCOMPONENT_RIGHT_BUTTON) buttons = 2;
-  else if (me.button == OH_NATIVEXCOMPONENT_MIDDLE_BUTTON) buttons = 4;
-  int phase;
-  switch (me.action) {
-    case OH_NATIVEXCOMPONENT_MOUSE_PRESS:
-      phase = 0;
-      if (buttons == 0) buttons = 1;
-      break;
-    case OH_NATIVEXCOMPONENT_MOUSE_RELEASE:
-      phase = 1;
-      buttons = 0;
-      break;
-    case OH_NATIVEXCOMPONENT_MOUSE_MOVE:
-      phase = (buttons != 0) ? 2 : 3;  // drag vs hover
-      break;
-    default:
-      return;
-  }
-  const size_t timestamp = static_cast<size_t>(NowMicros());
+  int64_t changed_button = 0;
+  if (me.button == OH_NATIVEXCOMPONENT_LEFT_BUTTON) changed_button = 1;
+  else if (me.button == OH_NATIVEXCOMPONENT_RIGHT_BUTTON) changed_button = 2;
+  else if (me.button == OH_NATIVEXCOMPONENT_MIDDLE_BUTTON) changed_button = 4;
+
   int32_t surface_window_id = GetSurfaceWindowId(component);
   if (surface_window_id <= 0) {
     surface_window_id = g_current_harmony_window_id;
   }
+
+  int64_t buttons = 0;
+  int phase;
+  {
+    std::lock_guard<std::mutex> lock(g_mouse_buttons_mutex);
+    int64_t& tracked_buttons = g_mouse_buttons_by_window[surface_window_id];
+    switch (me.action) {
+      case OH_NATIVEXCOMPONENT_MOUSE_PRESS:
+        // A missing button is treated as primary for compatibility with older
+        // HarmonyOS PC builds that omit it for the first press packet.
+        tracked_buttons |= changed_button != 0 ? changed_button : 1;
+        phase = 0;
+        break;
+      case OH_NATIVEXCOMPONENT_MOUSE_RELEASE:
+        tracked_buttons &= ~(changed_button != 0 ? changed_button : 1);
+        phase = 1;
+        break;
+      case OH_NATIVEXCOMPONENT_MOUSE_MOVE:
+        phase = tracked_buttons != 0 ? 2 : 3;  // drag vs hover
+        break;
+      case OH_NATIVEXCOMPONENT_MOUSE_CANCEL:
+        tracked_buttons = 0;
+        phase = 4;
+        break;
+      default:
+        return;
+    }
+    buttons = tracked_buttons;
+    if (tracked_buttons == 0 &&
+        (me.action == OH_NATIVEXCOMPONENT_MOUSE_RELEASE ||
+         me.action == OH_NATIVEXCOMPONENT_MOUSE_CANCEL)) {
+      g_mouse_buttons_by_window.erase(surface_window_id);
+    }
+  }
+  const size_t timestamp = static_cast<size_t>(NowMicros());
   ForwardPointer(surface_window_id, phase, me.x, me.y, buttons,
                  kLynxtronMouseDeviceId,
                  /*mouse=*/1, timestamp);
@@ -1692,6 +1749,25 @@ OH_NativeXComponent_MouseEvent_Callback g_mouse_callback = {
     .DispatchMouseEvent = DispatchMouseEvent,
     .DispatchHoverEvent = DispatchHoverEvent,
 };
+
+// Mouse-wheel and touchpad scrolling are delivered by ArkUI as AXIS events,
+// not through OH_NativeXComponent_MouseEvent. Forward their physical deltas
+// as Lynx scroll signals so ScrollView/List can consume them directly.
+void DispatchAxisEvent(OH_NativeXComponent* component,
+                       ArkUI_UIInputEvent* event,
+                       ArkUI_UIInputEvent_Type type) {
+  if (!component || !event || type != ARKUI_UIINPUTEVENT_TYPE_AXIS) return;
+  const double delta_x = OH_ArkUI_AxisEvent_GetHorizontalAxisValue(event);
+  const double delta_y = OH_ArkUI_AxisEvent_GetVerticalAxisValue(event);
+  if (delta_x == 0.0 && delta_y == 0.0) return;
+  int32_t surface_window_id = GetSurfaceWindowId(component);
+  if (surface_window_id <= 0) surface_window_id = g_current_harmony_window_id;
+  const int32_t source = OH_ArkUI_UIInputEvent_GetSourceType(event);
+  const bool precise = source != 1;
+  ForwardScroll(surface_window_id, OH_ArkUI_PointerEvent_GetX(event),
+                OH_ArkUI_PointerEvent_GetY(event), delta_x, delta_y, precise,
+                static_cast<size_t>(NowMicros()));
+}
 
 uint64_t ToLynxLogicalKey(OH_NativeXComponent_KeyCode code) {
   switch (code) {
@@ -2839,6 +2915,9 @@ napi_value Init(napi_env env, napi_value exports) {
       int32_t rm =
           OH_NativeXComponent_RegisterMouseEventCallback(xc, &g_mouse_callback);
       OH_LOG_INFO(LOG_APP, "[XC] RegisterMouseEventCallback ret=%{public}d", rm);
+      int32_t ra = OH_NativeXComponent_RegisterUIInputEventCallback(
+          xc, DispatchAxisEvent, ARKUI_UIINPUTEVENT_TYPE_AXIS);
+      OH_LOG_INFO(LOG_APP, "[XC] RegisterAxisEventCallback ret=%{public}d", ra);
       int32_t rk = OH_NativeXComponent_RegisterKeyEventCallback(xc, DispatchKeyEvent);
       OH_LOG_INFO(LOG_APP, "[XC] RegisterKeyEventCallback ret=%{public}d", rk);
     } else {

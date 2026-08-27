@@ -77,6 +77,15 @@ declare namespace lynxtron {
     state: string,
     resizeEdge?: number,
   ): void;
+
+  /** Publishes the OS window rectangle to the native window observer. */
+  function notifyWindowRect(
+    windowId: number,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void;
 }
 
 export default lynxtron;

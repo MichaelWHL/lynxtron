@@ -911,6 +911,29 @@ void SendPointerOnLynxUi(int32_t harmony_window_id,
   r->SendPointerEvent(&ev);
 }
 
+void SendScrollOnLynxUi(int32_t harmony_window_id, double x, double y,
+                        double delta_x, double delta_y, size_t timestamp,
+                        bool precise) {
+  auto r = harmony_window_id > 0
+               ? lynxtron::GetHarmonyWindowlessRendererForWindow(harmony_window_id)
+               : lynxtron::GetCurrentHarmonyWindowlessRenderer();
+  if (!r) return;
+  lynx_pointer_event_t ev = {};
+  ev.struct_size = sizeof(ev);
+  ev.phase = kLynxPointerPhaseHover;
+  ev.timestamp = timestamp;
+  ev.x = x;
+  ev.y = y;
+  ev.device = 1;  // shared mouse device id used by the Harmony NAPI bridge
+  ev.signal_kind = kLynxPointerSignalKindScroll;
+  ev.scroll_delta_x = delta_x;
+  ev.scroll_delta_y = delta_y;
+  ev.device_kind = precise ? kLynxPointerDeviceKindTrackpad
+                           : kLynxPointerDeviceKindMouse;
+  ev.is_precise_scroll = precise ? 1 : 0;
+  r->SendPointerEvent(&ev);
+}
+
 void SendKeyOnLynxUi(int32_t harmony_window_id,
                      int type, uint64_t logical, uint64_t physical,
                      double timestamp) {
@@ -965,6 +988,13 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSendPointerEventF
     size_t timestamp) {
   PostToLynxUi(base::BindOnce(&SendPointerOnLynxUi, harmony_window_id,
                               phase, x, y, buttons, device, kind, timestamp));
+}
+
+extern "C" __attribute__((visibility("default"))) void LynxtronSendScrollEventForWindow(
+    int32_t harmony_window_id, double x, double y, double delta_x,
+    double delta_y, size_t timestamp, bool precise) {
+  PostToLynxUi(base::BindOnce(&SendScrollOnLynxUi, harmony_window_id, x, y,
+                              delta_x, delta_y, timestamp, precise));
 }
 
 extern "C" __attribute__((visibility("default"))) void LynxtronSendPointerEvent(

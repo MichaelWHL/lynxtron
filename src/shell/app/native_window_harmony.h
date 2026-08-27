@@ -21,6 +21,11 @@ void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
                                             int width,
                                             int height);
 
+// Associates the XComponent native surface with the matching C++ window.
+// LynxViewBuilder uses this handle to select the renderer for that window.
+void UpdateHarmonyNativeWindowSurfaceForWindow(int32_t harmony_window_id,
+                                               void* surface);
+
 // Exported from native_window_harmony.cc with C linkage. Declared inside the
 // namespace so surface_render_harmony.cc can call it as lynxtron::....
 extern "C" void LynxtronSetHarmonySurfaceSize(int width, int height);
