@@ -5,6 +5,8 @@ struct EntryPage {
     // EntryAbility does not host the actual application window.
     // It only launches the first WindowAbility. Keep this page empty.
     Stack() {
+      Text('Hello Lynxtron')
+        .fontSize(46)
     }
     .width('100%')
     .height('100%')

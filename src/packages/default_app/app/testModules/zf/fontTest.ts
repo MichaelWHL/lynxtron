@@ -8,7 +8,7 @@
 //           等异步加载完成后再下结论(不依赖固定延时)。
 // 每条用例以 [PASS] / [FAIL] 标记。
 
-import { logInfo, logPass, logFail } from '../../utils/log';
+import { log, logPass, logFail } from '../../utils/log';
 
 const TAG = 'FT';
 
@@ -32,8 +32,8 @@ export function testAddFont(opts?: AddFontOptions, onReady?: () => void): void {
   const src = opts?.src?.trim() || DEFAULT_FONT_SRC;
   const family = 'sq-font'; // 字体名固定
   const lynxAny = lynx as any;
-  logInfo(TAG, '═══ addFont 验证开始 ═══');
-  logInfo(TAG, '   font-family=' + family + '  src=' + src);
+  log(TAG, '═══ addFont 验证开始 ═══');
+  log(TAG, '   font-family=' + family + '  src=' + src);
 
   if (typeof lynxAny.addFont !== 'function') {
     logFail(TAG, 'lynx.addFont 不可用, type=' + typeof lynxAny.addFont);
@@ -43,32 +43,32 @@ export function testAddFont(opts?: AddFontOptions, onReady?: () => void): void {
   // 用例1: 缺 font-family → 应抛异常
   try {
     lynxAny.addFont({ src }, () => { });
-    logFail(TAG, '用例1 缺 font-family 未抛异常');
+    log(TAG, '[FAIL] 用例1 缺 font-family 未抛异常');
   } catch (e) {
-    logPass(TAG, '用例1 缺 font-family 抛异常');
+    log(TAG, '[PASS] 用例1 缺 font-family 抛异常');
   }
 
   // 用例2: 缺 src → 应抛异常
   try {
     lynxAny.addFont({ 'font-family': family }, () => { });
-    logFail(TAG, '用例2 缺 src 未抛异常');
+    log(TAG, '[FAIL] 用例2 缺 src 未抛异常');
   } catch (e) {
-    logPass(TAG, '用例2 缺 src 抛异常');
+    log(TAG, '[PASS] 用例2 缺 src 抛异常');
   }
 
   // 用例3: 加载 + 轮询测量
-  logInfo(TAG, '用例3 提交 addFont…');
+  log(TAG, '用例3 提交 addFont…');
   try {
     lynxAny.addFont({ 'font-family': family, src }, (e?: any) => {
       if (e) {
         logFail(TAG, '用例3 回调带错误: ' + String(e));
         return;
       }
-      logInfo(TAG, '用例3 回调触发(同步)');
+      log(TAG, '用例3 回调触发(同步)');
       // 先调 onReady, 让 #ft-custom 元素在 addFont 后才出现(先注册后声明)
       if (onReady) onReady();
       // 为防止字体注册/渲染回调时机不对, 延迟 2s 后再测量
-      logInfo(TAG, '延迟 2s 后开始轮询测量');
+      log(TAG, '延迟 2s 后开始轮询测量');
       setTimeout(() => pollFontWidth(0), 2000);
     });
   } catch (e) {
@@ -100,20 +100,20 @@ function pollFontWidth(attempt: number): void {
         return;
       }
       m1 = m2 = null; m1fail = m2fail = false;
-      logInfo(TAG, '元素未就绪, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
+      log(TAG, '元素未就绪, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
       setTimeout(() => pollFontWidth(attempt + 1), INTERVAL);
       return;
     }
     // 两个都拿到 → 测量
     const diff = Math.abs((m1 as any).width - (m2 as any).width);
-    logInfo(TAG, '测量[' + (attempt + 1) + ']: 自定义=' + (m1 as any).width.toFixed(1) +
+    log(TAG, '测量[' + (attempt + 1) + ']: 自定义=' + (m1 as any).width.toFixed(1) +
       ' 默认=' + (m2 as any).width.toFixed(1) + ' 差=' + diff.toFixed(2));
     if (diff > 0.5) {
       done('结论: addFont 字体已生效', true);
     } else if (attempt + 1 >= MAX) {
       done('结论: 轮询 ' + MAX + ' 次后宽度仍无差异 → 字体未生效', false);
     } else {
-      logInfo(TAG, '宽度无差异, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
+      log(TAG, '宽度无差异, ' + (attempt + 1) + '/' + MAX + ' 轮重试…');
       setTimeout(() => pollFontWidth(attempt + 1), INTERVAL);
     }
   };
@@ -122,12 +122,12 @@ function pollFontWidth(attempt: number): void {
       .select('#ft-custom').invoke({
         method: 'boundingClientRect',
         success: (a: any) => { m1 = a; tryNext(); },
-        fail: (r: any) => { m1fail = true; logInfo(TAG, '测量 #ft-custom 失败 code=' + (r && r.code) + ' 节点未就绪'); tryNext(); }
+        fail: (r: any) => { m1fail = true; log(TAG, '测量 #ft-custom 失败 code=' + (r && r.code) + ' 节点未就绪'); tryNext(); }
       })
       .select('#ft-default').invoke({
         method: 'boundingClientRect',
         success: (b: any) => { m2 = b; tryNext(); },
-        fail: (r: any) => { m2fail = true; logInfo(TAG, '测量 #ft-default 失败 code=' + (r && r.code)); tryNext(); }
+        fail: (r: any) => { m2fail = true; log(TAG, '测量 #ft-default 失败 code=' + (r && r.code)); tryNext(); }
       })
       .exec();
   } catch (err) {
