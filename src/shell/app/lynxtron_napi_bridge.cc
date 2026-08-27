@@ -1827,6 +1827,28 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
     if (surface_window_id <= 0) {
       surface_window_id = g_current_harmony_window_id;
     }
+    // HarmonyOS PC delivers some hardware number-row keys as keypad-style
+    // events.  A key event carries no character payload, so Clay cannot turn
+    // those events into text even though letters work.  Forward the digit as
+    // committed text on key-down as well as the logical key event; this keeps
+    // cursor/navigation semantics while making numeric input reliable.
+    if (action != OH_NATIVEXCOMPONENT_KEY_ACTION_UP &&
+        ((code >= KEY_0 && code <= KEY_9) ||
+         (code >= KEY_NUMPAD_0 && code <= KEY_NUMPAD_9))) {
+      if (!g_send_text && g_lynxtron_handle) {
+        g_send_text = reinterpret_cast<SendTextFn>(
+            dlsym(g_lynxtron_handle, "LynxtronSendTextInputForWindow"));
+      }
+      if (g_send_text) {
+        char digit[2] = {
+            static_cast<char>('0' +
+                              ((code >= KEY_NUMPAD_0)
+                                   ? code - KEY_NUMPAD_0
+                                   : code - KEY_0)),
+            '\0'};
+        g_send_text(surface_window_id, digit, NowMicros());
+      }
+    }
     g_send_key(surface_window_id,
                action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
                ToLynxLogicalKey(code), 0, NowMicros());
