@@ -16,13 +16,7 @@ export default function WindowPage() {
     NativeModules.bridge.call(
       'runWindowManagerTests',
       {},
-      (res: any) => {
-        if (res && res.ok) {
-          logInfo('[SPH] 测试已启动:', res.data);
-        } else {
-          logInfo('[SPH] 测试触发失败:', res);
-        }
-      }
+      (res: any) => {}
     );
   };
 
