@@ -86,30 +86,32 @@ export default function TestModulePage() {
     <view className="testModuleContent">
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
-        <text className="pageSectionTitle">{active.label}</text>
-        <text className="pageSectionStats">
-          本模块总接口数量:{stats.total} 通过:{stats.passed} 失败:{stats.failed} 通过率:{stats.rate}%
+        <text className="pageSectionTitle" style={{ fontSize: '30px' }}>{active.label}</text>
+        <text className="pageSectionStats" style={{ fontSize: '24px', fontWeight: '700' }}>
+          总接口:{stats.total} 通过:{stats.passed} 失败:{stats.failed} 通过率:{stats.rate}%
         </text>
       </view>
 
-      {/* 自动执行按钮 */}
+      {/* 自动执行按钮(紧凑, 无 emoji) */}
       <view
         bindtap={() => runAutoAll()}
         style={{
           marginTop: '10px',
-          padding: '10px 14px',
-          borderRadius: '8px',
+          alignSelf: 'flex-start',
+          height: '64px',
+          padding: '0 24px',
+          borderRadius: '10px',
           backgroundColor: running ? '#4a4d55' : '#2f6feb',
           justifyContent: 'center',
           alignItems: 'center',
         }}
       >
-        <text style={{ color: '#fff', fontSize: '14px', fontWeight: '600' }}>
-          {running ? '⏳ 自动执行中…' : '▶ 自动执行本模块非交互用例'}
+        <text style={{ color: '#fff', fontSize: '28px', fontWeight: '600' }}>
+          {running ? '自动执行中…' : '自动执行非交互用例'}
         </text>
       </view>
 
-      <text className="testModuleDesc">{active.desc}</text>
+      <text className="testModuleDesc" style={{ fontSize: '28px', lineHeight: '40px' }}>{active.desc}</text>
 
       {/* lynx 模块: SelectorQuery / AddFont 测试目标节点区 */}
       {isLynx && (
@@ -158,7 +160,7 @@ export default function TestModulePage() {
                 marginLeft: '8px',
               }}
             />
-            <text style={{ fontSize: '11px', color: '#8a8f98', marginLeft: '10px' }}>
+            <text style={{ fontSize: '18px', color: '#8a8f98', marginLeft: '10px' }}>
               测试目标: #lxp-target + 3× .lxp-item
             </text>
           </view>
@@ -221,15 +223,17 @@ export default function TestModulePage() {
             <view className="testCard" key={t.id}>
               <view className="testButton" bindtap={() => runTest(t)}>
                 <view className="testButtonDot" />
-                <text className="testButtonText">{t.label}{t.manual ? ' ⚠' : ''}</text>
-                <text className="testButtonArrow">›</text>
+                <text className="testButtonText" style={{ fontSize: '28px' }}>
+                  {t.label}{t.manual ? ' (手动)' : ''}
+                </text>
+                <text className="testButtonArrow" style={{ fontSize: '24px' }}>›</text>
               </view>
-              <text className="testCardDesc">{t.desc}</text>
+              <text className="testCardDesc" style={{ fontSize: '24px', lineHeight: '34px' }}>{t.desc}</text>
 
               {/* addFont: 输入框 */}
               {isFont && (
                 <view style={{ marginTop: '8px' }}>
-                  <text style={{ color: '#8a8f98', fontSize: '11px', marginBottom: '4px' }}>
+                  <text style={{ color: '#8a8f98', fontSize: '20px', marginBottom: '4px' }}>
                     FONT_SRC(字体地址)
                   </text>
                   <input
@@ -241,7 +245,7 @@ export default function TestModulePage() {
                       backgroundColor: '#1e2024',
                       color: '#e8e9ea',
                       padding: '0 8px',
-                      fontSize: '12px',
+                      fontSize: '20px',
                       border: '1px solid #3a3d45',
                     }}
                     bindinput={(e: any) => {
@@ -253,7 +257,7 @@ export default function TestModulePage() {
                 </view>
               )}
 
-              <text className="testCardCount">
+              <text className="testCardCount" style={{ fontSize: '22px' }}>
                 {t.manual ? '手动 ' : ''}通过 {passed} · 失败 {failed}
               </text>
               {t.manual && t.manualGuide ? (
@@ -263,8 +267,8 @@ export default function TestModulePage() {
                       key={i}
                       style={{
                         color: '#f5c26b',
-                        fontSize: '12px',
-                        lineHeight: '17px',
+                        fontSize: '22px',
+                        lineHeight: '30px',
                       }}
                     >
                       {line}

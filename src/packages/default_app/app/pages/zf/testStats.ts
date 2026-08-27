@@ -30,6 +30,16 @@ function emit(): void {
   for (const l of listeners) l();
 }
 
+/** 判断是否为"汇总/结论"行(如主进程 '完成: X 通过', lynx '测试通过 (4/4)'、'结论: ...')。
+ *  这类 [PASS]/[FAIL] 行是整体结论, 不计入接口统计, 避免"总接口数"多算。 */
+const SUMMARY_KEYWORDS = ['完成:', '测试通过', '测试失败:', '结论:'];
+function isSummaryLine(text: string): boolean {
+  for (const k of SUMMARY_KEYWORDS) {
+    if (text.indexOf(k) >= 0) return true;
+  }
+  return false;
+}
+
 function ensureWired(): void {
   if (wired) return;
   wired = true;
@@ -39,6 +49,7 @@ function ensureWired(): void {
       if (e.id <= lastSeq) continue;
       lastSeq = e.id;
       if (moduleId == null) continue;
+      if (isSummaryLine(e.text)) continue; // 汇总/结论行不计入
       const isPass = e.text.indexOf('[PASS]') >= 0;
       const isFail = e.text.indexOf('[FAIL]') >= 0;
       if (!isPass && !isFail) continue;

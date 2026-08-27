@@ -55,18 +55,18 @@ function recordTestResult(step: string, pass: boolean, details?: string) {
     failedTests++;
   }
   const detailText = details ? ` (${details})` : '';
-  console.log(`[WindowManagerTest] ${step} result: ${pass ? 'PASS' : 'FAIL'}${detailText}`);
+  console.warn(`[WindowManagerTest] ${step} result: ${pass ? 'PASS' : 'FAIL'}${detailText}`);
 }
 function logTestSummary() {
   const percentage = totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : '0.00';
-  console.log(`[WindowManagerTest] Ran ${totalTests} tests，${passedTests} Passed，${failedTests} Failed，Pass Percentage：${percentage}%`);
+  console.warn(`[WindowManagerTest] Ran ${totalTests} tests，${passedTests} Passed，${failedTests} Failed，Pass Percentage：${percentage}%`);
 }
 
 async function runBatch3Tests() {
   console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test Start ===');
 
   if (!mainWindow) {
-    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    console.error('[WindowManagerTest] ERROR: mainWindow is null');
     return;
   }
 
@@ -91,7 +91,7 @@ async function runBatch3Tests() {
 
     console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test End ===');
   } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during batch 3 tests: ${String(err)}`);
+    console.error(`[WindowManagerTest] ERROR during batch 3 tests: ${String(err)}`);
   }
 }
 
@@ -99,7 +99,7 @@ async function runBatch6Tests() {
   console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test Start ===');
 
   if (!mainWindow) {
-    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    console.error('[WindowManagerTest] ERROR: mainWindow is null');
     return;
   }
 
@@ -150,7 +150,7 @@ async function runBatch6Tests() {
 
     console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test End ===');
   } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during batch 6 tests: ${String(err)}`);
+    console.error(`[WindowManagerTest] ERROR during batch 6 tests: ${String(err)}`);
   }
 }
 
@@ -158,7 +158,7 @@ async function runBatch7Tests() {
   console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test Start ===');
 
   if (!mainWindow) {
-    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    console.error('[WindowManagerTest] ERROR: mainWindow is null');
     return;
   }
 
@@ -218,7 +218,7 @@ async function runBatch7Tests() {
     logResult('B7-STEP4 modal dialog creation', dialogState);
     recordTestResult('B7-STEP4 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
   } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
+    console.error(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
   } finally {
     // Close all windows created in this batch to avoid interfering with later tests.
     for (const win of cleanupWindows) {
@@ -317,7 +317,7 @@ async function runBatch8Tests() {
     logResult('B8-STEP6 focus/blur', { blurred, focused, events: blurEvents });
     recordTestResult('B8-STEP6 focus/blur', blurred && focused, 'expected blurred=true, focused=true');
   } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
+    console.error(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
   } finally {
     for (const win of cleanupWindows) {
       try {
@@ -335,7 +335,7 @@ async function runTests() {
   console.log('[WindowManagerTest] === Batch 1 Window Manager Test Start ===');
 
   if (!mainWindow) {
-    console.log('[WindowManagerTest] ERROR: mainWindow is null');
+    console.error('[WindowManagerTest] ERROR: mainWindow is null');
     return;
   }
 
@@ -443,7 +443,7 @@ async function runTests() {
     console.log('[WindowManagerTest] === Batch 1 Window Manager Test End ===');
     logTestSummary();
   } catch (err) {
-    console.log(`[WindowManagerTest] ERROR during tests: ${String(err)}`);
+    console.error(`[WindowManagerTest] ERROR during tests: ${String(err)}`);
   }
 }
 
