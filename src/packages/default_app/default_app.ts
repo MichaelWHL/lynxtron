@@ -156,7 +156,7 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
 // 最近一次提交「窗口事件」新增了 ArkTS→C++→JS 的窗口状态事件管线。这里在主进程
 // 注册监听, 每次触发时推送到渲染层 GlobalEventEmitter('win-event') 供页面计数。
 const WIN_EVENTS = [
-  'blur', 'focus', 'show', 'hide',
+  'blur', 'focus', 'show', 'hide', 'closed',
   'minimize', 'restore', 'maximize', 'unmaximize',
   'enter-full-screen', 'leave-full-screen',
   'resize', 'resized', 'move', 'moved', 'will-resize',
@@ -219,7 +219,7 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
     const opts = (data ?? {}) as { width?: number; height?: number };
     const width = opts.width ?? 800;
     const height = opts.height ?? 600;
-    const win = new LynxWindow({ width, height });
+    const win = new LynxWindow({ fullscreen: true, show: true, width: width, height: height });
     // 与主窗口加载同一份 app bundle
     if (currentAppPath) {
       win.loadFile(currentAppPath);
