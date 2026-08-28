@@ -64,6 +64,9 @@ inline constexpr std::string_view kTransparent = "transparent";
 // Window type hint.
 inline constexpr std::string_view kType = "type";
 
+// Target display id for the window (HarmonyOS multi-display support).
+inline constexpr std::string_view kDisplayId = "displayId";
+
 // Disable auto-hiding cursor.
 inline constexpr std::string_view kDisableAutoHideCursor =
     "disableAutoHideCursor";

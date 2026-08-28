@@ -43,8 +43,8 @@ extern "C" __attribute__((visibility("default"))) void LynxtronCreateHarmonyWind
   }
   OH_LOG_INFO(LOG_APP,
               "[LynxtronWindow] requesting creation id=%{public}d type=%{public}s "
-              "bounds=%{public}d,%{public}d,%{public}dx%{public}d",
+              "bounds=%{public}d,%{public}d,%{public}dx%{public}d display_id=%{public}d",
               window_id, options->type.c_str(), options->x, options->y,
-              options->width, options->height);
+              options->width, options->height, options->display_id);
   lynxtron::g_create_window_callback(window_id, options);
 }

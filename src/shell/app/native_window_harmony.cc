@@ -201,6 +201,9 @@ class NativeWindowHarmony : public NativeWindow {
     bool modal = false;
     options.Get("modal", &modal);
 
+    int display_id = -1;
+    options.Get(options::kDisplayId, &display_id);
+
     std::string type = "main";
     options.Get(options::kType, &type);
 
@@ -305,6 +308,7 @@ class NativeWindowHarmony : public NativeWindow {
       create_options.max_width = max_width;
       create_options.max_height = max_height;
       create_options.modal = modal;
+      create_options.display_id = display_id;
       LynxtronCreateHarmonyWindow(window_id_, &create_options);
     }
 

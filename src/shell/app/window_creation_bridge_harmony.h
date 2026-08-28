@@ -69,6 +69,9 @@ struct HarmonyWindowCreationOptions {
 
   // Whether the window is modal. Used for sub/panel/dialog types.
   bool modal = false;
+
+  // Target display id. -1 means let ArkTS pick the internal display.
+  int32_t display_id = -1;
 };
 
 }  // namespace lynxtron

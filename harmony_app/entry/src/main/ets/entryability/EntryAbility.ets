@@ -104,6 +104,15 @@ export default class EntryAbility extends UIAbility {
       });
 
     const mainWindow = windowStage.getMainWindowSync();
+    try {
+      const props = mainWindow.getWindowProperties();
+      const displayId = props.displayId;
+      AppStorage.setOrCreate('entry_ability_display_id', displayId);
+      hilog.info(DOMAIN, TAG, 'EntryAbility displayId=%{public}d', displayId);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'EntryAbility get displayId failed: %{public}s', String(e));
+    }
+
     mainWindow.setUIContent('pages/Entry', (err) => {
       lynxtron.setWindowObject(mainWindow);
       // mainWindow.setWindowDecorVisible(false);

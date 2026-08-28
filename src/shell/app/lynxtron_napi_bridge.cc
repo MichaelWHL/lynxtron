@@ -123,6 +123,50 @@ void LogDefaultDisplayAvailableArea() {
   OH_NativeDisplayManager_DestroyAvailableArea(available_area);
 }
 
+// Returns the id of the internal/main display. In mirror mode the system's
+// "default" display may be the external/mirrored display, which cannot host
+// independent Ability windows. Always launching on the internal display avoids
+// creating a WindowAbility that never reaches onWindowStageCreate.
+uint64_t GetInternalDisplayIdNative() {
+  uint64_t fallback_id = 0;
+  OH_NativeDisplayManager_GetDefaultDisplayId(&fallback_id);
+
+  NativeDisplayManager_DisplaysInfo* info = nullptr;
+  NativeDisplayManager_ErrorCode status =
+      OH_NativeDisplayManager_CreateAllDisplays(&info);
+  if (status != DISPLAY_MANAGER_OK || !info) {
+    OH_LOG_WARN(LOG_APP,
+                "GetInternalDisplayIdNative: CreateAllDisplays failed ret=%{public}d",
+                static_cast<int>(status));
+    return fallback_id;
+  }
+
+  uint64_t internal_id = fallback_id;
+  for (uint32_t i = 0; i < info->displaysLength; ++i) {
+    const auto* di = &info->displaysInfo[i];
+    NativeDisplayManager_SourceMode mode;
+    if (OH_NativeDisplayManager_GetDisplaySourceMode(di->id, &mode) ==
+            DISPLAY_MANAGER_OK &&
+        mode == DISPLAY_SOURCE_MODE_MAIN) {
+      internal_id = di->id;
+      OH_LOG_INFO(LOG_APP,
+                  "GetInternalDisplayIdNative: internal display id=%{public}llu",
+                  static_cast<unsigned long long>(internal_id));
+      break;
+    }
+  }
+
+  OH_NativeDisplayManager_DestroyAllDisplays(info);
+  return internal_id;
+}
+
+napi_value GetInternalDisplayId(napi_env env, napi_callback_info) {
+  napi_value result = nullptr;
+  napi_create_int64(env, static_cast<int64_t>(GetInternalDisplayIdNative()),
+                    &result);
+  return result;
+}
+
 bool EnsureLynxtronLoaded() {
   if (g_lynxtron_main) return true;
 
@@ -400,6 +444,7 @@ void CreateWindowCallJS(napi_env env, napi_value js_cb, void* context,
   set_int("maxWidth", request->options.max_width);
   set_int("maxHeight", request->options.max_height);
   set_bool("modal", request->options.modal);
+  set_int("displayId", request->options.display_id);
 
   napi_value argv[1] = {options};
   napi_value undefined;

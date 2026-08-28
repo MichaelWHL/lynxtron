@@ -56,6 +56,7 @@ export interface CreateWindowOptions {
   maxWidth?: number;
   maxHeight?: number;
   modal?: boolean;
+  displayId?: number;
 }
 
 // Legacy param used by EntryAbility to launch the first WindowAbility.
@@ -67,9 +68,9 @@ export interface CreateWindowParam {
   bounds?: WindowBounds;
 }
 
-function centerBounds(bounds: WindowBounds): WindowBounds {
+function centerBounds(bounds: WindowBounds, targetDisplay?: display.Display): WindowBounds {
   try {
-    const disp = display.getDefaultDisplaySync();
+    const disp = targetDisplay ?? display.getDefaultDisplaySync();
     return {
       left: Math.round((disp.width - bounds.width) / 2),
       top: Math.round((disp.height - bounds.height) / 2),
@@ -80,6 +81,102 @@ function centerBounds(bounds: WindowBounds): WindowBounds {
     hilog.warn(DOMAIN, TAG, 'centerBounds failed: %{public}s', String(e));
     return bounds;
   }
+}
+
+function getInternalDisplayId(): number {
+  // The internal/built-in display must have sourceMode MAIN. In extend mode
+  // getPrimaryDisplaySync/getDefaultDisplaySync may return the external
+  // monitor, which cannot host an Ability, so only accept MAIN here.
+  try {
+    const primary = display.getPrimaryDisplaySync();
+    if (primary.sourceMode === display.DisplaySourceMode.MAIN) {
+      return primary.id;
+    }
+    hilog.warn(DOMAIN, TAG,
+      'getPrimaryDisplaySync id=%{public}d sourceMode=%{public}d is not MAIN, keep searching',
+      primary.id, primary.sourceMode);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'getPrimaryDisplaySync failed: %{public}s', String(e));
+  }
+  try {
+    const defaultDisp = display.getDefaultDisplaySync();
+    if (defaultDisp.sourceMode === display.DisplaySourceMode.MAIN) {
+      return defaultDisp.id;
+    }
+    hilog.warn(DOMAIN, TAG,
+      'getDefaultDisplaySync id=%{public}d sourceMode=%{public}d is not MAIN, keep searching',
+      defaultDisp.id, defaultDisp.sourceMode);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'getDefaultDisplaySync failed: %{public}s', String(e));
+  }
+  return 0;
+}
+
+function getEntryAbilityDisplayId(): number | undefined {
+  const id = AppStorage.get<number>('entry_ability_display_id');
+  if (id === undefined || id < 0) {
+    return undefined;
+  }
+  try {
+    const disp = display.getDisplayByIdSync(id);
+    if (isUsableSourceMode(disp.sourceMode)) {
+      return id;
+    }
+    hilog.warn(DOMAIN, TAG,
+      'entry_ability_display_id=%{public}d sourceMode=%{public}d is not usable, ignore',
+      id, disp.sourceMode);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG,
+      'entry_ability_display_id=%{public}d invalid: %{public}s', id, String(e));
+  }
+  return undefined;
+}
+
+function getDisplayByIdOrDefault(displayId: number): display.Display | undefined {
+  try {
+    return display.getDisplayByIdSync(displayId);
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'getDisplayByIdSync(%{public}d) failed: %{public}s', displayId, String(e));
+  }
+  try {
+    return display.getDefaultDisplaySync();
+  } catch (e) {
+    hilog.warn(DOMAIN, TAG, 'getDefaultDisplaySync fallback failed: %{public}s', String(e));
+  }
+  return undefined;
+}
+
+function isUsableSourceMode(mode: display.DisplaySourceMode | undefined): boolean {
+  if (mode === undefined) {
+    return false;
+  }
+  return mode === display.DisplaySourceMode.MAIN || mode === display.DisplaySourceMode.EXTEND;
+}
+
+function resolveDisplayId(requestedDisplayId?: number): number {
+  if (requestedDisplayId !== undefined && requestedDisplayId >= 0) {
+    try {
+      const disp = display.getDisplayByIdSync(requestedDisplayId);
+      const mode = disp.sourceMode;
+      if (isUsableSourceMode(mode)) {
+        return requestedDisplayId;
+      }
+      hilog.warn(DOMAIN, TAG,
+        'requestedDisplayId=%{public}d sourceMode=%{public}d is not usable, fallback',
+        requestedDisplayId, mode);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG,
+        'requestedDisplayId=%{public}d is invalid: %{public}s, fallback',
+        requestedDisplayId, String(e));
+    }
+  }
+  // Prefer the display where EntryAbility is running; otherwise fall back to
+  // the built-in MAIN display.
+  const entryDisplayId = getEntryAbilityDisplayId();
+  if (entryDisplayId !== undefined) {
+    return entryDisplayId;
+  }
+  return getInternalDisplayId();
 }
 
 function getAbilityNameForType(type: string): string {
@@ -108,6 +205,15 @@ export class AppWindowAdapter {
       options.x ?? 0, options.y ?? 0,
       options.width ?? 800, options.height ?? 600);
 
+    // Resolve the target display. Mirror-mode displays cannot host an Ability,
+    // so fall back to the internal display when no valid display is requested.
+    const requestedDisplayId = options.displayId;
+    const resolvedDisplayId = resolveDisplayId(requestedDisplayId);
+    const targetDisplay = getDisplayByIdOrDefault(resolvedDisplayId);
+    hilog.info(DOMAIN, TAG,
+      'createWindowFromCpp requestedDisplayId=%{public}d resolvedDisplayId=%{public}d sourceMode=%{public}d',
+      requestedDisplayId ?? -1, resolvedDisplayId, targetDisplay?.sourceMode ?? -1);
+
     // Compute initial bounds, applying center if requested and no explicit x/y
     // were provided. Update options.x/y so that BaseWindowAbility.applyWindowOptions
     // also positions the window at the same place.
@@ -118,9 +224,31 @@ export class AppWindowAdapter {
       height: options.height ?? 600,
     };
     if (options.center === true && options.hasX !== true && options.hasY !== true) {
-      bounds = centerBounds(bounds);
+      bounds = centerBounds(bounds, targetDisplay);
       options.x = bounds.left;
       options.y = bounds.top;
+    }
+
+    // Diagnostic logging for multi-display / mirror-mode issues.
+    try {
+      const defaultDisp = display.getDefaultDisplaySync();
+      hilog.info(DOMAIN, TAG,
+        'createWindowFromCpp default display id=%{public}d width=%{public}d height=%{public}d',
+        defaultDisp.id, defaultDisp.width, defaultDisp.height);
+
+      display.getAllDisplays()
+        .then((displays) => {
+          for (const d of displays) {
+            hilog.info(DOMAIN, TAG,
+              'createWindowFromCpp all display id=%{public}d width=%{public}d height=%{public}d density=%{public}f',
+              d.id, d.width, d.height, d.densityPixels);
+          }
+        })
+        .catch((e: Error) => {
+          hilog.error(DOMAIN, TAG, 'createWindowFromCpp getAllDisplays failed: %{public}s', String(e));
+        });
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'createWindowFromCpp log display failed: %{public}s', String(e));
     }
 
     if (options.type === 'sub' || options.type === 'panel' || options.type === 'dialog') {
@@ -189,6 +317,10 @@ export class AppWindowAdapter {
       },
     };
 
+    hilog.info(DOMAIN, TAG,
+      'createWindowFromCpp startAbility bounds left=%{public}d top=%{public}d width=%{public}d height=%{public}d',
+      bounds.left, bounds.top, bounds.width, bounds.height);
+
     const startOptions: StartOptions = {
       processMode: contextConstant.ProcessMode.ATTACH_TO_STATUS_BAR_ITEM,
       startupVisibility: (options.show ?? true)
@@ -198,6 +330,7 @@ export class AppWindowAdapter {
       windowTop: bounds.top,
       windowWidth: bounds.width,
       windowHeight: bounds.height,
+      displayId: resolvedDisplayId,
     };
 
     const param: CreateWindowParam = {

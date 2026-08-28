@@ -332,6 +332,16 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       this.originWindowId = originWindowId;
       this.windowId = originWindowId;
 
+      // Diagnostic logging for multi-display / mirror-mode issues.
+      try {
+        const props = mainWindow.getWindowProperties();
+        hilog.info(DOMAIN, TAG,
+          'onWindowStageCreate mainWindow displayId=%{public}d windowId=%{public}d',
+          props?.displayId, this.windowId);
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'onWindowStageCreate get displayId failed: %{public}s', String(e));
+      }
+
       // Publish this Ability's context so that AppWindowAdapter can use it to
       // start subsequent windows.
       AppStorage.setOrCreate('active_ability_context', this.context);
