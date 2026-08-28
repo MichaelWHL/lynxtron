@@ -9,7 +9,7 @@
 // 输出: 页面 Console 面板, tag = ML。
 // 每条用例以 [PASS] / [FAIL] 标记, 结尾输出整体结论。
 
-import { logInfo, logPass, logFail } from '../../utils/log';
+import { log, logPass, logFail } from '../../utils/log';
 
 const TAG = 'ML';
 
@@ -22,16 +22,16 @@ export function testModuleLoader(): void {
   const lynxAny = lynx as any;
   let passed = 0;
   let failed = 0;
-  const ok = (msg: string) => { passed++; logPass(TAG, msg); };
-  const bad = (msg: string) => { failed++; logFail(TAG, msg); };
+  const ok = (msg: string) => { passed++; log(TAG, '[PASS] ' + msg); };
+  const bad = (msg: string) => { failed++; log(TAG, '[FAIL] ' + msg); };
   const summarize = () => {
     const total = passed + failed;
     if (failed === 0) logPass(TAG, '测试通过 (' + passed + '/' + total + ')');
     else logFail(TAG, '测试失败: 通过 ' + passed + '/' + total + ', 失败 ' + failed);
-    logInfo(TAG, '═══ getModuleLoader().load() 测试结束 ═══');
+    log(TAG, '═══ getModuleLoader().load() 测试结束 ═══');
   };
 
-  logInfo(TAG, '═══ getModuleLoader().load() 测试开始 ═══');
+  log(TAG, '═══ getModuleLoader().load() 测试开始 ═══');
 
   let loader: any;
   try {
@@ -47,7 +47,7 @@ export function testModuleLoader(): void {
     summarize();
     return;
   }
-  logInfo(TAG, 'getModuleLoader() 返回 loader, load=' + typeof loader.load + ', keys=' + Object.keys(loader).join(','));
+  log(TAG, 'getModuleLoader() 返回 loader, load=' + typeof loader.load + ', keys=' + Object.keys(loader).join(','));
 
   // 用例1: 加载原生模块 lynxtron_hello
   let mod: any = null;

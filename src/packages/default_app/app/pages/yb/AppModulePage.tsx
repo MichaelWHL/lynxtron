@@ -2,7 +2,7 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-import { useEffect, useState } from '@lynx-js/react';
+import { useEffect, useState, useRef } from '@lynx-js/react';
 import { logInfo, logWarn, logPass, logFail } from '../../utils/log';
 
 // ── AppGallery Kit update 相关接口(最近三笔提交新增) ──
@@ -28,7 +28,7 @@ function stringifyResult(res: unknown): string {
 
 // ── 窗口事件监听测试(最近一次提交「窗口事件」新增) ──
 const WIN_EVENT_NAMES = [
-  'resized', 'will-resize', 'close', 'blur', 
+  'resized', 'will-resize', 'closed', 'blur', 
   'minimize', 'enter-full-screen', 'leave-full-screen',
 //   'closed','show', 'hide', 'restore',
 //   'resize', 'move', 'moved', 'focus',
@@ -162,6 +162,21 @@ export default function YbModulePage() {
     total: BRIDGE_TESTS.length,
     ok: BRIDGE_TESTS.filter((t) => (bridgeStats[t.key]?.count ?? 0) > 0).length,
   };
+  
+  const summaryRef = useRef({ updateSummary, winSummary, bridgeSummary });
+  summaryRef.current = { updateSummary, winSummary, bridgeSummary };
+  
+  const autoTest = () => {
+    logInfo('[YB][window] ▶ 自动测试');
+    UPDATE_APIS.forEach((t) => runUpdateApi(t.name));
+    BRIDGE_TESTS.forEach((t) => runBridgeTest(t.key));
+    setTimeout(() => {
+      let testCount = summaryRef.current.updateSummary.total + summaryRef.current.winSummary.total + summaryRef.current.bridgeSummary.total;
+      let passed = summaryRef.current.updateSummary.ok + summaryRef.current.winSummary.ok + summaryRef.current.bridgeSummary.ok;
+      logWarn(`[YB][auto-test] 总测试数: ${testCount}, 成功: ${passed}, 成功率: ${pct(passed, testCount)}%`);
+    }, 5000);
+  };
+
 
   return (
     <view className="pageStack">
@@ -250,6 +265,17 @@ export default function YbModulePage() {
             <text className="testButtonArrow">›</text>
           </view>
           <text className="testCardDesc">点击创建一个新的 LynxWindow(800×600)</text>
+        </view>
+      </view>
+
+      <view className="testGrid">
+        <view className="testCard">
+          <view className="testButton" bindtap={autoTest}>
+            <view className="testButtonDot" />
+            <text className="testButtonText">一键测试</text>
+            <text className="testButtonArrow">›</text>
+          </view>
+          <text className="testCardDesc">点击启动自动化测试</text>
         </view>
       </view>
     </view>

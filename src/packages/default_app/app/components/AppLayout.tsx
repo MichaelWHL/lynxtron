@@ -6,7 +6,7 @@ import { useEffect } from '@lynx-js/react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import LogPanel from './LogPanel';
-import { log, logError, logWarn } from '../utils/log';
+import { log, logInfo, logError, logWarn } from '../utils/log';
 import { TEST_MODULES } from '../pages/zf/testRegistry';
 
 export interface MenuItem {
@@ -49,6 +49,7 @@ export default function AppLayout() {
       if (!payload || typeof payload.text !== 'string') return;
       const line = payload.from === 'main' ? `[main] ${payload.text}` : payload.text;
       if (payload.level === 'warn') logWarn(line);
+      else if (payload.level === 'info') logInfo(line);
       else if (payload.level === 'error') logError(line);
       else log(line);
     };

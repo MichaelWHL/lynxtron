@@ -117,8 +117,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
           windowId, previousStatus, status);
 
         // Transitions out of fullscreen.
-        if (previousStatus === window.WindowStatusType.MAXIMIZE &&
-          status !== window.WindowStatusType.MAXIMIZE) {
+        if (previousStatus === window.WindowStatusType.FULL_SCREEN) {
           lynxtron.notifyWindowState(windowId, 'leave-full-screen');
         }
 
@@ -127,8 +126,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
             lynxtron.notifyWindowState(windowId, 'minimize');
             break;
           case window.WindowStatusType.MAXIMIZE:
-            // lynxtron.notifyWindowState(windowId, 'maximize');
-            lynxtron.notifyWindowState(windowId, 'enter-full-screen');
+            lynxtron.notifyWindowState(windowId, 'maximize');
             break;
           case window.WindowStatusType.FULL_SCREEN:
             lynxtron.notifyWindowState(windowId, 'enter-full-screen');
@@ -152,7 +150,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       win.on('windowEvent', (event: window.WindowEventType) => {
         if (event === window.WindowEventType.WINDOW_DESTROYED) {
           hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_DESTROYED windowId=%{public}d', windowId);
-          lynxtron.notifyWindowState(windowId, 'close');
+          lynxtron.notifyWindowState(windowId, 'closed');
         } else if (event === window.WindowEventType.WINDOW_SHOWN) {
           hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_SHOWN windowId=%{public}d', windowId);
           lynxtron.notifyWindowState(windowId, 'show');
@@ -162,6 +160,9 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
         } else if (event === window.WindowEventType.WINDOW_INACTIVE) {
           hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_INACTIVE windowId=%{public}d', windowId);
           lynxtron.notifyWindowState(windowId, 'blur');
+        } else if (event === window.WindowEventType.WINDOW_ACTIVE) {
+          hilog.info(DOMAIN, TAG, 'windowEvent WINDOW_ACTIVE windowId=%{public}d', windowId);
+          lynxtron.notifyWindowState(windowId, 'focus');
         }
       });
     } catch (e) {

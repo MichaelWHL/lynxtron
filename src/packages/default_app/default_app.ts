@@ -14,7 +14,7 @@ let currentAppPath: string | null = null;
 let logChannelReady = false;
 
 // 待发送日志队列: 按产生顺序缓存 mainWindow 就绪前的日志。
-const pendingLogs: Array<{ level: 'log' | 'warn' | 'error'; text: string }> = [];
+const pendingLogs: Array<{ level: 'log' | 'info' | 'warn' | 'error'; text: string }> = [];
 
 // 把缓存的日志按入队顺序统一发送到渲染进程 LogPanel。
 function flushPendingLogs(): void {
@@ -30,7 +30,7 @@ function flushPendingLogs(): void {
 }
 
 // 公共发送日志事件: mainWindow 未初始化时先缓存, 初始化完成后按序发送。
-function sendLog(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
+function sendLog(level: 'log' | 'info' | 'warn' | 'error', ...args: unknown[]): void {
   const text = args.map(safeStringify).join(' ');
   if (mainWindow && logChannelReady) {
     try {
@@ -56,8 +56,15 @@ function installConsoleForward(): void {
     warn: console.warn.bind(console),
     error: console.error.bind(console),
   };
+  const SUMMARY_KEYS = ['完成:', '加载成功', '写入成功', '返回有效', '编码均正常', '监听器注册/注销流程完成', '位图往返', '测试通过', '测试失败:', '结论:'];
   console.log = (...args: unknown[]) => {
-    sendLog('log', ...args);
+    const text = args.map(safeStringify).join(' ');
+    const isSummary = SUMMARY_KEYS.some((k) => text.includes(k));
+    if (text.includes('[PASS]') && isSummary) {
+      sendLog('info', ...args);
+    } else {
+      sendLog('log', ...args);
+    }
     raw.log(...args);
   };
   console.warn = (...args: unknown[]) => {
@@ -144,7 +151,7 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
 // 最近一次提交「窗口事件」新增了 ArkTS→C++→JS 的窗口状态事件管线。这里在主进程
 // 注册监听, 每次触发时推送到渲染层 GlobalEventEmitter('win-event') 供页面计数。
 const WIN_EVENTS = [
-  'blur', 'focus', 'show', 'hide',
+  'blur', 'focus', 'show', 'hide', 'closed',
   'minimize', 'restore', 'maximize', 'unmaximize',
   'enter-full-screen', 'leave-full-screen',
   'resize', 'resized', 'move', 'moved', 'will-resize',
@@ -207,7 +214,7 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
     const opts = (data ?? {}) as { width?: number; height?: number };
     const width = opts.width ?? 800;
     const height = opts.height ?? 600;
-    const win = new LynxWindow({ width, height });
+    const win = new LynxWindow({ fullscreen: true, show: true, width: width, height: height });
     // 与主窗口加载同一份 app bundle
     if (currentAppPath) {
       win.loadFile(currentAppPath);

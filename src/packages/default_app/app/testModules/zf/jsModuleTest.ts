@@ -8,7 +8,7 @@
 // 输出: 页面 Console 面板, tag = JM。
 // 每条用例以 [PASS] / [FAIL] 标记, 结尾输出整体结论。
 
-import { logInfo, logPass, logFail } from '../../utils/log';
+import { log, logPass, logFail } from '../../utils/log';
 
 const TAG = 'JM';
 
@@ -21,10 +21,10 @@ export function testJSModule(): void {
   const lynxAny = lynx as any;
   let passed = 0;
   let failed = 0;
-  const ok = (msg: string) => { passed++; logPass(TAG, msg); };
-  const bad = (msg: string) => { failed++; logFail(TAG, msg); };
+  const ok = (msg: string) => { passed++; log(TAG, '[PASS] ' + msg); };
+  const bad = (msg: string) => { failed++; log(TAG, '[FAIL] ' + msg); };
 
-  logInfo(TAG, '═══ getJSModule 测试开始 ═══');
+  log(TAG, '═══ getJSModule 测试开始 ═══');
 
   if (typeof lynxAny.getJSModule !== 'function') {
     logFail(TAG, 'lynx.getJSModule 不可用, type=' + typeof lynxAny.getJSModule);
@@ -91,5 +91,5 @@ export function testJSModule(): void {
   } else {
     logFail(TAG, '测试失败: 通过 ' + passed + '/' + total + ', 失败 ' + failed);
   }
-  logInfo(TAG, '═══ getJSModule 测试结束 ═══');
+  log(TAG, '═══ getJSModule 测试结束 ═══');
 }
