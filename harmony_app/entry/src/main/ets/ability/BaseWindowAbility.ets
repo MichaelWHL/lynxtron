@@ -45,6 +45,8 @@ interface TitlePayload {
   title: string;
 }
 
+type ParentWindowIdPayload = number;
+
 interface WindowLimitsPayload {
   minWidth: number;
   minHeight: number;
@@ -714,6 +716,19 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
             } catch (e) {
               BaseWindowAbility.recordWindowOpResult('setTitle', 'ERR', String(e));
             }
+            break;
+          }
+          case 'setParentWindow': {
+            const parentWindowId = args ? JSON.parse(args) as ParentWindowIdPayload : -1;
+            if (parentWindowId <= 0) {
+              BaseWindowAbility.recordWindowOpResult('setParentWindow', 'ERR', 'invalid-parent-window-id');
+              break;
+            }
+            win.setParentWindow(parentWindowId)
+              .then(() => BaseWindowAbility.recordWindowOpResult(
+                'setParentWindow', 'OK', `parentWindowId=${parentWindowId}`))
+              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult(
+                'setParentWindow', 'ERR', BaseWindowAbility.errText(e)));
             break;
           }
           case 'setWindowLimits': {

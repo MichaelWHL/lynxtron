@@ -2,6 +2,8 @@ import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 
 export interface AbilityProxy {
+  // C++ NativeWindowHarmony id used by parent/child creation requests.
+  cppWindowId: number;
   // Cross-layer routing id. In Phase 1 this is the HarmonyOS system window id;
   // in Phase 2 it will be the C++-allocated window id passed via want.parameters.
   windowId: number;
@@ -24,7 +26,7 @@ export class AbilityManager {
     context: common.UIAbilityContext,
     windowStage: window.WindowStage
   ): void {
-    const proxy: AbilityProxy = { windowId, originWindowId, context, windowStage };
+    const proxy: AbilityProxy = { cppWindowId, windowId, originWindowId, context, windowStage };
     AbilityManager.proxies.set(windowId, proxy);
     if (cppWindowId > 0) {
       AbilityManager.cppToProxy.set(cppWindowId, proxy);
@@ -34,7 +36,7 @@ export class AbilityManager {
   static unregister(windowId: number): void {
     const proxy = AbilityManager.proxies.get(windowId);
     if (proxy) {
-      AbilityManager.cppToProxy.delete(proxy.windowId);
+      AbilityManager.cppToProxy.delete(proxy.cppWindowId);
     }
     AbilityManager.proxies.delete(windowId);
   }

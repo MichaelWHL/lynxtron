@@ -19,6 +19,8 @@ const TAG = 'AppWindowAdapter';
 const ERR_START_OPTIONS_CHECK_FAILED = 16000067;
 const START_MAX_ATTEMPTS = 25;
 const START_RETRY_INTERVAL_MS = 200;
+const PARENT_RESOLVE_MAX_ATTEMPTS = 25;
+const PARENT_RESOLVE_RETRY_INTERVAL_MS = 40;
 
 export interface WindowBounds {
   left: number;
@@ -57,6 +59,9 @@ export interface CreateWindowOptions {
   maxHeight?: number;
   modal?: boolean;
   displayId?: number;
+  // Internal retry counter. Parent Ability creation is asynchronous, while
+  // Electron-compatible JS commonly creates parent and child back-to-back.
+  parentResolveAttempt?: number;
 }
 
 // Legacy param used by EntryAbility to launch the first WindowAbility.
@@ -199,6 +204,30 @@ function getAbilityNameForType(type: string): string {
 export class AppWindowAdapter {
   // Called from C++ via the NAPI bridge when JS does `new BaseWindow(options)`.
   static createWindowFromCpp(options: CreateWindowOptions): void {
+    const parentHarmonyId = options.parentHarmonyWindowId ?? -1;
+    const hasParent = parentHarmonyId > 0 ||
+      (options.parentWindowId !== undefined && options.parentWindowId > 0);
+    const explicitlySubWindow = options.type === 'sub' ||
+      options.type === 'panel' || options.type === 'dialog';
+    let parent = parentHarmonyId > 0 ? AbilityManager.get(parentHarmonyId) : undefined;
+    if (!parent && options.parentWindowId && options.parentWindowId > 0) {
+      parent = AbilityManager.getByCppWindowId(options.parentWindowId);
+    }
+    if (hasParent && !parent) {
+      const parentResolveAttempt = options.parentResolveAttempt ?? 1;
+      if (parentResolveAttempt < PARENT_RESOLVE_MAX_ATTEMPTS) {
+        options.parentResolveAttempt = parentResolveAttempt + 1;
+        if (parentResolveAttempt === 1) {
+          hilog.info(DOMAIN, TAG,
+            'waiting for parent window parentWindowId=%{public}d parentHarmonyWindowId=%{public}d',
+            options.parentWindowId ?? -1, parentHarmonyId);
+        }
+        setTimeout(() => AppWindowAdapter.createWindowFromCpp(options),
+          PARENT_RESOLVE_RETRY_INTERVAL_MS);
+        return;
+      }
+    }
+
     hilog.info(DOMAIN, TAG,
       'createWindowFromCpp windowId=%{public}d type=%{public}s bounds=%{public}d,%{public}d,%{public}dx%{public}d',
       options.windowId, options.type,
@@ -251,16 +280,15 @@ export class AppWindowAdapter {
       hilog.error(DOMAIN, TAG, 'createWindowFromCpp log display failed: %{public}s', String(e));
     }
 
-    if (options.type === 'sub' || options.type === 'panel' || options.type === 'dialog') {
-      const parentHarmonyId = options.parentHarmonyWindowId ?? -1;
-      let parent = parentHarmonyId > 0 ? AbilityManager.get(parentHarmonyId) : undefined;
-      if (!parent && options.parentWindowId && options.parentWindowId > 0) {
-        parent = AbilityManager.getByCppWindowId(options.parentWindowId);
-      }
-      if (parent && parent.windowStage) {
-        AppWindowAdapter.createSubWindowFromCpp(parent.windowStage, parent.context, options);
-        return;
-      }
+    // LynxWindow follows Electron's BaseWindow contract: `parent` itself makes
+    // the window a child.  Requiring a Harmony-only `type: 'sub'` option here
+    // made `new LynxWindow({ parent })` look parented to JS while it was still an
+    // independent UIAbility window at the OS level.
+    if (parent && parent.windowStage && (hasParent || explicitlySubWindow)) {
+      AppWindowAdapter.createSubWindowFromCpp(parent.windowStage, parent.context, options);
+      return;
+    }
+    if (hasParent || explicitlySubWindow) {
       hilog.warn(DOMAIN, TAG,
         '%{public}s window parent not found (parentHarmonyWindowId=%{public}d, parentWindowId=%{public}d), fallback to ability',
         options.type, parentHarmonyId, options.parentWindowId ?? -1);

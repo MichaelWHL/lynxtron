@@ -198,25 +198,57 @@ async function runBatch7Tests() {
 
     await sleep(500);
 
-    // B7-STEP3: create a sub window with OS-level parent relationship.
-    console.log('[WindowManagerTest] ACTION: creating sub window with parent');
-    const subWin = new LynxWindow({ type: 'sub', parent: mainWindow, width: 400, height: 300, show: true });
+    // B7-STEP3: `parent` alone must create an OS-level child. This deliberately
+    // omits the Harmony-specific `type: 'sub'` option to exercise the public
+    // LynxWindow/Electron-compatible contract.
+    console.log('[WindowManagerTest] ACTION: creating child window with parent only');
+    const subWin = new LynxWindow({ parent: mainWindow, width: 400, height: 300, show: true });
     cleanupWindows.push(subWin);
     await sleep(2000);
-    const subState = { isVisible: subWin.isVisible(), parentMatches: subWin.getParentWindow() === mainWindow };
-    logResult('B7-STEP3 sub window creation', subState);
-    recordTestResult('B7-STEP3 sub window creation', subState.isVisible === true && subState.parentMatches === true, 'expected visible=true, parentMatches=true');
+    const subState = {
+      isVisible: subWin.isVisible(),
+      parentMatches: subWin.getParentWindow() === mainWindow,
+      childListed: mainWindow.getChildWindows().includes(subWin)
+    };
+    logResult('B7-STEP3 parent-only child window creation', subState);
+    recordTestResult('B7-STEP3 parent-only child window creation',
+      subState.isVisible === true && subState.parentMatches === true && subState.childListed === true,
+      'expected visible=true, parentMatches=true, childListed=true');
 
     await sleep(500);
 
-    // B7-STEP4: create a modal dialog window.
+    // B7-STEP4: change the native parent of the existing child window.
+    console.log('[WindowManagerTest] ACTION: changing child parent window');
+    const alternateParent = new LynxWindow({ width: 500, height: 350, show: true });
+    cleanupWindows.push(alternateParent);
+    await sleep(1500);
+    subWin.setParentWindow(alternateParent);
+    await sleep(1000);
+    const reparentState = {
+      parentMatches: subWin.getParentWindow() === alternateParent,
+      newParentListsChild: alternateParent.getChildWindows().includes(subWin),
+      oldParentListsChild: mainWindow.getChildWindows().includes(subWin)
+    };
+    logResult('B7-STEP4 setParentWindow', reparentState);
+    recordTestResult('B7-STEP4 setParentWindow',
+      reparentState.parentMatches === true &&
+        reparentState.newParentListsChild === true &&
+        reparentState.oldParentListsChild === false,
+      'expected new parent relationship only');
+
+    // Restore the original parent before cleanup so closing alternateParent
+    // cannot close subWin in the middle of the remaining checks.
+    subWin.setParentWindow(mainWindow);
+    await sleep(500);
+
+    // B7-STEP5: create a modal dialog window.
     console.log('[WindowManagerTest] ACTION: creating modal dialog window');
     const dialogWin = new LynxWindow({ type: 'dialog', parent: mainWindow, modal: true, width: 300, height: 200, show: true });
     cleanupWindows.push(dialogWin);
     await sleep(2000);
     const dialogState = { isVisible: dialogWin.isVisible(), isModal: dialogWin.isModal() };
-    logResult('B7-STEP4 modal dialog creation', dialogState);
-    recordTestResult('B7-STEP4 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
+    logResult('B7-STEP5 modal dialog creation', dialogState);
+    recordTestResult('B7-STEP5 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
   } catch (err) {
     console.error(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
   } finally {
