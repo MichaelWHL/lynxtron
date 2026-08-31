@@ -704,5 +704,4 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     };
   }
 
-  }
 }
