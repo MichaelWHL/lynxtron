@@ -24,27 +24,6 @@ const RESIZE_EDGE_TOP_LEFT = 6;
 const RESIZE_EDGE_TOP_RIGHT = 7;
 
 // JSON payloads received from the C++ window operation bridge.
-interface BoundsPayload {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface PositionPayload {
-  x: number;
-  y: number;
-}
-
-interface SizePayload {
-  width: number;
-  height: number;
-}
-
-interface TitlePayload {
-  title: string;
-}
-
 type ParentWindowIdPayload = number;
 
 interface WindowLimitsPayload {
@@ -660,64 +639,6 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
                 .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', String(e)));
             }
             break;
-          case 'setBounds': {
-            const bounds = args ? JSON.parse(args) as BoundsPayload : undefined;
-            if (!bounds) {
-              BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', 'missing-args');
-              break;
-            }
-            if (BaseWindowAbility.skipIfImmersive(win, 'setBounds')) {
-              break;
-            }
-            const adjusted = BaseWindowAbility.adjustBoundsForWindow(bounds, win);
-            win.moveWindowToAsync(adjusted.x, adjusted.y)
-              .then(() => win.resizeAsync(adjusted.width, adjusted.height))
-              .then(() => BaseWindowAbility.recordWindowOpResult('setBounds', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setBounds', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          }
-          case 'setPosition': {
-            const pos = args ? JSON.parse(args) as PositionPayload : undefined;
-            if (!pos) {
-              BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', 'missing-args');
-              break;
-            }
-            if (BaseWindowAbility.skipIfImmersive(win, 'setPosition')) {
-              break;
-            }
-            const borders = BaseWindowAbility.getWindowBorders(win);
-            win.moveWindowToAsync(pos.x - borders.leftBorder, pos.y - borders.topBorder)
-              .then(() => BaseWindowAbility.recordWindowOpResult('setPosition', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setPosition', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          }
-          case 'setSize': {
-            const size = args ? JSON.parse(args) as SizePayload : undefined;
-            if (!size) {
-              BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', 'missing-args');
-              break;
-            }
-            if (BaseWindowAbility.skipIfImmersive(win, 'setSize')) {
-              break;
-            }
-            const borders = BaseWindowAbility.getWindowBorders(win);
-            win.resizeAsync(size.width + borders.leftBorder + borders.rightBorder,
-                            size.height + borders.topBorder + borders.bottomBorder)
-              .then(() => BaseWindowAbility.recordWindowOpResult('setSize', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setSize', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          }
-          case 'setTitle': {
-            const titlePayload = args ? JSON.parse(args) as TitlePayload : undefined;
-            const title = titlePayload?.title ?? '';
-            try {
-              win.setWindowTitle(title);
-              BaseWindowAbility.recordWindowOpResult('setTitle', 'OK');
-            } catch (e) {
-              BaseWindowAbility.recordWindowOpResult('setTitle', 'ERR', String(e));
-            }
-            break;
-          }
           case 'setParentWindow': {
             const parentWindowId = args ? JSON.parse(args) as ParentWindowIdPayload : -1;
             if (parentWindowId <= 0) {
@@ -761,17 +682,6 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     return e ? `${e.code} ${e.message}` : 'unknown error';
   }
 
-  private static skipIfImmersive(win: window.Window, op: string): boolean {
-    const status = win.getWindowStatus();
-    if (status === window.WindowStatusType.FULL_SCREEN ||
-        status === window.WindowStatusType.MAXIMIZE ||
-        status === window.WindowStatusType.MINIMIZE) {
-      BaseWindowAbility.recordWindowOpResult(op, 'SKIPPED', `status=${status}`);
-      return true;
-    }
-    return false;
-  }
-
   private static recordWindowOpResult(op: string, result: string, detail?: string): void {
     hilog.info(DOMAIN, TAG, 'windowOp %{public}s %{public}s %{public}s', op, result, detail ?? '');
   }
@@ -794,13 +704,5 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     };
   }
 
-  private static adjustBoundsForWindow(bounds: BoundsPayload, win: window.Window): BoundsPayload {
-    const borders = BaseWindowAbility.getWindowBorders(win);
-    return {
-      x: bounds.x - borders.leftBorder,
-      y: bounds.y - borders.topBorder,
-      width: bounds.width + borders.leftBorder + borders.rightBorder,
-      height: bounds.height + borders.topBorder + borders.bottomBorder,
-    };
   }
 }

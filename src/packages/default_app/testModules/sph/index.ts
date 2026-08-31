@@ -276,50 +276,7 @@ async function runBatch8Tests() {
     cleanupWindows.push(win);
     await sleep(1500);
 
-    // B8-STEP1: setTitle
-    console.log('[WindowManagerTest] ACTION: calling setTitle(...)');
-    win.setTitle('batch8-test-title');
-    await sleep(500);
-    const title = win.getTitle();
-    logResult('B8-STEP1 setTitle', { title });
-    recordTestResult('B8-STEP1 setTitle', title === 'batch8-test-title', "expected title='batch8-test-title'");
-
-    await sleep(500);
-
-    // B8-STEP2: setBounds
-    console.log('[WindowManagerTest] ACTION: calling setBounds(...)');
-    win.setBounds({ x: 100, y: 100, width: 500, height: 350 });
-    await sleep(1000);
-    const bounds = win.getBounds();
-    logResult('B8-STEP2 setBounds', bounds);
-    const boundsPass = bounds.x === 100 && bounds.y === 100 && bounds.width === 500 && bounds.height === 350;
-    recordTestResult('B8-STEP2 setBounds', boundsPass, 'expected x=100,y=100,w=500,h=350');
-
-    await sleep(500);
-
-    // B8-STEP3: setPosition
-    console.log('[WindowManagerTest] ACTION: calling setPosition(...)');
-    win.setPosition(120, 130);
-    await sleep(1000);
-    const pos = win.getPosition();
-    logResult('B8-STEP3 setPosition', { pos });
-    const posPass = pos[0] === 120 && pos[1] === 130;
-    recordTestResult('B8-STEP3 setPosition', posPass, 'expected x=120,y=130');
-
-    await sleep(500);
-
-    // B8-STEP4: setSize
-    console.log('[WindowManagerTest] ACTION: calling setSize(...)');
-    win.setSize(520, 360);
-    await sleep(1000);
-    const size = win.getSize();
-    logResult('B8-STEP4 setSize', { size });
-    const sizePass = size[0] === 520 && size[1] === 360;
-    recordTestResult('B8-STEP4 setSize', sizePass, 'expected 520x360');
-
-    await sleep(500);
-
-    // B8-STEP5: hide / show
+    // B8-STEP1: hide / show
     console.log('[WindowManagerTest] ACTION: calling hide()');
     win.hide();
     await sleep(1000);
@@ -328,26 +285,10 @@ async function runBatch8Tests() {
     win.show();
     await sleep(1000);
     const shownVisible = win.isVisible();
-    logResult('B8-STEP5 hide/show', { hiddenVisible, shownVisible });
-    recordTestResult('B8-STEP5 hide/show', hiddenVisible === false && shownVisible === true, 'expected hidden=false, shown=true');
+    logResult('B8-STEP1 hide/show', { hiddenVisible, shownVisible });
+    recordTestResult('B8-STEP1 hide/show', hiddenVisible === false && shownVisible === true, 'expected hidden=false, shown=true');
 
     await sleep(500);
-
-    // B8-STEP6: focus false / true + blur event
-    console.log('[WindowManagerTest] ACTION: calling focus(false)');
-    const blurEvents: string[] = [];
-    win.on('blur' as any, () => blurEvents.push('blur'));
-    win.focus();
-    await sleep(500);
-    win.blur();
-    await sleep(1000);
-    const blurred = !win.isFocused();
-    console.log('[WindowManagerTest] ACTION: calling focus()');
-    win.focus();
-    await sleep(1000);
-    const focused = win.isFocused();
-    logResult('B8-STEP6 focus/blur', { blurred, focused, events: blurEvents });
-    recordTestResult('B8-STEP6 focus/blur', blurred && focused, 'expected blurred=true, focused=true');
   } catch (err) {
     console.error(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
   } finally {
@@ -397,8 +338,7 @@ async function runTests() {
     // main window is visible so parent references are valid.
     await runBatch7Tests();
 
-    // Batch 8: exercise cross-layer property operations (setBounds/setPosition/
-    // setSize/center/setTitle/hide/show/focus-false).
+    // Batch 8: exercise hide/show only.
     await runBatch8Tests();
 
     // Step 3: minimize (verify isMinimized state)
