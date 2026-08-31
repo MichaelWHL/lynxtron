@@ -378,6 +378,28 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
   onWindowStageDestroy(): void {
     hilog.info(DOMAIN, TAG, 'onWindowStageDestroy windowId=%{public}d', this.windowId);
     AbilityManager.unregister(this.windowId);
+
+    // If the Ability being destroyed is the current active context, the global
+    // active context must be migrated to another living Ability. Otherwise
+    // subsequent createWindowFromCpp calls will try to start an Ability from a
+    // stale, terminated context and fail silently.
+    const stored = AppStorage.get<common.UIAbilityContext>('active_ability_context');
+    if (stored === this.context) {
+      let fallback: common.UIAbilityContext | undefined;
+      for (const id of AbilityManager.getAllWindowIds()) {
+        const proxy = AbilityManager.get(id);
+        if (proxy?.context && proxy.context !== this.context) {
+          fallback = proxy.context;
+          break;
+        }
+      }
+      if (!fallback) {
+        fallback = AppStorage.get<common.UIAbilityContext>('abilityContext');
+      }
+      if (fallback) {
+        AppStorage.setOrCreate('active_ability_context', fallback);
+      }
+    }
   }
 
   onForeground(): void {

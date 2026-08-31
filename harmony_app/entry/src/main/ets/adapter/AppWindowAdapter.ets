@@ -554,6 +554,28 @@ export class AppWindowAdapter {
     // For the first window it is EntryAbility; for subsequent windows it can
     // be any existing WindowAbility. We retrieve it from the global app storage
     // set by BaseWindowAbility.onWindowStageCreate.
-    return AppStorage.get<common.UIAbilityContext>('active_ability_context');
+    const stored = AppStorage.get<common.UIAbilityContext>('active_ability_context');
+    if (stored && AbilityManager.getByContext(stored)) {
+      return stored;
+    }
+
+    // The stored context may belong to an Ability that has already been
+    // destroyed (e.g. its window was closed). Fall back to any living Ability
+    // so that subsequent startAbility() calls do not fail with a stale context.
+    const windowIds = AbilityManager.getAllWindowIds();
+    for (const id of windowIds) {
+      const proxy = AbilityManager.get(id);
+      if (proxy?.context) {
+        AppStorage.setOrCreate('active_ability_context', proxy.context);
+        return proxy.context;
+      }
+    }
+
+    // Final fallback to EntryAbility's context if no WindowAbility is alive.
+    const entryContext = AppStorage.get<common.UIAbilityContext>('abilityContext');
+    if (entryContext) {
+      AppStorage.setOrCreate('active_ability_context', entryContext);
+    }
+    return entryContext;
   }
 }
