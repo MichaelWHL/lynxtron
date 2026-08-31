@@ -1857,7 +1857,10 @@ uint64_t ToLynxLogicalKey(OH_NativeXComponent_KeyCode code) {
 
 void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
   OH_NativeXComponent_KeyEvent* key_event = nullptr;
-  if (OH_NativeXComponent_GetKeyEvent(component, &key_event) != 0 || !key_event) return;
+  if (OH_NativeXComponent_GetKeyEvent(component, &key_event) != 0 ||
+      !key_event) {
+    return;
+  }
   OH_NativeXComponent_KeyAction action = OH_NATIVEXCOMPONENT_KEY_ACTION_UNKNOWN;
   OH_NativeXComponent_KeyCode code = KEY_UNKNOWN;
   if (OH_NativeXComponent_GetKeyEventAction(key_event, &action) != 0 ||
@@ -1867,16 +1870,25 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
     g_send_key = reinterpret_cast<SendKeyFn>(
         dlsym(g_lynxtron_handle, "LynxtronSendKeyEventForWindow"));
   }
+  if (!g_send_key) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[KEY] LynxtronSendKeyEventForWindow unavailable "
+                 "handle=%{public}p error=%{public}s",
+                 g_lynxtron_handle, dlerror());
+  }
   if (g_send_key) {
     int32_t surface_window_id = GetSurfaceWindowId(component);
     if (surface_window_id <= 0) {
       surface_window_id = g_current_harmony_window_id;
     }
+    const uint64_t logical = ToLynxLogicalKey(code);
+    g_send_key(surface_window_id,
+               action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
+               logical, 0, NowMicros());
     // HarmonyOS PC delivers some hardware number-row keys as keypad-style
     // events.  A key event carries no character payload, so Clay cannot turn
-    // those events into text even though letters work.  Forward the digit as
-    // committed text on key-down as well as the logical key event; this keeps
-    // cursor/navigation semantics while making numeric input reliable.
+    // those events into text even though letters work.  Queue the committed
+    // digit after key-down so the focused editor has processed the key first.
     if (action != OH_NATIVEXCOMPONENT_KEY_ACTION_UP &&
         ((code >= KEY_0 && code <= KEY_9) ||
          (code >= KEY_NUMPAD_0 && code <= KEY_NUMPAD_9))) {
@@ -1894,9 +1906,6 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
         g_send_text(surface_window_id, digit, NowMicros());
       }
     }
-    g_send_key(surface_window_id,
-               action == OH_NATIVEXCOMPONENT_KEY_ACTION_UP ? 0 : 1,
-               ToLynxLogicalKey(code), 0, NowMicros());
   }
 }
 

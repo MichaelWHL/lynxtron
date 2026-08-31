@@ -359,6 +359,11 @@ struct Index {
             hilog.info(DOMAIN, TAG, 'XComponent onLoad — surface ready');
             this.startLynxtron();
           })
+          // NativeXComponent only dispatches registered hardware-key callbacks
+          // while its ArkUI node owns focus. A mouse click must therefore move
+          // focus to this surface before the Lynx input receives number keys.
+          .focusable(true)
+          .focusOnTouch(true)
 
         Text('Result: ' + this.lastResult)
           .fontSize(11)
