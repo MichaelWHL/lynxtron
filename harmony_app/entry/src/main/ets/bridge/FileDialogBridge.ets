@@ -4,6 +4,7 @@ import fileUri from '@ohos.file.fileuri';
 import hilog from '@ohos.hilog';
 import picker from '@ohos.file.picker';
 import lynxtron from 'liblynxtron_napi.so';
+import { PersistManager } from './PersistManager';
 
 const DOMAIN = 0x0000;
 const TAG = 'FileDialogBridge';
@@ -96,6 +97,8 @@ export class FileDialogBridge {
       let paths: string[] = uris.map((uri) => new fileUri.FileUri(uri).path);
       hilog.info(DOMAIN, TAG, 'converted paths=%{public}s', JSON.stringify(paths));
       lynxtron.resolveShowOpenDialog(id, uris, paths, false);
+      // [PERSIST] 选文件成功后, 把 URI 清单存起来, 供重启后激活(方案B)
+      PersistManager.getInstance().saveUris(uris);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'select failed: %{public}s', JSON.stringify(err));
       lynxtron.resolveShowOpenDialog(id, [], [], true);
