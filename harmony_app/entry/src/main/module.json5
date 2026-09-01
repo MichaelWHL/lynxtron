@@ -59,7 +59,7 @@
       },
       {
         "name": "WindowAbility",
-        "srcEntry": "./ets/window/WindowAbility.ets",
+        "srcEntry": "./ets/ability/WindowAbility.ets",
         "description": "$string:WindowAbility_desc",
         "icon": "$media:icon",
         "label": "$string:WindowAbility_label",

@@ -1,6 +1,6 @@
 import window from '@ohos.window';
 import hilog from '@ohos.hilog';
-import BaseWindowAbility from '../ability/BaseWindowAbility';
+import BaseWindowAbility from './BaseWindowAbility';
 
 const DOMAIN = 0x0000;
 const TAG = 'WindowAbility';
