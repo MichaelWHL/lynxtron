@@ -1,17 +1,15 @@
 import window from '@ohos.window';
 import hilog from '@ohos.hilog';
-import BaseWindowAbility from '../ability/BaseWindowAbility';
+import BaseWindowAbility from './BaseWindowAbility';
 
 const DOMAIN = 0x0000;
-const TAG = 'FloatWindowAbility';
+const TAG = 'WindowAbility';
 
-export default class FloatWindowAbility extends BaseWindowAbility {
+export default class WindowAbility extends BaseWindowAbility {
   onWindowCreated(windowStage: window.WindowStage, mainWindow: window.Window): void {
-    hilog.info(DOMAIN, TAG, 'onWindowCreated windowId=%{public}d', this.windowId);
+    hilog.info(DOMAIN, TAG, 'onWindowCreated windowId=%{public}d origin=%{public}d',
+               this.windowId, this.originWindowId);
 
-    // Phase 1: float window uses the same page as a normal window. The actual
-    // floating behavior is controlled by StartOptions / windowStage configuration
-    // and will be refined once the main+float creation path is stable.
     mainWindow.setUIContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'setUIContent failed: %{public}s', JSON.stringify(err) ?? '');

@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "base/memory/weak_ptr.h"
+#include "shell/app/application.h"
 #include "base/task/single_thread_task_runner.h"
 #include <hilog/log.h>
 
@@ -168,7 +169,7 @@ class NativeWindowHarmony : public NativeWindow {
     bool show = true;
     options.Get(options::kShow, &show);
 
-    std::string title;
+    std::string title = Application::Get()->GetName();
     options.Get(options::kTitle, &title);
 
     bool resizable = true;
@@ -522,7 +523,10 @@ class NativeWindowHarmony : public NativeWindow {
   ui::ZOrderLevel GetZOrderLevel() const override { return z_order_; }
   // Center() is not part of the HarmonyOS window adaptation scope.
   void Center() override {}
-  void SetTitle(const std::string& title) override {}
+  void SetTitle(const std::string& title) override {
+    title_ = title;
+    g_harmony_window_title = title;
+  }
   std::string GetTitle() const override { return title_; }
   // GetAlwaysOnTopLevel / SetActive / IsActive are MAC-only.
 

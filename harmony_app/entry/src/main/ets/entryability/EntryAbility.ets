@@ -1,4 +1,3 @@
-import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import { BusinessError } from '@ohos.base';
@@ -9,6 +8,7 @@ import LogUtil from '../utils/LogUtils';
 import AppAdapter from '../adapter/AppAdapter';
 import lynxtron from 'liblynxtron_napi.so';
 import { BridgeRegistry } from '../bridge/BridgeRegistry';
+import BaseWindowAbility from '../ability/BaseWindowAbility';
 
 const DOMAIN = 0x0000;
 const TAG = 'Lynxtron';
@@ -27,7 +27,7 @@ function dumpWantParameters(want: Want): void {
   }
 }
 
-export default class EntryAbility extends UIAbility {
+export default class EntryAbility extends BaseWindowAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG,
       'EntryAbility onCreate launchReason=%{public}d lastExitReason=%{public}d',
@@ -85,16 +85,13 @@ export default class EntryAbility extends UIAbility {
   }
 
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
-    hilog.info(DOMAIN, TAG, 'onWindowStageCreate');
+    hilog.info(DOMAIN, TAG, 'EntryAbility onWindowStageCreate');
 
-    // EntryAbility does not host an XComponent and does NOT create any app window
-    // itself. Both app windows are created by the JS app via `new LynxWindow()`,
-    // which flows through the C++ driven path (LynxtronCreateHarmonyWindow →
-    // createWindowFromCpp → WindowAbility). Publish this ability's context so
-    // createWindowFromCpp can call startAbility before any WindowAbility exists.
+    // EntryAbility is the first business window. Publish its context, register
+    // bridges and the status-bar item, then let BaseWindowAbility register the
+    // placeholder proxy and load the page.
     AppStorage.setOrCreate('active_ability_context', this.context);
     BridgeRegistry.registerAll(this.context);
-    // Initialize the status-bar item, then start LynxtronMain.
     StatusBarManager.init(this.context)
       .then(() => {
         hilog.info(DOMAIN, TAG, 'StatusBarManager.init OK');
@@ -113,39 +110,38 @@ export default class EntryAbility extends UIAbility {
       hilog.warn(DOMAIN, TAG, 'EntryAbility get displayId failed: %{public}s', String(e));
     }
 
-    mainWindow.setUIContent('pages/Entry', (err) => {
-      lynxtron.setWindowObject(mainWindow);
-      // mainWindow.setWindowDecorVisible(false);
-      // mainWindow.setWindowTitleButtonVisible(false, false, false)
-      // mainWindow.maximize(window.MaximizePresentation.ENTER_IMMERSIVE_DISABLE_TITLE_AND_DOCK_HOVER)
+    // Store the main window object for native window-decor commands. This is
+    // global and only set once, by the entry window.
+    lynxtron.setWindowObject(mainWindow);
+
+    // BaseWindowAbility registers the placeholder proxy (cppWindowId=0), binds
+    // lifecycle listeners, registers the window-op callback, and calls
+    // onWindowCreated to load pages/Index. lynxtron.start() is triggered from
+    // the LynxWindow component's XComponent.onLoad.
+    super.onWindowStageCreate(windowStage);
+  }
+
+  onWindowCreated(windowStage: window.WindowStage, mainWindow: window.Window): void {
+    hilog.info(DOMAIN, TAG, 'EntryAbility onWindowCreated');
+    mainWindow.setUIContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'setUIContent failed: %{public}s',
           JSON.stringify(err) ?? '');
         return;
       }
       hilog.info(DOMAIN, TAG, 'setUIContent OK');
-
-      // Start LynxtronMain. The JS app (default_app.ts) then creates BOTH app
-      // windows through `new LynxWindow()` → LynxtronCreateHarmonyWindow →
-      // createWindowFromCpp. No window is created here by EntryAbility.
-      try {
-        lynxtron.start();
-        hilog.info(DOMAIN, TAG, 'lynxtron.start() OK');
-      } catch (e) {
-        hilog.error(DOMAIN, TAG, 'lynxtron.start() failed: %{public}s', String(e));
-      }
     });
   }
 
   onWindowStageDestroy(): void {
-    hilog.info(DOMAIN, TAG, 'onWindowStageDestroy');
+    hilog.info(DOMAIN, TAG, 'EntryAbility onWindowStageDestroy');
   }
 
   onForeground(): void {
-    hilog.info(DOMAIN, TAG, 'onForeground');
+    hilog.info(DOMAIN, TAG, 'EntryAbility onForeground');
   }
 
   onBackground(): void {
-    hilog.info(DOMAIN, TAG, 'onBackground');
+    hilog.info(DOMAIN, TAG, 'EntryAbility onBackground');
   }
 }
