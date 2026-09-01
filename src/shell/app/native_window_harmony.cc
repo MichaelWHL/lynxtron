@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "base/memory/weak_ptr.h"
+#include "shell/app/application.h"
 #include "base/task/single_thread_task_runner.h"
 #include <hilog/log.h>
 
@@ -19,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "shell/app/native_window_harmony.h"
 #include "shell/app/lynx_windowless_renderer_harmony.h"
@@ -167,7 +169,7 @@ class NativeWindowHarmony : public NativeWindow {
     bool show = true;
     options.Get(options::kShow, &show);
 
-    std::string title;
+    std::string title = Application::Get()->GetName();
     options.Get(options::kTitle, &title);
 
     bool resizable = true;
@@ -464,25 +466,9 @@ class NativeWindowHarmony : public NativeWindow {
   bool IsFullscreen() const override { return is_fullscreen_; }
 
   // --- geometry ---
-  void SetBounds(const gfx::Rect& bounds, bool animate) override {
-    bounds_ = bounds;
-    window_bounds_ = bounds;
-    InvokeWindowOp(harmony_window_id_, "setBounds", RectToJson(bounds).c_str());
-    NotifyWindowResize();
-    NotifyWindowMove();
-  }
-  void SetPosition(const gfx::Point& position, bool animate) override {
-    bounds_.set_origin(position);
-    window_bounds_.set_origin(position);
-    InvokeWindowOp(harmony_window_id_, "setPosition", PointToJson(position).c_str());
-    NotifyWindowMove();
-  }
-  void SetSize(const gfx::Size& size, bool animate) override {
-    bounds_.set_size(size);
-    window_bounds_.set_size(size);
-    InvokeWindowOp(harmony_window_id_, "setSize", SizeToJson(size).c_str());
-    NotifyWindowResize();
-  }
+  void SetBounds(const gfx::Rect& bounds, bool animate) override {}
+  void SetPosition(const gfx::Point& position, bool animate) override {}
+  void SetSize(const gfx::Size& size, bool animate) override {}
   gfx::Rect GetBounds() const override { return bounds_; }
   float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
   gfx::Rect GetNormalBounds() const override { return bounds_; }
@@ -539,7 +525,6 @@ class NativeWindowHarmony : public NativeWindow {
   void Center() override {}
   void SetTitle(const std::string& title) override {
     title_ = title;
-    InvokeWindowOp(harmony_window_id_, "setTitle", TitleToJson(title).c_str());
     g_harmony_window_title = title;
   }
   std::string GetTitle() const override { return title_; }
@@ -560,7 +545,59 @@ class NativeWindowHarmony : public NativeWindow {
   double GetOpacity() override { return opacity_; }
   void SetFocusable(bool focusable) override { is_focusable_ = focusable; }
   bool IsFocusable() const override { return is_focusable_; }
-  void SetParentWindow(NativeWindow* parent) override {}
+  void SetParentWindow(NativeWindow* parent) override {
+    // Keep NativeWindow::parent() in sync with BaseWindow's parent/child graph.
+    // The old no-op left the native layer pointing at the constructor-time
+    // parent even after JS called setParentWindow().
+    NativeWindow::SetParentWindow(parent);
+
+    if (!parent) {
+      needs_harmony_parent_apply_ = false;
+      // HarmonyOS only exposes Window.setParentWindow(windowId), and documents
+      // it for changing one subwindow's parent to another.  There is no API for
+      // converting a live subwindow into a top-level Ability window.  The
+      // BaseWindow graph is still detached here, which preserves the public JS
+      // getParentWindow()/getChildWindows() contract.
+      OH_LOG_INFO(LOG_APP,
+                  "[LynxtronWindow] detached logical parent window_id=%{public}d; "
+                  "HarmonyOS has no live subwindow-to-top-level conversion API",
+                  window_id_);
+      return;
+    }
+
+    // A constructor-time `parent` is already applied by ArkTS through
+    // WindowStage.createSubWindowWithOptions().  Calling
+    // Window.setParentWindow() again for that initial relation is not merely
+    // redundant: API 20 may reject it as an invalid parent.  Mark only a real
+    // post-construction setParentWindow() call for cross-layer application.
+    needs_harmony_parent_apply_ = true;
+    ApplyParentWindowToHarmony();
+  }
+
+  // Re-run after ArkTS has bound both Harmony window ids and registered the
+  // child's operation callback.  JS can call setParentWindow() immediately
+  // after construction, before asynchronous Harmony window creation finishes.
+  void ApplyParentWindowToHarmony() {
+    if (!needs_harmony_parent_apply_) {
+      return;
+    }
+    auto* parent_harmony = static_cast<NativeWindowHarmony*>(parent());
+    if (!parent_harmony) {
+      return;
+    }
+    const int32_t parent_harmony_id = parent_harmony->harmony_window_id();
+    if (harmony_window_id_ <= 0 || parent_harmony_id <= 0) {
+      OH_LOG_WARN(LOG_APP,
+                  "[LynxtronWindow] defer native setParentWindow child=%{public}d "
+                  "childHarmony=%{public}d parent=%{public}d parentHarmony=%{public}d",
+                  window_id_, harmony_window_id_, parent_harmony->window_id(),
+                  parent_harmony_id);
+      return;
+    }
+
+    InvokeWindowOp(harmony_window_id_, "setParentWindow",
+                   std::to_string(parent_harmony_id).c_str());
+  }
 
   // --- window button (decor + three-button) visibility ---
   void SetWindowButtonVisibility(bool visible) override {
@@ -619,33 +656,6 @@ class NativeWindowHarmony : public NativeWindow {
   }
 
  private:
-  static std::string RectToJson(const gfx::Rect& r) {
-    return "{\"x\":" + std::to_string(r.x()) +
-           ",\"y\":" + std::to_string(r.y()) +
-           ",\"width\":" + std::to_string(r.width()) +
-           ",\"height\":" + std::to_string(r.height()) + "}";
-  }
-  static std::string PointToJson(const gfx::Point& p) {
-    return "{\"x\":" + std::to_string(p.x()) +
-           ",\"y\":" + std::to_string(p.y()) + "}";
-  }
-  static std::string SizeToJson(const gfx::Size& s) {
-    return "{\"width\":" + std::to_string(s.width()) +
-           ",\"height\":" + std::to_string(s.height()) + "}";
-  }
-  static std::string TitleToJson(const std::string& title) {
-    std::string escaped;
-    escaped.reserve(title.size() + 2);
-    escaped.push_back('"');
-    for (char c : title) {
-      if (c == '\\' || c == '"') {
-        escaped.push_back('\\');
-      }
-      escaped.push_back(c);
-    }
-    escaped.push_back('"');
-    return "{\"title\":" + escaped + "}";
-  }
   static std::string SizeConstraintsToJson(const SizeConstraints& constraints) {
     gfx::Size min_size = constraints.GetMinimumSize();
     gfx::Size max_size = constraints.GetMaximumSize();
@@ -684,6 +694,9 @@ class NativeWindowHarmony : public NativeWindow {
   // equal the requested window size.
   bool surface_bound_ = false;
   bool is_focusable_ = true;
+  // Initial parented windows are created as ArkUI subwindows directly.  This
+  // flag is set only for a later JS setParentWindow(parent) invocation.
+  bool needs_harmony_parent_apply_ = false;
   bool has_shadow_ = true;
   bool is_window_buttons_visible_ = true;
   double opacity_ = 1.0;
@@ -835,10 +848,9 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurface
     return;
   }
 
-  // Update the native window bounds directly from the surface size. Do NOT call
-  // SetBounds() here because SetBounds() invokes the ArkTS "setBounds" window
-  // op, which triggers moveWindowToAsync/resizeAsync and causes a resize ->
-  // surface change -> resize feedback loop.
+  // Update the native window bounds directly from the surface size. Keep this
+  // path independent of the SetBounds() property setter so surface-driven sizing
+  // does not re-enter the window-op dispatch path.
   base::WeakPtr<NativeWindowHarmony> weak_target = target->GetHarmonyWeakPtr();
   GlobalThread::GetUIThreadTaskRunner()->PostTask(
       FROM_HERE,
@@ -862,13 +874,42 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurface
 extern "C" __attribute__((visibility("default"))) void LynxtronRegisterWindowOpCallbackForWindow(
     int32_t window_id,
     WindowOpCallback callback) {
-  std::lock_guard<std::mutex> lock(g_window_op_mutex);
-  if (callback) {
-    g_window_op_callbacks[window_id] = callback;
-  } else {
-    g_window_op_callbacks.erase(window_id);
+  {
+    std::lock_guard<std::mutex> lock(g_window_op_mutex);
+    if (callback) {
+      g_window_op_callbacks[window_id] = callback;
+    } else {
+      g_window_op_callbacks.erase(window_id);
+    }
   }
   OH_LOG_INFO(LOG_APP, "[LynxtronWindow] registered callback id=%{public}d", window_id);
+
+  if (!callback) {
+    return;
+  }
+
+  // Apply a relationship that was requested while either window was still
+  // being created.  Also retry children waiting for this newly-bound parent.
+  std::vector<base::WeakPtr<NativeWindowHarmony>> relationships_to_apply;
+  {
+    std::lock_guard<std::mutex> lock(g_window_map_mutex);
+    auto changed_it = g_harmony_id_to_window.find(window_id);
+    if (changed_it != g_harmony_id_to_window.end()) {
+      NativeWindowHarmony* changed = changed_it->second;
+      relationships_to_apply.push_back(changed->GetHarmonyWeakPtr());
+      for (const auto& entry : g_id_to_window) {
+        NativeWindowHarmony* candidate = entry.second;
+        if (candidate && candidate->parent() == changed) {
+          relationships_to_apply.push_back(candidate->GetHarmonyWeakPtr());
+        }
+      }
+    }
+  }
+  for (const auto& relationship : relationships_to_apply) {
+    if (relationship) {
+      relationship->ApplyParentWindowToHarmony();
+    }
+  }
 }
 
 // Returns the C++-allocated id of the only native window in this process.

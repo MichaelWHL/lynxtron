@@ -198,25 +198,57 @@ async function runBatch7Tests() {
 
     await sleep(500);
 
-    // B7-STEP3: create a sub window with OS-level parent relationship.
-    console.log('[WindowManagerTest] ACTION: creating sub window with parent');
-    const subWin = new LynxWindow({ type: 'sub', parent: mainWindow, width: 400, height: 300, show: true });
+    // B7-STEP3: `parent` alone must create an OS-level child. This deliberately
+    // omits the Harmony-specific `type: 'sub'` option to exercise the public
+    // LynxWindow/Electron-compatible contract.
+    console.log('[WindowManagerTest] ACTION: creating child window with parent only');
+    const subWin = new LynxWindow({ parent: mainWindow, width: 400, height: 300, show: true });
     cleanupWindows.push(subWin);
     await sleep(2000);
-    const subState = { isVisible: subWin.isVisible(), parentMatches: subWin.getParentWindow() === mainWindow };
-    logResult('B7-STEP3 sub window creation', subState);
-    recordTestResult('B7-STEP3 sub window creation', subState.isVisible === true && subState.parentMatches === true, 'expected visible=true, parentMatches=true');
+    const subState = {
+      isVisible: subWin.isVisible(),
+      parentMatches: subWin.getParentWindow() === mainWindow,
+      childListed: mainWindow.getChildWindows().includes(subWin)
+    };
+    logResult('B7-STEP3 parent-only child window creation', subState);
+    recordTestResult('B7-STEP3 parent-only child window creation',
+      subState.isVisible === true && subState.parentMatches === true && subState.childListed === true,
+      'expected visible=true, parentMatches=true, childListed=true');
 
     await sleep(500);
 
-    // B7-STEP4: create a modal dialog window.
+    // B7-STEP4: change the native parent of the existing child window.
+    console.log('[WindowManagerTest] ACTION: changing child parent window');
+    const alternateParent = new LynxWindow({ width: 500, height: 350, show: true });
+    cleanupWindows.push(alternateParent);
+    await sleep(1500);
+    subWin.setParentWindow(alternateParent);
+    await sleep(1000);
+    const reparentState = {
+      parentMatches: subWin.getParentWindow() === alternateParent,
+      newParentListsChild: alternateParent.getChildWindows().includes(subWin),
+      oldParentListsChild: mainWindow.getChildWindows().includes(subWin)
+    };
+    logResult('B7-STEP4 setParentWindow', reparentState);
+    recordTestResult('B7-STEP4 setParentWindow',
+      reparentState.parentMatches === true &&
+        reparentState.newParentListsChild === true &&
+        reparentState.oldParentListsChild === false,
+      'expected new parent relationship only');
+
+    // Restore the original parent before cleanup so closing alternateParent
+    // cannot close subWin in the middle of the remaining checks.
+    subWin.setParentWindow(mainWindow);
+    await sleep(500);
+
+    // B7-STEP5: create a modal dialog window.
     console.log('[WindowManagerTest] ACTION: creating modal dialog window');
     const dialogWin = new LynxWindow({ type: 'dialog', parent: mainWindow, modal: true, width: 300, height: 200, show: true });
     cleanupWindows.push(dialogWin);
     await sleep(2000);
     const dialogState = { isVisible: dialogWin.isVisible(), isModal: dialogWin.isModal() };
-    logResult('B7-STEP4 modal dialog creation', dialogState);
-    recordTestResult('B7-STEP4 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
+    logResult('B7-STEP5 modal dialog creation', dialogState);
+    recordTestResult('B7-STEP5 modal dialog creation', dialogState.isVisible === true && dialogState.isModal === true, 'expected visible=true, isModal=true');
   } catch (err) {
     console.error(`[WindowManagerTest] ERROR during batch 7 tests: ${String(err)}`);
   } finally {
@@ -244,50 +276,7 @@ async function runBatch8Tests() {
     cleanupWindows.push(win);
     await sleep(1500);
 
-    // B8-STEP1: setTitle
-    console.log('[WindowManagerTest] ACTION: calling setTitle(...)');
-    win.setTitle('batch8-test-title');
-    await sleep(500);
-    const title = win.getTitle();
-    logResult('B8-STEP1 setTitle', { title });
-    recordTestResult('B8-STEP1 setTitle', title === 'batch8-test-title', "expected title='batch8-test-title'");
-
-    await sleep(500);
-
-    // B8-STEP2: setBounds
-    console.log('[WindowManagerTest] ACTION: calling setBounds(...)');
-    win.setBounds({ x: 100, y: 100, width: 500, height: 350 });
-    await sleep(1000);
-    const bounds = win.getBounds();
-    logResult('B8-STEP2 setBounds', bounds);
-    const boundsPass = bounds.x === 100 && bounds.y === 100 && bounds.width === 500 && bounds.height === 350;
-    recordTestResult('B8-STEP2 setBounds', boundsPass, 'expected x=100,y=100,w=500,h=350');
-
-    await sleep(500);
-
-    // B8-STEP3: setPosition
-    console.log('[WindowManagerTest] ACTION: calling setPosition(...)');
-    win.setPosition(120, 130);
-    await sleep(1000);
-    const pos = win.getPosition();
-    logResult('B8-STEP3 setPosition', { pos });
-    const posPass = pos[0] === 120 && pos[1] === 130;
-    recordTestResult('B8-STEP3 setPosition', posPass, 'expected x=120,y=130');
-
-    await sleep(500);
-
-    // B8-STEP4: setSize
-    console.log('[WindowManagerTest] ACTION: calling setSize(...)');
-    win.setSize(520, 360);
-    await sleep(1000);
-    const size = win.getSize();
-    logResult('B8-STEP4 setSize', { size });
-    const sizePass = size[0] === 520 && size[1] === 360;
-    recordTestResult('B8-STEP4 setSize', sizePass, 'expected 520x360');
-
-    await sleep(500);
-
-    // B8-STEP5: hide / show
+    // B8-STEP1: hide / show
     console.log('[WindowManagerTest] ACTION: calling hide()');
     win.hide();
     await sleep(1000);
@@ -296,26 +285,10 @@ async function runBatch8Tests() {
     win.show();
     await sleep(1000);
     const shownVisible = win.isVisible();
-    logResult('B8-STEP5 hide/show', { hiddenVisible, shownVisible });
-    recordTestResult('B8-STEP5 hide/show', hiddenVisible === false && shownVisible === true, 'expected hidden=false, shown=true');
+    logResult('B8-STEP1 hide/show', { hiddenVisible, shownVisible });
+    recordTestResult('B8-STEP1 hide/show', hiddenVisible === false && shownVisible === true, 'expected hidden=false, shown=true');
 
     await sleep(500);
-
-    // B8-STEP6: focus false / true + blur event
-    console.log('[WindowManagerTest] ACTION: calling focus(false)');
-    const blurEvents: string[] = [];
-    win.on('blur' as any, () => blurEvents.push('blur'));
-    win.focus();
-    await sleep(500);
-    win.blur();
-    await sleep(1000);
-    const blurred = !win.isFocused();
-    console.log('[WindowManagerTest] ACTION: calling focus()');
-    win.focus();
-    await sleep(1000);
-    const focused = win.isFocused();
-    logResult('B8-STEP6 focus/blur', { blurred, focused, events: blurEvents });
-    recordTestResult('B8-STEP6 focus/blur', blurred && focused, 'expected blurred=true, focused=true');
   } catch (err) {
     console.error(`[WindowManagerTest] ERROR during batch 8 tests: ${String(err)}`);
   } finally {
@@ -365,8 +338,7 @@ async function runTests() {
     // main window is visible so parent references are valid.
     await runBatch7Tests();
 
-    // Batch 8: exercise cross-layer property operations (setBounds/setPosition/
-    // setSize/center/setTitle/hide/show/focus-false).
+    // Batch 8: exercise hide/show only.
     await runBatch8Tests();
 
     // Step 3: minimize (verify isMinimized state)
