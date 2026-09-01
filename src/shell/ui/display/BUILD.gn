@@ -72,7 +72,6 @@ component("display") {
   if (is_harmony) {
     sources += [
       "harmony/desktop_screen_harmony.cc",
-      "harmony/desktop_screen_harmony.h",
     ]
     libs = [ "native_display_manager" ]
   }

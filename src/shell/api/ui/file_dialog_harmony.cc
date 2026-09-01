@@ -33,7 +33,7 @@ namespace file_dialog {
 //           via dlsym, same pattern as LynxtronSetOpenExternalHandler)
 //           -> TSFN -> ArkTS FileDialogBridge -> DocumentViewPicker.select()
 //        -> blocks on std::future until ArkTS resolves via
-//           lynxtron.resolveShowOpenDialog(id, uris, canceled)
+//           lynxtron.resolveShowOpenDialog(id, uris, paths, canceled)
 //
 // THREAD AFFINITY: OH_FileShare_PersistPermission runs on the ETS thread
 // (inside the resolve callback, which is ResolveShowOpenDialog invoked from

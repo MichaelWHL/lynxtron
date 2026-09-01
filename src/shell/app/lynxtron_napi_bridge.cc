@@ -935,7 +935,7 @@ napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
 // injected handler below.  The handler allocates a request id, dispatches
 // (id, settings_json) to ArkTS through a TSFN, and returns immediately;
 // liblynxtron.so keeps blocking on its future.  When ArkTS finishes the
-// picker it calls resolveShowOpenDialog(id, paths, canceled), which looks up
+// picker it calls resolveShowOpenDialog(id, uris, paths, canceled), which looks up
 // the request and fires the stored callback — unblocking the C++ side.
 // ---------------------------------------------------------------------------
 namespace {
