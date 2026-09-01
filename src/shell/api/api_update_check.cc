@@ -29,8 +29,8 @@
 #include "third_party/napi/include/js_native_api.h"
 #include "third_party/napi/include/js_native_api_types.h"
 
-#define ZYBAPI_TAG "[UpdateModel api_update_check.cc]"
-#define ZYBAPI_LOG(fmt, ...)                                  \
+#define UPDATE_API_TAG "[UpdateModel api_update_check.cc]"
+#define UPDATE_API_LOG(fmt, ...)                                  \
   do {                                                        \
     auto _now = std::chrono::system_clock::now();              \
     auto _ms = std::chrono::duration_cast<std::chrono::milliseconds>( \
@@ -38,7 +38,7 @@
     std::time_t _tt = std::chrono::system_clock::to_time_t(_now); \
     struct tm _tm;                                            \
     localtime_r(&_tt, &_tm);                                  \
-    fprintf(stderr, "%02d%02d%02d.%03lld " ZYBAPI_TAG fmt "\n", \
+    fprintf(stderr, "%02d%02d%02d.%03lld " UPDATE_API_TAG fmt "\n", \
             _tm.tm_hour, _tm.tm_min, _tm.tm_sec,              \
             (long long)_ms, ##__VA_ARGS__);                   \
     fflush(stderr);                                           \
@@ -59,13 +59,13 @@ static std::mutex g_tsfn_mutex;
 static void DispatchTSFN(RequestType type) {
   std::lock_guard<std::mutex> lock(g_tsfn_mutex);
   if (!g_tsfn) {
-    ZYBAPI_LOG("DispatchTSFN: TSFN not registered yet, dropping request type=%d", (int)type);
+    UPDATE_API_LOG("DispatchTSFN: TSFN not registered yet, dropping request type=%d", (int)type);
     return;
   }
   auto* data = new int(static_cast<int>(type));
   napi_status status = napi_call_threadsafe_function(
       g_tsfn, data, napi_tsfn_nonblocking);
-  ZYBAPI_LOG("DispatchTSFN type=%d status=%d", (int)type, (int)status);
+  UPDATE_API_LOG("DispatchTSFN type=%d status=%d", (int)type, (int)status);
   if (status != napi_ok) {
     delete data;
   }
@@ -109,23 +109,23 @@ LynxtronRegisterUpdateTSFN(void* env, void* tsfn) {
     napi_release_threadsafe_function(g_tsfn, napi_tsfn_release);
   }
   g_tsfn = static_cast<napi_threadsafe_function>(tsfn);
-  ZYBAPI_LOG("LynxtronRegisterUpdateTSFN env=%p tsfn=%p", env, tsfn);
+  UPDATE_API_LOG("LynxtronRegisterUpdateTSFN env=%p tsfn=%p", env, tsfn);
 }
 
 __attribute__((visibility("default"))) void LynxtronResolveCheckAppUpdate(const char* json) {
-  ZYBAPI_LOG("ResolveCheckAppUpdateApi json=%s", json ? json : "null");
+  UPDATE_API_LOG("ResolveCheckAppUpdateApi json=%s", json ? json : "null");
   if (!json) return;
   std::string json_copy(json);
   // Post V8 work to the Node.js main thread so we don't block ArkTS.
   auto runner = lynxtron::GetUIThreadTaskRunner();
   if (!runner) {
-    ZYBAPI_LOG("ResolveCheckAppUpdate: no UI runner, dropping");
+    UPDATE_API_LOG("ResolveCheckAppUpdate: no UI runner, dropping");
     return;
   }
   runner->PostTask(FROM_HERE, base::BindOnce([](std::string result_json) {
     std::lock_guard<std::mutex> lock(g_check_mutex);
     if (!g_check_isolate || !g_check_resolver) {
-      ZYBAPI_LOG("ResolveCheckAppUpdate skipped: resolver gone");
+      UPDATE_API_LOG("ResolveCheckAppUpdate skipped: resolver gone");
       return;
     }
     v8::Isolate* isolate = g_check_isolate;
@@ -143,13 +143,13 @@ __attribute__((visibility("default"))) void LynxtronResolveCheckAppUpdate(const 
       r->Resolve(ctx, v).Check();
     }
     ClearResolver(&g_check_resolver, &g_check_isolate);
-    ZYBAPI_LOG("ResolveCheckAppUpdate done");
+    UPDATE_API_LOG("ResolveCheckAppUpdate done");
   }, std::move(json_copy)));
 }
 
 
 __attribute__((visibility("default"))) void LynxtronResolveShowUpdateDialog(int result_code) {
-  ZYBAPI_LOG("ResolveShowUpdateDialog result_code=%d", result_code);
+  UPDATE_API_LOG("ResolveShowUpdateDialog result_code=%d", result_code);
   auto runner = lynxtron::GetUIThreadTaskRunner();
   if (!runner) return;
   runner->PostTask(FROM_HERE, base::BindOnce([](int code) {
@@ -202,7 +202,7 @@ __attribute__((visibility("default"))) void LynxtronResolveLoadProduct(const cha
 namespace {
 
 v8::Local<v8::Value> CheckAppUpdate(v8::Isolate* isolate) {
-  ZYBAPI_LOG("CheckAppUpdate called");
+  UPDATE_API_LOG("CheckAppUpdate called");
 #if !BUILDFLAG(IS_HARMONY)
   auto resolver = v8::Promise::Resolver::New(isolate->GetCurrentContext()).ToLocalChecked();
   resolver->Reject(isolate->GetCurrentContext(),
@@ -277,7 +277,7 @@ void Initialize(v8::Local<v8::Object> exports,
   dict.SetMethod("checkAppUpdate", &CheckAppUpdate);
   dict.SetMethod("showUpdateDialog", &ShowUpdateDialog);
   dict.SetMethod("loadProduct", &LoadProduct);
-  ZYBAPI_LOG("Initialize: checkAppUpdate, showUpdateDialog, loadProduct registered");
+  UPDATE_API_LOG("Initialize: checkAppUpdate, showUpdateDialog, loadProduct registered");
 }
 
 }  // namespace
