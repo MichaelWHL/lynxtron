@@ -67,28 +67,6 @@
         "startWindowBackground": "$color:start_window_background",
         "launchType": "specified",
         "removeMissionAfterTerminate": true
-      },
-      {
-        "name": "FloatWindowAbility",
-        "srcEntry": "./ets/window/FloatWindowAbility.ets",
-        "description": "$string:WindowAbility_desc",
-        "icon": "$media:icon",
-        "label": "$string:WindowAbility_label",
-        "startWindowIcon": "$media:icon",
-        "startWindowBackground": "$color:start_window_background",
-        "launchType": "specified",
-        "removeMissionAfterTerminate": true
-      },
-      {
-        "name": "SubWindowAbility",
-        "srcEntry": "./ets/window/SubWindowAbility.ets",
-        "description": "$string:WindowAbility_desc",
-        "icon": "$media:icon",
-        "label": "$string:WindowAbility_label",
-        "startWindowIcon": "$media:icon",
-        "startWindowBackground": "$color:start_window_background",
-        "launchType": "specified",
-        "removeMissionAfterTerminate": true
       }
     ],
     "extensionAbilities": [

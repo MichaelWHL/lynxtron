@@ -10,7 +10,10 @@ import bundleManager from '@ohos.bundle.bundleManager';
 import { BusinessError } from '@ohos.base';
 import lynxtron from 'liblynxtron_napi.so';
 import { AbilityManager } from '../common/AbilityManager';
-import { WindowBounds } from '../adapter/AppWindowAdapter';
+import { LynxWindowProxy } from '../common/LynxWindowProxy';
+import { CreateWindowOptions, WindowType } from '../common/WindowTypes';
+import { AppWindowAdapter } from '../adapter/AppWindowAdapter';
+import { reportWindowRect } from '../utils/WindowUtils';
 
 // Matches gfx::ResizeEdge in shell/ui/gfx/geometry/resize_utils.h and the
 // plain-C enum duplicated in lynxtron_napi_bridge.cc / native_window_harmony.cc.
@@ -23,60 +26,18 @@ const RESIZE_EDGE_TOP = 5;
 const RESIZE_EDGE_TOP_LEFT = 6;
 const RESIZE_EDGE_TOP_RIGHT = 7;
 
-// JSON payloads received from the C++ window operation bridge.
-type ParentWindowIdPayload = number;
-
-interface WindowLimitsPayload {
-  minWidth: number;
-  minHeight: number;
-  maxWidth: number;
-  maxHeight: number;
-}
-
-interface WindowBorders {
-  leftBorder: number;
-  topBorder: number;
-  rightBorder: number;
-  bottomBorder: number;
-}
-
 const DOMAIN = 0x0000;
 const TAG = 'BaseWindowAbility';
 
-// Window options mirrored from C++ HarmonyWindowCreationOptions / AppWindowAdapter.
-interface WindowLaunchOptions {
-  windowId: number;
-  type: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  show?: boolean;
-  title?: string;
-  resizable?: boolean;
-  movable?: boolean;
-  minimizable?: boolean;
-  maximizable?: boolean;
-  closable?: boolean;
-  focusable?: boolean;
-  alwaysOnTop?: boolean;
-  parentWindowId?: number;
-  parentHarmonyWindowId?: number;
-  fullscreen?: boolean;
-  minWidth?: number;
-  minHeight?: number;
-  maxWidth?: number;
-  maxHeight?: number;
-  modal?: boolean;
-}
-
-export default abstract class BaseWindowAbility extends UIAbility {
+export default abstract class BaseWindowAbility extends UIAbility implements LynxWindowProxy {
   protected windowId: number = -1;
   protected originWindowId: number = -1;
-  protected launchOptions: WindowLaunchOptions = { windowId: -1, type: 'main' };
+  protected launchOptions: CreateWindowOptions = { windowId: 0, type: 'main' };
   protected suspendDelayInfo?: backgroundTaskManager.DelaySuspendInfo;
+  private mainWindow?: window.Window;
+  private windowStage?: window.WindowStage;
 
-static registerWindowLifecycleListeners(windowId: number, win: window.Window): void {
+  static registerWindowLifecycleListeners(windowId: number, win: window.Window): void {
     if (windowId < 0) {
       hilog.warn(DOMAIN, TAG, 'registerWindowLifecycleListeners: invalid windowId');
       return;
@@ -170,7 +131,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
         // independent of the existing drag/resize event handling and does not
         // modify the original logic below.
         if (option.rect) {
-          BaseWindowAbility.reportWindowRect(windowId, win);
+          reportWindowRect(windowId, win);
         }
 
         if (reason === window.RectChangeReason.DRAG_START && option.rect) {
@@ -236,25 +197,44 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     return RESIZE_EDGE_BOTTOM;
   }
 
-  // Reports the actual OS window rect (windowRect) to the C++ layer. The C++
-  // layer keeps this separate from bounds_, which tracks the drawable/content
-  // rect updated by XComponent surface callbacks.
-  public static reportWindowRect(windowId: number, win: window.Window): void {
-    try {
-      const rect = win.getWindowProperties().windowRect;
-      if (!rect) {
-        return;
-      }
-      lynxtron.notifyWindowRect(
-        windowId,
-        rect.left ?? 0,
-        rect.top ?? 0,
-        rect.width ?? 0,
-        rect.height ?? 0
-      );
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'reportWindowRect failed: %{public}s', String(e));
+  // ---- LynxWindowProxy implementation ----
+
+  getWindow(): window.Window {
+    if (!this.mainWindow) {
+      throw new Error('BaseWindowAbility.getWindow: mainWindow not available');
     }
+    return this.mainWindow;
+  }
+
+  getWindowStage(): window.WindowStage {
+    if (!this.windowStage) {
+      throw new Error('BaseWindowAbility.getWindowStage: windowStage not available');
+    }
+    return this.windowStage;
+  }
+
+  getWindowContext(): common.UIAbilityContext {
+    return this.context;
+  }
+
+  getWindowId(): number {
+    return this.windowId;
+  }
+
+  getOriginWindowId(): number {
+    return this.originWindowId;
+  }
+
+  getCppWindowId(): number {
+    return this.launchOptions.windowId;
+  }
+
+  setCppWindowId(id: number): void {
+    this.launchOptions.windowId = id;
+  }
+
+  isMainAbility(): boolean {
+    return this.launchOptions.type === 'main';
   }
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -262,11 +242,10 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     this.launchOptions = {
       // The C++ driven path (AppWindowAdapter.createWindowFromCpp) puts the
       // C++-allocated window id under the key "cppWindowId"; the legacy
-      // EntryAbility path used "windowId". Read both so C++-driven windows
-      // correctly route through setWindowIdForWindow instead of the legacy
-      // setWindowId single-window path.
-      windowId: Number(params?.['cppWindowId'] ?? params?.['windowId'] ?? -1),
-      type: String(params?.['windowType'] ?? params?.['type'] ?? 'main'),
+      // EntryAbility path had no id. Use 0 as the placeholder for the first
+      // (EntryAbility) window before it is bound to a C++ window id.
+      windowId: Number(params?.['cppWindowId'] ?? params?.['windowId'] ?? 0),
+      type: String(params?.['windowType'] ?? params?.['type'] ?? 'main') as WindowType,
       x: Number(params?.['x'] ?? 0),
       y: Number(params?.['y'] ?? 0),
       width: Number(params?.['width'] ?? 800),
@@ -313,6 +292,8 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       const originWindowId = mainWindow.getWindowProperties().id;
       this.originWindowId = originWindowId;
       this.windowId = originWindowId;
+      this.mainWindow = mainWindow;
+      this.windowStage = windowStage;
 
       // Diagnostic logging for multi-display / mirror-mode issues.
       try {
@@ -328,17 +309,20 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       // start subsequent windows.
       AppStorage.setOrCreate('active_ability_context', this.context);
 
-      // Bind the C++ window id to this HarmonyOS window id.
+      // Register this Ability as a LynxWindowProxy. For the first (EntryAbility)
+      // window the C++ id is 0 and acts as a placeholder until the first
+      // createWindowFromCpp('main') request binds a real C++ id.
+      AbilityManager.addProxy(this);
       const cppWindowId = this.launchOptions.windowId;
-      AbilityManager.register(cppWindowId, this.windowId, originWindowId, this.context, windowStage);
       if (cppWindowId > 0) {
         lynxtron.setWindowIdForWindow(cppWindowId, originWindowId);
       } else {
-        // Legacy path: the first window launched by EntryAbility has no cppWindowId.
-        lynxtron.setWindowId(originWindowId);
+        hilog.info(DOMAIN, TAG,
+          'placeholder proxy registered originWindowId=%{public}d, awaiting first main window binding',
+          originWindowId);
       }
 
-      this.registerWindowOpCallback(windowStage);
+      this.registerWindowOpCallback();
 
       // Load the page first; window decoration options (title, buttons,
       // resizable/movable, topmost, supported modes) are applied in the
@@ -358,7 +342,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
 
   onWindowStageDestroy(): void {
     hilog.info(DOMAIN, TAG, 'onWindowStageDestroy windowId=%{public}d', this.windowId);
-    AbilityManager.unregister(this.windowId);
+    AbilityManager.removeProxy(this);
 
     // If the Ability being destroyed is the current active context, the global
     // active context must be migrated to another living Ability. Otherwise
@@ -369,8 +353,8 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
       let fallback: common.UIAbilityContext | undefined;
       for (const id of AbilityManager.getAllWindowIds()) {
         const proxy = AbilityManager.get(id);
-        if (proxy?.context && proxy.context !== this.context) {
-          fallback = proxy.context;
+        if (proxy?.getWindowContext() && proxy.getWindowContext() !== this.context) {
+          fallback = proxy.getWindowContext();
           break;
         }
       }
@@ -398,91 +382,7 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
   // window decoration APIs (title, title-bar buttons, drag/move, topmost,
   // supported modes) must not be used before the window/page is ready.
   protected applyWindowOptions(mainWindow: window.Window, windowStage: window.WindowStage): void {
-    const opts = this.launchOptions;
-
-    // Title.
-    if (opts.title !== undefined && opts.title.length > 0) {
-      try {
-        mainWindow.setWindowTitle(opts.title);
-      } catch (e) {
-        hilog.error(DOMAIN, TAG, 'setWindowTitle failed: %{public}s', String(e));
-      }
-    }
-
-    // Title-bar buttons (only if the system title bar is visible).
-    try {
-      mainWindow.setWindowTitleButtonVisible(
-        opts.maximizable ?? true,
-        opts.minimizable ?? true,
-        opts.closable ?? true,
-      );
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'setWindowTitleButtonVisible failed: %{public}s', String(e));
-    }
-
-    // Resizable / movable.
-    try {
-      mainWindow.setResizeByDragEnabled(opts.resizable ?? true);
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'setResizeByDragEnabled failed: %{public}s', String(e));
-    }
-    try {
-      mainWindow.setWindowTitleMoveEnabled(opts.movable ?? true);
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'setWindowTitleMoveEnabled failed: %{public}s', String(e));
-    }
-
-    // Always on top.
-    if (opts.alwaysOnTop) {
-      mainWindow.setWindowTopmost(true)
-        .then(() => hilog.info(DOMAIN, TAG, 'setWindowTopmost OK'))
-        .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'setWindowTopmost failed: %{public}s', JSON.stringify(e)));
-    }
-
-    // Bounds and initial visibility are already expressed through
-    // StartOptions (windowLeft/windowTop/windowWidth/windowHeight and
-    // startupVisibility) when the Ability is launched. Do not call
-    // resizeAsync/moveWindowToAsync/showWindow/minimize here before
-    // setUIContent() — that can leave the window stuck on the start-window
-    // icon because the UI content has not been loaded yet.
-
-    // Supported window modes reflect maximizable.
-    try {
-      windowStage.setSupportedWindowModes(
-        (opts.maximizable ?? true)
-          ? [bundleManager.SupportWindowMode.FLOATING, bundleManager.SupportWindowMode.SPLIT, bundleManager.SupportWindowMode.FULL_SCREEN]
-          : [bundleManager.SupportWindowMode.FLOATING]
-      );
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'setSupportedWindowModes failed: %{public}s', String(e));
-    }
-
-    // Initial fullscreen.
-    if (opts.fullscreen) {
-      mainWindow.maximize(window.MaximizePresentation.ENTER_IMMERSIVE)
-        .then(() => hilog.info(DOMAIN, TAG, 'enter-full-screen OK'))
-        .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'enter-full-screen failed: %{public}s', JSON.stringify(e)));
-    }
-
-    // Size constraints. 0 means no limit on that dimension.
-    if (opts.minWidth || opts.minHeight || opts.maxWidth || opts.maxHeight) {
-      try {
-        mainWindow.setWindowLimits({
-          minWidth: opts.minWidth ?? 0,
-          minHeight: opts.minHeight ?? 0,
-          maxWidth: opts.maxWidth ?? 0,
-          maxHeight: opts.maxHeight ?? 0,
-        })
-          .then(() => hilog.info(DOMAIN, TAG, 'setWindowLimits OK'))
-          .catch((e: BusinessError) => hilog.error(DOMAIN, TAG, 'setWindowLimits failed: %{public}s', JSON.stringify(e)));
-      } catch (e) {
-        hilog.error(DOMAIN, TAG, 'setWindowLimits failed: %{public}s', String(e));
-      }
-    }
-
-    // Report the initial real window rect to C++ so getWindowSize() reflects the
-    // actual OS window size rather than the drawable/content size.
-    BaseWindowAbility.reportWindowRect(this.windowId, mainWindow);
+    AppWindowAdapter.applyWindowOptions(mainWindow, windowStage, this.windowId, this.launchOptions);
   }
 
   // Keep the Ability alive long enough to perform window operations (especially
@@ -503,205 +403,10 @@ static registerWindowLifecycleListeners(windowId: number, win: window.Window): v
     }
   }
 
-  private registerWindowOpCallback(windowStage: window.WindowStage): void {
-    BaseWindowAbility.registerWindowOpCallbackForWindow(
-      this.windowId,
-      windowStage.getMainWindowSync(),
-      this.context,
-      () => this.requestSuspendDelayForWindowOps(),
-      () => this.context.showAbility()
-    );
-  }
-
-  // Public so AppWindowAdapter can register window-op callbacks for subwindows
-  // created via windowStage.createSubWindow().
-  static registerWindowOpCallbackForWindow(
-    windowId: number,
-    win: window.Window,
-    context: common.UIAbilityContext,
-    onMinimize?: () => void,
-    showAbility?: () => Promise<void>
-  ): void {
-    lynxtron.registerWindowOpCallbackForWindow(windowId, (_id: number, op: string, args?: string) => {
-      hilog.info(DOMAIN, TAG, 'windowOp %{public}s args=%{public}s', op, args ?? '');
-      try {
-        const windowStatus = win.getWindowStatus();
-        const isMinimized = windowStatus === window.WindowStatusType.MINIMIZE;
-        hilog.info(DOMAIN, TAG,
-          'windowOp %{public}s status=%{public}d minimized=%{public}s',
-          op, windowStatus, String(isMinimized));
-
-        switch (op) {
-          case 'minimize':
-            if (onMinimize) onMinimize();
-            win.minimize()
-              .then(() => BaseWindowAbility.recordWindowOpResult('minimize', 'OK'))
-              .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('minimize', 'ERR', String(e)));
-            break;
-          case 'maximize':
-            win.maximize(window.MaximizePresentation.EXIT_IMMERSIVE)
-              .then(() => BaseWindowAbility.recordWindowOpResult('maximize', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('maximize', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          case 'enter-full-screen':
-            win.maximize(window.MaximizePresentation.ENTER_IMMERSIVE)
-              .then(() => BaseWindowAbility.recordWindowOpResult('enter-full-screen', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('enter-full-screen', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          case 'leave-full-screen':
-            win.recover()
-              .then(() => BaseWindowAbility.recordWindowOpResult('leave-full-screen', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('leave-full-screen', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          case 'restore':
-            if (windowStatus === window.WindowStatusType.FULL_SCREEN ||
-                windowStatus === window.WindowStatusType.MAXIMIZE) {
-              win.recover()
-                .then(() => BaseWindowAbility.recordWindowOpResult('restore', 'OK', 'recover'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('restore', 'ERR', `recover:${BaseWindowAbility.errText(e)}`));
-            } else if (windowStatus === window.WindowStatusType.MINIMIZE) {
-              if (onMinimize) onMinimize();
-              win.restore()
-                .then(() => BaseWindowAbility.recordWindowOpResult('restore', 'OK', 'restore'))
-                .catch((e: BusinessError) => {
-                  BaseWindowAbility.recordWindowOpResult('restore', 'ERR', `restore:${BaseWindowAbility.errText(e)}`);
-                  if (showAbility) {
-                    showAbility()
-                      .then(() => BaseWindowAbility.recordWindowOpResult('restore', 'OK', 'showAbility-fallback'))
-                      .catch((e2: BusinessError) => BaseWindowAbility.recordWindowOpResult('restore', 'ERR', `showAbility:${BaseWindowAbility.errText(e2)}`));
-                  }
-                });
-            } else {
-              BaseWindowAbility.recordWindowOpResult('restore', 'OK', `already-normal status=${windowStatus}`);
-            }
-            break;
-          case 'show':
-            // Main Ability windows that were hidden via hideAbility() must be
-            // re-shown via showAbility(); subwindows use showWindow().
-            if (showAbility) {
-              showAbility()
-                .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showAbility'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showAbility:${BaseWindowAbility.errText(e)}`));
-            } else {
-              win.showWindow()
-                .then(() => BaseWindowAbility.recordWindowOpResult('show', 'OK', 'showWindow'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('show', 'ERR', `showWindow:${BaseWindowAbility.errText(e)}`));
-            }
-            break;
-          case 'close':
-            // For subwindows win.destroyWindow() closes just the subwindow;
-            // for main Ability windows terminateSelf() ends the Ability.
-            if (showAbility) {
-              context.terminateSelf()
-                .then(() => BaseWindowAbility.recordWindowOpResult('close', 'OK', 'terminateSelf'))
-                .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('close', 'ERR', `terminateSelf:${String(e)}`));
-            } else {
-              win.destroyWindow()
-                .then(() => BaseWindowAbility.recordWindowOpResult('close', 'OK', 'destroyWindow'))
-                .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('close', 'ERR', `destroyWindow:${String(e)}`));
-            }
-            break;
-          case 'focus': {
-            const focusValue = args ? JSON.parse(args) as boolean : true;
-            if (focusValue === false) {
-              win.setWindowFocusable(false)
-                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'setWindowFocusable-false'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `setWindowFocusable-false:${BaseWindowAbility.errText(e)}`));
-            } else if (showAbility) {
-              showAbility()
-                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'showAbility'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `showAbility:${BaseWindowAbility.errText(e)}`));
-            } else {
-              win.setWindowFocusable(true)
-                .then(() => win.showWindow())
-                .then(() => BaseWindowAbility.recordWindowOpResult('focus', 'OK', 'setWindowFocusable-true-showWindow'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('focus', 'ERR', `focus-true:${BaseWindowAbility.errText(e)}`));
-            }
-            break;
-          }
-          case 'setAlwaysOnTop': {
-            const onTopValue = args ? JSON.parse(args) as boolean : false;
-            win.setWindowTopmost(onTopValue)
-              .then(() => BaseWindowAbility.recordWindowOpResult('setAlwaysOnTop', 'OK'))
-              .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('setAlwaysOnTop', 'ERR', String(e)));
-            break;
-          }
-          case 'hide':
-            // Main Ability windows are hidden via the Ability context; subwindows
-            // do not have a separate hide API, so minimize them instead.
-            if (showAbility) {
-              context.hideAbility()
-                .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK', 'hideAbility'))
-                .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', `hideAbility:${BaseWindowAbility.errText(e)}`));
-            } else {
-              win.minimize()
-                .then(() => BaseWindowAbility.recordWindowOpResult('hide', 'OK', 'minimize-fallback'))
-                .catch((e: Error) => BaseWindowAbility.recordWindowOpResult('hide', 'ERR', String(e)));
-            }
-            break;
-          case 'setParentWindow': {
-            const parentWindowId = args ? JSON.parse(args) as ParentWindowIdPayload : -1;
-            if (parentWindowId <= 0) {
-              BaseWindowAbility.recordWindowOpResult('setParentWindow', 'ERR', 'invalid-parent-window-id');
-              break;
-            }
-            win.setParentWindow(parentWindowId)
-              .then(() => BaseWindowAbility.recordWindowOpResult(
-                'setParentWindow', 'OK', `parentWindowId=${parentWindowId}`))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult(
-                'setParentWindow', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          }
-          case 'setWindowLimits': {
-            const limits = args ? JSON.parse(args) as WindowLimitsPayload : undefined;
-            if (!limits) {
-              BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', 'missing-args');
-              break;
-            }
-            const borders = BaseWindowAbility.getWindowBorders(win);
-            win.setWindowLimits({
-              minWidth: limits.minWidth === 0 ? 0 : limits.minWidth + borders.leftBorder + borders.rightBorder,
-              minHeight: limits.minHeight === 0 ? 0 : limits.minHeight + borders.topBorder + borders.bottomBorder,
-              maxWidth: limits.maxWidth === 0 ? 0 : limits.maxWidth + borders.leftBorder + borders.rightBorder,
-              maxHeight: limits.maxHeight === 0 ? 0 : limits.maxHeight + borders.topBorder + borders.bottomBorder,
-            })
-              .then(() => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'OK'))
-              .catch((e: BusinessError) => BaseWindowAbility.recordWindowOpResult('setWindowLimits', 'ERR', BaseWindowAbility.errText(e)));
-            break;
-          }
-          default:
-            hilog.warn(DOMAIN, TAG, 'unknown windowOp %{public}s', op);
-        }
-      } catch (e) {
-        hilog.error(DOMAIN, TAG, 'windowOp %{public}s failed: %{public}s', op, String(e));
-      }
+  private registerWindowOpCallback(): void {
+    AppWindowAdapter.registerWindowOpCallbackForWindow(this, {
+      onMinimize: () => this.requestSuspendDelayForWindowOps(),
+      showAbility: () => this.context.showAbility(),
     });
   }
-
-  private static errText(e: BusinessError): string {
-    return e ? `${e.code} ${e.message}` : 'unknown error';
-  }
-
-  private static recordWindowOpResult(op: string, result: string, detail?: string): void {
-    hilog.info(DOMAIN, TAG, 'windowOp %{public}s %{public}s %{public}s', op, result, detail ?? '');
-  }
-
-  private static getWindowBorders(win: window.Window): WindowBorders {
-    const props = win.getWindowProperties();
-    const drawable = props?.drawableRect;
-    const windowRect = props?.windowRect;
-    const left = drawable?.left ?? 0;
-    const top = drawable?.top ?? 0;
-    const drawableWidth = drawable?.width ?? 0;
-    const drawableHeight = drawable?.height ?? 0;
-    const windowWidth = windowRect?.width ?? (left + drawableWidth);
-    const windowHeight = windowRect?.height ?? (top + drawableHeight);
-    return {
-      leftBorder: left,
-      topBorder: top,
-      rightBorder: Math.max(0, windowWidth - drawableWidth - left),
-      bottomBorder: Math.max(0, windowHeight - drawableHeight - top),
-    };
-  }
-
 }

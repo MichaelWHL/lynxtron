@@ -2828,7 +2828,6 @@ napi_value SetWindowObject(napi_env env, napi_callback_info info) {
 
 napi_value SyncIme(napi_env env, napi_callback_info) {
   SyncImeImpl(env);
-  SyncWindowTitle(env);
   napi_value result = nullptr;
   napi_get_boolean(env, g_ime_proxy != nullptr, &result);
   return result;
