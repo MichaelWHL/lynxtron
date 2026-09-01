@@ -48,8 +48,6 @@
 #define LOG_DOMAIN 0x0000
 #define LOG_TAG "LynxtronBridge"
 
-#define ZYBAPI_TAG ""
-
 namespace {
 
 // Plain C enum matching gfx::ResizeEdge in

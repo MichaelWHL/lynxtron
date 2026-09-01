@@ -54,7 +54,6 @@ declare namespace lynxtron {
   // Registers a callback that receives request types from Node.js:
   //   type=0 → checkAppUpdate, type=1 → showUpdateDialog, type=2 → loadProduct
   function registerUpdateTSFN(callback: (type: number) => void): void;
-  function consumeCheckAppUpdateRequest(): boolean;
   // Reports the JSON-serialized CheckUpdateResult back to C++.
   function resolveCheckAppUpdate(json: string): void;
   // Reports the ShowUpdateResultCode (int) back to C++.
