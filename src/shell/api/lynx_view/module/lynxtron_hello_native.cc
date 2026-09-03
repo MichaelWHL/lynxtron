@@ -2,42 +2,48 @@
 // Licensed under the Apache License Version 2.0 that can be found in the
 // LICENSE file in the root directory of this source tree.
 
-// 测试用例: 通过 getModuleLoader().load('lynxtron_hello') 从 JS 加载。
+// Test case: loaded from JS via getModuleLoader().load('lynxtron_hello').
 //
-// 加载链路:
+// Load chain:
 //   JS: lynx.getModuleLoader().load('lynxtron_hello')
-//     -> lynx.ts getModuleLoader() 返回 nativeGlobal['napiLoaderOnRT'+nativeAppId]
-//     -> NapiRuntimeProxy::SetupLoader() 里 napi_setup_loader(env, loader_)
-//        (quickjs napi_env.cc) 把 env.Loader() 的 { load } 挂到对应全局名
-//     -> LoadModule(napi_env.cc) 调 napi_find_module("lynxtron_hello")
-//        -> NODE_API_MODULE 宏 (primjs quickjs napi.h) 在 static init 时把本模块
-//           napi_module_register_xx(&_module) 注册进全局 modlist
-//     -> nm_register_func(env, exports) == NativeHelloInit, 返回 exports
+//     -> lynx.ts getModuleLoader() returns nativeGlobal['napiLoaderOnRT'+nativeAppId]
+//     -> NapiRuntimeProxy::SetupLoader() calls napi_setup_loader(env, loader_)
+//        (quickjs napi_env.cc) which mounts env.Loader()'s { load } under that
+//        global name
+//     -> LoadModule(napi_env.cc) calls napi_find_module("lynxtron_hello")
+//        -> the NODE_API_MODULE macro (primjs quickjs napi.h) registers this
+//           module's napi_module_register_xx(&_module) into the global modlist
+//           at static-init time
+//     -> nm_register_func(env, exports) == NativeHelloInit, returns exports
 //
-// 本 TU 编译进 lynxtron_lib (liblynxtron.so), static constructor 在进程启动时
-// 自动把模块注册进 primjs quickjs napi 的全局模块链表, 因此 load() 前无需手动注册。
+// This TU is compiled into lynxtron_lib (liblynxtron.so); the static
+// constructor registers the module into primjs quickjs napi's global module
+// chain at process startup, so no manual registration is needed before load().
 
 #include <string>
 
-// primjs quickjs 的 Napi:: C++ 包装 (不是 weak-node-api, 不含 NAPI_CPP_CUSTOM_NAMESPACE)。
+// primjs quickjs's Napi:: C++ wrapper (not weak-node-api, no NAPI_CPP_CUSTOM_NAMESPACE).
 #include "third_party/binding/napi/shim/shim_napi.h"
 
-// shim_napi.h 末尾会 #include primjs_napi_undefs.h, 把 napi_module/napi_value/napi_env
-// 从 *__primjs 后缀还原成裸名。NODE_API_MODULE 宏必须在 USE_PRIMJS_NAPI 后缀激活时展开,
-// 否则会引用到不存在/不一致的裸类型。故在宏展开前重新套用一次后缀映射。
+// shim_napi.h ends with #include primjs_napi_undefs.h, which restores bare
+// names for napi_module/napi_value/napi_env from their *__primjs suffixed
+// forms. The NODE_API_MODULE macro must expand while the USE_PRIMJS_NAPI
+// suffix mapping is active, otherwise it would reference nonexistent or
+// inconsistent bare types, so the suffix mapping is re-applied here before
+// the macro expands.
 #ifdef USE_PRIMJS_NAPI
 #include "third_party/napi/include/primjs_napi_defines.h"
 #endif
 
 namespace {
 
-// 无参: hello() -> "Hello from Lynxtron native module!"
+// No args: hello() -> "Hello from Lynxtron native module!"
 Napi::Value Hello(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   return Napi::String::New(env, "Hello from Lynxtron native module!");
 }
 
-// add(a, b) -> a + b (自动转 number, 非 number 返回 0)
+// add(a, b) -> a + b (coerced to number; non-numbers count as 0)
 Napi::Value Add(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   double a = 0;
@@ -49,7 +55,7 @@ Napi::Value Add(const Napi::CallbackInfo& info) {
   return Napi::Number::New(env, a + b);
 }
 
-// echo(x) -> x (原样返回, 用于验证返回值类型往返)
+// echo(x) -> x (returns the argument as-is; verifies value round-trip)
 Napi::Value Echo(const Napi::CallbackInfo& info) {
   if (info.Length() < 1) {
     return info.Env().Undefined();

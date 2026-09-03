@@ -446,6 +446,8 @@ void LynxViewImpl::OnEnterBackground() {
                      lynx_view_client_));
 }
 
+// lynx::pub::LynxViewClient override: forwards per-frame timings to the UI
+// thread client (LynxWindow's fps monitor).
 void LynxViewImpl::OnFrameTiming(int64_t frame_start_time_in_ns,
                                  int64_t frame_finish_time_in_ns) {
   lynxtron::GlobalThread::GetUIThreadTaskRunner()->PostTask(

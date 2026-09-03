@@ -37,6 +37,8 @@ export interface CreateWindowParam {
 
 export { WindowOpCallbacks };
 
+// Centers the given bounds on the target display (the default display if
+// unspecified), preserving the window size.
 function centerBounds(bounds: WindowBounds, targetDisplay?: display.Display): WindowBounds {
   try {
     const disp = targetDisplay ?? display.getDefaultDisplaySync();
@@ -52,6 +54,8 @@ function centerBounds(bounds: WindowBounds, targetDisplay?: display.Display): Wi
   }
 }
 
+// Returns the id of the built-in display running in MAIN source mode, or 0
+// if no usable internal display is found.
 function getInternalDisplayId(): number {
   // The internal/built-in display must have sourceMode MAIN. In extend mode
   // getPrimaryDisplaySync/getDefaultDisplaySync may return the external
@@ -81,6 +85,8 @@ function getInternalDisplayId(): number {
   return 0;
 }
 
+// Returns the display on which EntryAbility is running, or undefined if that
+// display is gone or no longer usable.
 function getEntryAbilityDisplayId(): number | undefined {
   const id = AppStorage.get<number>('entry_ability_display_id');
   if (id === undefined || id < 0) {
@@ -101,6 +107,7 @@ function getEntryAbilityDisplayId(): number | undefined {
   return undefined;
 }
 
+// Returns the display with the given id, falling back to the default display.
 function getDisplayByIdOrDefault(displayId: number): display.Display | undefined {
   try {
     return display.getDisplayByIdSync(displayId);
@@ -115,6 +122,8 @@ function getDisplayByIdOrDefault(displayId: number): display.Display | undefined
   return undefined;
 }
 
+// Only MAIN and EXTEND displays can host an Ability; mirror-mode displays
+// cannot and are rejected.
 function isUsableSourceMode(mode: display.DisplaySourceMode | undefined): boolean {
   if (mode === undefined) {
     return false;
@@ -122,6 +131,8 @@ function isUsableSourceMode(mode: display.DisplaySourceMode | undefined): boolea
   return mode === display.DisplaySourceMode.MAIN || mode === display.DisplaySourceMode.EXTEND;
 }
 
+// Resolves which display a new window should be created on: the requested
+// display if usable, else EntryAbility's display, else the internal display.
 function resolveDisplayId(requestedDisplayId?: number): number {
   if (requestedDisplayId !== undefined && requestedDisplayId >= 0) {
     try {
@@ -148,6 +159,8 @@ function resolveDisplayId(requestedDisplayId?: number): number {
   return getInternalDisplayId();
 }
 
+// Maps a C++ window type to the Ability that hosts it. All top-level window
+// types are currently hosted by WindowAbility; subwindows never reach here.
 function getAbilityNameForType(type: string): string {
   switch (type) {
     case 'main':
@@ -532,10 +545,14 @@ export class AppWindowAdapter {
     WindowOpAdapter.registerWindowOpCallbackForWindow(proxy, callbacks);
   }
 
+  // Entry point for C++ window operations; kept here so existing callers can
+  // reach WindowOpAdapter through AppWindowAdapter.
   static handleWindowOp(windowId: number, op: string, args?: string, callbacks?: WindowOpCallbacks): void {
     WindowOpAdapter.handleWindowOp(windowId, op, args, callbacks);
   }
 
+  // startAbility() with bounded retry on ERR_START_OPTIONS_CHECK_FAILED
+  // (status-bar icon not attached yet); see the constants above.
   private static startAbilityWithRetry(
     param: CreateWindowParam,
     want: Want,

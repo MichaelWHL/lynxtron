@@ -20,6 +20,7 @@ export interface WindowOpCallbacks {
 // JSON payloads received from the C++ window operation bridge.
 type ParentWindowIdPayload = number;
 
+// min/max size constraints for the setWindowLimits op (0 = no limit).
 interface WindowLimitsPayload {
   minWidth: number;
   minHeight: number;
@@ -27,6 +28,7 @@ interface WindowLimitsPayload {
   maxHeight: number;
 }
 
+// Frame border widths between the OS window rect and the drawable rect.
 interface WindowBorders {
   leftBorder: number;
   topBorder: number;
@@ -34,11 +36,13 @@ interface WindowBorders {
   bottomBorder: number;
 }
 
+// Window origin for the setPosition op.
 interface WindowPosition {
   x: number;
   y: number;
 }
 
+// Window size for the setSize op.
 interface WindowSize {
   width: number;
   height: number;
@@ -257,14 +261,18 @@ export class WindowOpAdapter {
     }
   }
 
+  // Formats a BusinessError as "<code> <message>".
   private static errText(e: BusinessError): string {
     return e ? `${e.code} ${e.message}` : 'unknown error';
   }
 
+  // Logs the outcome of a window operation for logcat diagnosis.
   private static recordWindowOpResult(op: string, result: string, detail?: string): void {
     hilog.info(DOMAIN, TAG, 'windowOp %{public}s %{public}s %{public}s', op, result, detail ?? '');
   }
 
+  // Computes the frame border widths between windowRect and drawableRect so
+  // size limits can be converted from drawable to OS window coordinates.
   private static getWindowBorders(win: window.Window): WindowBorders {
     const props = win.getWindowProperties();
     const drawable = props?.drawableRect;

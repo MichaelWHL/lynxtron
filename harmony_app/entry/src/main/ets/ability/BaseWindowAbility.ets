@@ -32,6 +32,8 @@ const TAG = 'BaseWindowAbility';
 export default abstract class BaseWindowAbility extends UIAbility implements LynxWindowProxy {
   protected windowId: number = -1;
   protected originWindowId: number = -1;
+  // Launch parameters parsed from the Want; defaults to a placeholder main
+  // window before the real C++ window id is bound.
   protected launchOptions: CreateWindowOptions = { windowId: 0, type: 'main' };
   protected suspendDelayInfo?: backgroundTaskManager.DelaySuspendInfo;
   private mainWindow?: window.Window;
@@ -237,6 +239,7 @@ export default abstract class BaseWindowAbility extends UIAbility implements Lyn
     return this.launchOptions.type === 'main';
   }
 
+  // Parses the launch parameters carried in the Want into launchOptions.
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     const params = want.parameters as Record<string, Object> | undefined;
     this.launchOptions = {
@@ -403,6 +406,8 @@ export default abstract class BaseWindowAbility extends UIAbility implements Lyn
     }
   }
 
+  // Registers the C++ window-op callback for this Ability's window, wiring
+  // minimize suspend-delay and showAbility into WindowOpAdapter.
   private registerWindowOpCallback(): void {
     AppWindowAdapter.registerWindowOpCallbackForWindow(this, {
       onMinimize: () => this.requestSuspendDelayForWindowOps(),

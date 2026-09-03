@@ -21,6 +21,8 @@ CreateHarmonyWindowCallback g_create_window_callback = nullptr;
 
 }  // namespace lynxtron
 
+// Stores the NAPI bridge callback that forwards C++ window creation requests
+// to the ArkTS AppWindowAdapter.
 extern "C" __attribute__((visibility("default"))) void LynxtronSetCreateHarmonyWindowCallback(
     lynxtron::CreateHarmonyWindowCallback callback) {
   lynxtron::g_create_window_callback = callback;
@@ -28,6 +30,8 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSetCreateHarmonyW
               callback != nullptr);
 }
 
+// Validates a window creation request and forwards it to the registered
+// ArkTS create-window callback.
 extern "C" __attribute__((visibility("default"))) void LynxtronCreateHarmonyWindow(
     int32_t window_id,
     const lynxtron::HarmonyWindowCreationOptions* options) {

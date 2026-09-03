@@ -90,6 +90,8 @@ LynxtronQuitFn g_quit = nullptr;
 // stored ability context (see ExitCallJS). Event-driven, no polling.
 napi_threadsafe_function g_exit_tsfn = nullptr;
 
+// Logs the default display's available area at startup; diagnostic for
+// window sizing and centering.
 void LogDefaultDisplayAvailableArea() {
   uint64_t display_id = 0;
   NativeDisplayManager_ErrorCode status =
@@ -334,6 +336,8 @@ struct WindowOpData {
 std::unordered_map<int32_t, napi_threadsafe_function> g_window_op_tsfn_map;
 std::mutex g_window_op_tsfn_mutex;
 
+// TSFN callback running on the ArkUI thread: invokes the registered ArkTS
+// window-op handler with (windowId, op, args).
 void WindowOpCallJS(napi_env env, napi_value js_cb, void* context,
                     void* data) {
   if (!env || !js_cb || !data) return;
@@ -390,6 +394,8 @@ struct CreateWindowRequest {
 napi_threadsafe_function g_create_window_tsfn = nullptr;
 std::mutex g_create_window_mutex;
 
+// TSFN callback running on the ArkUI thread: builds the CreateWindowOptions
+// object from the request and invokes the ArkTS create-window handler.
 void CreateWindowCallJS(napi_env env, napi_value js_cb, void* context,
                         void* data) {
   if (!env || !js_cb || !data) return;
@@ -617,6 +623,8 @@ napi_value RegisterWindowOpCallback(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// NAPI export getWindowId(): returns liblynxtron's C++ window id, or -1 when
+// more than one window exists (multi-window mode).
 napi_value GetWindowId(napi_env env, napi_callback_info info) {
   int32_t id = -1;
   if (EnsureLynxtronLoaded()) {
@@ -1907,6 +1915,8 @@ void DispatchKeyEvent(OH_NativeXComponent* component, void*) {
   }
 }
 
+// NAPI export notifyWindowState(windowId, state, [resizeEdge]): forwards an
+// ArkTS window-state report into liblynxtron (LynxtronNotifyWindowState).
 napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
   OH_LOG_INFO(LOG_APP, "[WINEVENT] NotifyWindowState called");
   size_t argc = 3;
@@ -2208,6 +2218,8 @@ void OnImeGetTextConfig(InputMethod_TextEditorProxy*,
   }
 }
 
+// IME InsertText callback (runs on the IME IPC thread): converts the committed
+// UTF-16 text to UTF-8 and forwards it to Lynx as text input.
 void OnImeInsertText(InputMethod_TextEditorProxy*, const char16_t* text,
                      size_t length) {
   std::string utf8 = Utf16ToUtf8(text, length);
@@ -2917,6 +2929,8 @@ napi_value GetWindowTitle(napi_env env, napi_callback_info) {
   return result;
 }
 
+// NAPI module init: exports the bridge methods and registers the XComponent
+// surface and input callbacks.
 napi_value Init(napi_env env, napi_value exports) {
   OH_LOG_INFO(LOG_APP, "Init() called by OHOS framework");
 

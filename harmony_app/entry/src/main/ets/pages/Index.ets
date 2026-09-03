@@ -27,10 +27,13 @@ function buildWeb(controller: web_webview.WebviewController) {
 
 const wrappedWeb: WrappedBuilder<[web_webview.WebviewController]> = wrapBuilder(buildWeb);
 
+// NodeController that builds the Web demo node so it can be composited
+// same-layer via a NodeContainer.
 class WebNodeController extends NodeController {
   private webController: web_webview.WebviewController = new web_webview.WebviewController();
   private builderNode: BuilderNode<[web_webview.WebviewController]> | null = null;
 
+  // Builds the Web builder node and returns its FrameNode to the NodeContainer.
   makeNode(uiContext: UIContext): FrameNode | null {
     this.builderNode = new BuilderNode(uiContext);
     this.builderNode.build(wrappedWeb, this.webController);
@@ -44,6 +47,8 @@ const TAG = 'LynxtronETS';
 @Entry
 @Component
 struct Index {
+  // Main page: hosts the LynxWindow native surface; an optional same-layer
+  // Web overlay demo is kept disabled by default.
   // Keep the same-layer Web demo available, but do not place it above the
   // native surface while exercising a Lynx input control: it would receive
   // the touch before XComponent can focus the Lynx field.
@@ -78,6 +83,7 @@ struct Index {
     hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] TSFN callback registered');
   }
 
+  // Handles a TSFN update-check request from Lynx JS via AppGalleryKit.
   handleCheckAppUpdate(): void {
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -96,6 +102,7 @@ struct Index {
     }
   }
 
+  // Handles a TSFN show-update-dialog request from Lynx JS via AppGalleryKit.
   handleShowUpdateDialog(): void {
     hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] showUpdateDialog requested');
     try {
@@ -115,6 +122,7 @@ struct Index {
     }
   }
 
+  // Handles a TSFN load-product request from Lynx JS via AppGalleryKit.
   handleLoadProduct(): void {
     hilog.info(DOMAIN, TAG, '[UpdateModel Index.ets] loadProduct requested');
     try {

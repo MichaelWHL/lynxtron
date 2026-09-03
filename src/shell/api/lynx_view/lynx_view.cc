@@ -106,6 +106,7 @@ void LynxView::EnterForeground() {
   impl_->EnterForeground();
 }
 
+// Moves the view to the background so Lynx pauses its rendering for it.
 void LynxView::EnterBackground() {
   impl_->EnterBackground();
 }

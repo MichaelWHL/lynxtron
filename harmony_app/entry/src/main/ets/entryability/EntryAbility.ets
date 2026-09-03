@@ -13,6 +13,7 @@ import BaseWindowAbility from '../ability/BaseWindowAbility';
 const DOMAIN = 0x0000;
 const TAG = 'Lynxtron';
 
+// Logs all parameters carried by a Want for diagnostics.
 function dumpWantParameters(want: Want): void {
   const params = want.parameters;
   if (!params) {
@@ -28,6 +29,7 @@ function dumpWantParameters(want: Want): void {
 }
 
 export default class EntryAbility extends BaseWindowAbility {
+  // Parses debug launch params and stores the global Ability context.
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG,
       'EntryAbility onCreate launchReason=%{public}d lastExitReason=%{public}d',
@@ -51,6 +53,7 @@ export default class EntryAbility extends BaseWindowAbility {
     this.handleWantUri(want);
   }
 
+  // Handles a new Want delivered to the running EntryAbility (open-url/open-file).
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG,
       'EntryAbility onNewWant launchReason=%{public}d', launchParam.launchReason);
@@ -60,6 +63,7 @@ export default class EntryAbility extends BaseWindowAbility {
     this.handleWantUri(want);
   }
 
+  // Routes a file:// or custom-scheme URI from the Want into AppAdapter.
   private handleWantUri(want: Want): void {
     let uriNotNull = want["uri"] !== undefined && want["uri"] !== '';
     if (!uriNotNull) {
@@ -121,6 +125,8 @@ export default class EntryAbility extends BaseWindowAbility {
     super.onWindowStageCreate(windowStage);
   }
 
+  // Loads pages/Index into the entry window; decoration options are applied
+  // later through first-window binding.
   onWindowCreated(windowStage: window.WindowStage, mainWindow: window.Window): void {
     hilog.info(DOMAIN, TAG, 'EntryAbility onWindowCreated');
     mainWindow.setUIContent('pages/Index', (err) => {
