@@ -482,7 +482,7 @@ class NativeWindowHarmony : public NativeWindow {
   // Updates the cached window rect (windowRect) reported by ArkTS. This is the
   // actual OS window size including decorations/avoidance areas, which differs
   // from bounds_ (the drawable/content rect).
-  void SetWindowBoundsFromArkTS(const gfx::Rect& rect) { window_bounds_ = rect; }
+  void UpdateWindowBounds(const gfx::Rect& rect) { window_bounds_ = rect; }
 
   // --- size constraints ---
   void SetSizeConstraints(const SizeConstraints& window_constraints) override {
@@ -1039,8 +1039,8 @@ void DispatchHarmonyWindowState(
 
 // Updates the cached OS window rect (decorations included) reported by ArkTS
 // for the native window bound to the given harmony id.
-void DispatchHarmonyWindowRect(int32_t harmony_window_id,
-                               const gfx::Rect& rect) {
+void UpdateHarmonyWindowRect(int32_t harmony_window_id,
+                             const gfx::Rect& rect) {
   NativeWindowHarmony* window = nullptr;
   {
     std::lock_guard<std::mutex> lock(g_window_map_mutex);
@@ -1051,18 +1051,18 @@ void DispatchHarmonyWindowRect(int32_t harmony_window_id,
   }
   if (!window) {
     OH_LOG_WARN(LOG_APP,
-                "[LynxtronWindow] dispatch rect: no native window for "
+                "[LynxtronWindow] update rect: no native window for "
                 "harmony_id=%{public}d",
                 harmony_window_id);
     return;
   }
 
   OH_LOG_INFO(LOG_APP,
-              "[LynxtronWindow] dispatch rect harmony_id=%{public}d "
+              "[LynxtronWindow] update rect harmony_id=%{public}d "
               "rect=%{public}d,%{public}d,%{public}dx%{public}d",
               harmony_window_id, rect.x(), rect.y(), rect.width(),
               rect.height());
-  window->SetWindowBoundsFromArkTS(rect);
+  window->UpdateWindowBounds(rect);
 }
 
 }  // namespace
@@ -1192,7 +1192,7 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
 }
 
 // Entry point for ArkTS window-rect reports: validates the args and posts the
-// rect dispatch to the UI thread (see DispatchHarmonyWindowRect).
+// rect update to the UI thread (see UpdateHarmonyWindowRect).
 extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
     int32_t harmony_window_id,
     int32_t x,
@@ -1224,7 +1224,7 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
       FROM_HERE,
       base::BindOnce(
           [](int32_t id, int32_t rx, int32_t ry, int32_t rw, int32_t rh) {
-            DispatchHarmonyWindowRect(id, gfx::Rect(rx, ry, rw, rh));
+            UpdateHarmonyWindowRect(id, gfx::Rect(rx, ry, rw, rh));
           },
           harmony_window_id, x, y, width, height));
 }
