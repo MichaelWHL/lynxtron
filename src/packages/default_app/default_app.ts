@@ -4,7 +4,7 @@
 
 import { app, clipboard, LynxWindow } from "lynxtron";
 import { BridgeEventCallback, ensureTestFns, safeStringify } from './testModules/zf/utils.js';
-import { runSphTests } from './testModules/sph/index.js';
+import { runSphTests } from './testModules/sph/WindowTestIndex.js';
 
 let mainWindow: LynxWindow | null = null;
 
