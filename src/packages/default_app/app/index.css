@@ -13,7 +13,7 @@
   background: linear-gradient(180deg, #14141c 0%, #0a0a0f 100%);
 }
 
-/* ── Page header ── */
+/* -- Page header -- */
 .pageHeader {
   display: flex;
   flex-direction: row;
@@ -48,7 +48,7 @@
   line-height: 24px;
 }
 
-/* ── Console toggle ── */
+/* -- Console toggle -- */
 .logToggle {
   display: flex;
   flex-direction: row;
@@ -89,7 +89,7 @@
   line-height: 28px;
 }
 
-/* ── Test area ── */
+/* -- Test area -- */
 .testArea {
   display: flex;
   flex-direction: column;
@@ -247,7 +247,7 @@
   font-weight: 700;
 }
 
-/* ── App body: left menu + right content ── */
+/* -- App body: left menu + right content -- */
 .appBody {
   display: flex;
   flex-direction: row;
@@ -457,7 +457,7 @@
   grid-row-gap: 14px;
 }
 
-/* ── Frame timing (FPS) board ── */
+/* -- Frame timing (FPS) board -- */
 .fpsPanel {
   display: flex;
   flex-direction: column;
@@ -620,7 +620,7 @@
   grid-row-gap: 10px;
 }
 
-/* ── Console panel (pinned to the bottom) ── */
+/* -- Console panel (pinned to the bottom) -- */
 .logPanel {
   display: flex;
   flex-direction: column;

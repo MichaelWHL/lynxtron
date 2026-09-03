@@ -34,9 +34,9 @@ export const MENU_ITEMS: MenuItem[] = [
 
 /**
  * 应用主布局(嵌套路由的父级):
- *   ├─ 页头
- *   ├─ 左侧菜单 + 右侧内容区(<Outlet/> 渲染子路由)
- *   └─ 底部 LogPanel 常驻(所有页面日志都在这里可见)
+ *   ├- 页头
+ *   ├- 左侧菜单 + 右侧内容区(<Outlet/> 渲染子路由)
+ *   └- 底部 LogPanel 常驻(所有页面日志都在这里可见)
  */
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -92,7 +92,7 @@ export default function AppLayout() {
       </view>
 
       <view className="appBody">
-        {/* ── 左侧菜单区 ── */}
+        {/* -- 左侧菜单区 -- */}
         <scroll-view scroll-orientation="vertical" className="sidebar">
           {groups.map((g) => (
             <view key={g} className="menuGroup">
@@ -114,7 +114,7 @@ export default function AppLayout() {
           ))}
         </scroll-view>
 
-        {/* ── 右侧内容区: 渲染当前路由对应的页面 ── */}
+        {/* -- 右侧内容区: 渲染当前路由对应的页面 -- */}
         <scroll-view scroll-orientation="vertical" className="contentArea">
           <view className="pageSection">
             <Outlet />
@@ -122,7 +122,7 @@ export default function AppLayout() {
         </scroll-view>
       </view>
 
-      {/* ── 底部日志面板: 常驻, 任何页面产生的日志都在这里显示 ── */}
+      {/* -- 底部日志面板: 常驻, 任何页面产生的日志都在这里显示 -- */}
       <LogPanel />
     </view>
   );

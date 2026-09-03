@@ -5,7 +5,7 @@
 import { useEffect, useState, useRef } from '@lynx-js/react';
 import { logInfo, logWarn, logPass, logFail } from '../../utils/log';
 
-// ── AppGallery Kit update 相关接口(最近三笔提交新增) ──
+// -- AppGallery Kit update 相关接口(最近三笔提交新增) --
 // checkAppUpdate: 检查应用更新 → { updateAvailable: bool, ... }
 // showUpdateDialog: 弹出更新对话框 → { resultCode: number }
 // loadProduct: 加载产品视图 → { success: bool, errorCode?, errorMessage? }
@@ -26,7 +26,7 @@ function stringifyResult(res: unknown): string {
   }
 }
 
-// ── 窗口事件监听测试(最近一次提交「窗口事件」新增) ──
+// -- 窗口事件监听测试(最近一次提交「窗口事件」新增) --
 const WIN_EVENT_NAMES = [
   'resized', 'will-resize', 'closed', 'blur', 
   'minimize', 'enter-full-screen', 'leave-full-screen',
@@ -34,7 +34,7 @@ const WIN_EVENT_NAMES = [
 //   'resize', 'move', 'moved', 'focus',
 ];
 
-// ── bridge 接口测试 ──
+// -- bridge 接口测试 --
 const BRIDGE_TESTS: Array<{ key: string; label: string; desc: string }> = [
   { key: 'sendGlobalEvent', label: 'win.sendGlobalEvent()', desc: '主进程→页面全局事件' },
   { key: 'lynx-invoke', label: 'win.on("-lynx-invoke")', desc: 'bridge.call 触发' },

@@ -1,6 +1,6 @@
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // shell.openExternal 测试用例
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 
 import { shell, dialog, nativeImage, powerMonitor, screen,clipboard } from 'lynxtron';
 
@@ -10,24 +10,24 @@ import * as https from 'node:https';
 /** 测试 shell.openExternal 各种协议的支持情况 */
 export async function testOpenExternal() {
   const testCases: Array<{ label: string; url: string }> = [
-    // ── HTTP/HTTPS 网页链接 ──
+    // -- HTTP/HTTPS 网页链接 --
     { label: 'HTTP 网页', url: 'http://qq.com' },
     { label: 'HTTPS 网页', url: 'https://www.baidu.com' },
     { label: 'HTTPS 带路径和参数', url: 'https://github.com/lynx-family/lynxtron/issues?q=is%3Aopen' },
 
-    // ── 邮件协议 ──
+    // -- 邮件协议 --
     { label: 'mailto 空收件人', url: 'mailto:' },
     { label: 'mailto 指定收件人', url: 'mailto:user@example.com' },
     { label: 'mailto 带主题和正文', url: 'mailto:user@example.com?subject=Hello&body=测试邮件正文' },
 
-    // ── 电话/短信协议 ──
+    // -- 电话/短信协议 --
     { label: 'tel 拨号', url: 'tel:10086' },
     { label: 'sms 带正文', url: 'sms:10086?body=Hello' },
 
-    // ── 文件协议 ──
+    // -- 文件协议 --
     { label: 'file 本地文件', url: 'file://docs/storage/Users/currentUser/Desktop/test.txt' },
 
-    // ── 特殊协议 ──
+    // -- 特殊协议 --
     { label: 'ftp 协议', url: 'ftp://ftp.example.com' },
   ];
 
@@ -54,9 +54,9 @@ export async function testOpenExternal() {
   }
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // shell.openPath 测试用例
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 
 /** 测试 shell.openPath 用系统默认方式打开文件/目录（针对鸿蒙） */
 export async function testOpenPath() {
@@ -65,17 +65,17 @@ export async function testOpenPath() {
 
   const testCases: Array<{ label: string; path: string }> = [
    
-    // ── 鸿蒙应用沙箱路径 ──
+    // -- 鸿蒙应用沙箱路径 --
     { label: 'el1 非加密区根目录', path: `${sandboxBase}/el1/base` },
     { label: 'el2 加密区根目录', path: `${sandboxBase}/el2/base` },
     { label: 'el2 haps 目录', path: `${sandboxBase}/el2/base/haps` },
     { label: 'el2 files 目录', path: `${sandboxBase}/el2/base/files` },
 
-    // ── 存储/媒体路径 ──
+    // -- 存储/媒体路径 --
     { label: '外部存储目录', path: '/storage/Users/currentUser' },
     { label: 'Download 下载目录', path: '/storage/Users/currentUser/Download' },
 
-    // ── 边界/异常场景 ──
+    // -- 边界/异常场景 --
     { label: '不存在的路径', path: `${sandboxBase}/nonexistent/ghost.txt` },
     { label: '空字符串', path: '' },
   ];
@@ -110,11 +110,11 @@ export async function testOpenPath() {
 }
 
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // dialog.showOpenDialog 测试用例
 // 注意: 交互式测试 —— 每个用例都会弹出系统文件选择器,
 //       需在真机上手动选择文件/目录或取消, 结果实时打印。
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 
 // 类型宽松: 覆盖各种 options 组合, 具体字段对齐 Electron OpenDialogOptions
 // (lynxtron 鸿蒙实现支持: title/message/button_label/default_path/filters/
@@ -125,12 +125,12 @@ interface ShowOpenDialogCase {
 }
 
 const testCases: ShowOpenDialogCase[] = [
-  // ── 基础选择 ──
+  // -- 基础选择 --
   { label: '单选文件(默认)', options: { properties: ['openFile'] } },
   { label: '多选文件', options: { properties: ['openFile', 'multiSelections'] } },
   { label: '选择目录', options: { properties: ['openDirectory'] } },
 
-  // ── 带参数 ──
+  // -- 带参数 --
   {
     label: '带 filters(*.js/*.ts)',
     options: {
@@ -146,7 +146,7 @@ const testCases: ShowOpenDialogCase[] = [
     },
   },
 
-  // ── 取消路径 (弹窗后直接取消) ──
+  // -- 取消路径 (弹窗后直接取消) --
   { label: '用户取消', options: { properties: ['openFile'] } },
 ];
 
@@ -157,7 +157,7 @@ export async function testShowOpenDialog() {
   let failed = 0;
 
   for (const { label, options } of testCases) {
-    console.log(`  ── [${label}] 弹窗中, 请在真机选择或取消 ──`);
+    console.log(`  -- [${label}] 弹窗中, 请在真机选择或取消 --`);
     try {
       const result = await dialog.showOpenDialog(options);
       const filePaths: string[] = result.filePaths ?? [];
@@ -185,11 +185,11 @@ export async function testShowOpenDialog() {
 }
 
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // dialog.showSaveDialog 测试用例
 // 注意: 交互式测试 —— 每个用例都会弹出系统保存选择器,
 //       需在真机上选择保存位置/输入文件名或取消, 结果实时打印。
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 
 // 类型宽松: 覆盖各种 options 组合, 具体字段对齐 Electron SaveDialogOptions
 // (lynxtron 鸿蒙实现支持: title/message/button_label/default_path/filters)
@@ -199,10 +199,10 @@ interface ShowSaveDialogCase {
 }
 
 const saveTestCases: ShowSaveDialogCase[] = [
-  // ── 基础保存 ──
+  // -- 基础保存 --
   { label: '默认保存', options: {} },
 
-  // ── 带 defaultPath ──
+  // -- 带 defaultPath --
   {
     label: '带 defaultPath(Desktop/test/新文件)',
     options: {
@@ -210,7 +210,7 @@ const saveTestCases: ShowSaveDialogCase[] = [
     },
   },
 
-  // ── 带 filters ──
+  // -- 带 filters --
   {
     label: '带 filters(*.txt/*.md)',
     options: {
@@ -219,7 +219,7 @@ const saveTestCases: ShowSaveDialogCase[] = [
     },
   },
 
-  // ── 取消路径 (弹窗后直接取消) ──
+  // -- 取消路径 (弹窗后直接取消) --
   { label: '用户取消', options: {} },
 ];
 
@@ -230,8 +230,8 @@ export async function testShowSaveDialog() {
   let failed = 0;
 
   for (const { label, options } of saveTestCases) {
-    console.log(`  ── [${label}] 弹窗中, 请在真机选择保存位置或取消 ──`);
-    // ── 运行时字符串诊断: defaultPath 的码元与 UTF-8 hex ──
+    console.log(`  -- [${label}] 弹窗中, 请在真机选择保存位置或取消 --`);
+    // -- 运行时字符串诊断: defaultPath 的码元与 UTF-8 hex --
     const dp: unknown = (options as Record<string, unknown>).defaultPath;
     if (typeof dp === 'string') {
       const codes: number[] = [];
@@ -399,12 +399,12 @@ export function testOnlock() {
   }, 5 * 1000)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // poll() 替代 select() 回归测试
 // 背景: OHOS select() 对 uv backend fd(epoll) 漏唤醒 → 网络 IO 卡 15-26s;
 //       已改为 poll()(node_bindings_harmony.cc PollEvents)。
 // 目标: 验证无回归 —— IO 唤醒 / timeout / 并发 / 错误 / 稳定性 各路径。
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 
 // 网络用例统一使用该地址(用户指定, 局域网/外网可达的静态 JSON)
 const POLL_TEST_URL = 'https://registry.npmmirror.com/jquery/3.6.4/files/package.json';
