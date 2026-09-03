@@ -5,12 +5,12 @@
 #include "shell/ui/display/desktop_screen.h"
 #include "ui/display/screen.h"
 
+#include <hilog/log.h>
 #include <window_manager/oh_display_manager.h>
 
 #include <vector>
 
 #include "base/containers/flat_set.h"
-#include "base/logging.h"
 #include "base/observer_list.h"
 #include "base/task/single_thread_task_runner.h"
 #include "ui/display/display.h"
@@ -33,16 +33,23 @@ display::Display MakeDisplayFromOHOS(
   // Use OH_NativeDisplayManager_CreateAvailableArea (since API 20) to get the
   // real available area with its origin offset (status bar, cutout, etc).
   NativeDisplayManager_Rect* area = nullptr;
-  if (OH_NativeDisplayManager_CreateAvailableArea(info->id, &area) ==
-          DISPLAY_MANAGER_OK &&
-      area) {
+  NativeDisplayManager_ErrorCode area_ret =
+      OH_NativeDisplayManager_CreateAvailableArea(info->id, &area);
+  if (area_ret == DISPLAY_MANAGER_OK && area) {
     d.set_work_area(gfx::Rect(static_cast<int>(area->left / scale),
                               static_cast<int>(area->top / scale),
                               static_cast<int>(area->width / scale),
                               static_cast<int>(area->height / scale)));
     OH_NativeDisplayManager_DestroyAvailableArea(area);
   } else {
-    // Fallback: keep the legacy full-area behavior.
+    // Fallback: keep the legacy full-area behavior when the available-area
+    // API is unavailable for this display.
+    if (area_ret != DISPLAY_MANAGER_OK) {
+      OH_LOG_ERROR(LOG_APP,
+                   "[Screen] CreateAvailableArea failed ret=%{public}d, "
+                   "using legacy work area",
+                   static_cast<int>(area_ret));
+    }
     d.set_work_area(gfx::Rect(0, 0,
                               static_cast<int>(info->availableWidth / scale),
                               static_cast<int>(info->availableHeight / scale)));
@@ -77,8 +84,6 @@ class DesktopScreenHarmony : public display::Screen {
     g_instance = this;
     ui_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
 
-    LOG(INFO) << "[LynxtronScreen] DesktopScreenHarmony created";
-
     uint32_t listener_index = 0;
     NativeDisplayManager_ErrorCode ret =
         OH_NativeDisplayManager_RegisterDisplayChangeListener(
@@ -86,10 +91,10 @@ class DesktopScreenHarmony : public display::Screen {
     if (ret == DISPLAY_MANAGER_OK) {
       display_change_listener_index_ = listener_index;
       display_change_registered_ = true;
-      LOG(INFO) << "[LynxtronScreen] display change listener registered";
     } else {
-      LOG(WARNING) << "[LynxtronScreen] RegisterDisplayChangeListener failed ret="
-                   << static_cast<int>(ret);
+      OH_LOG_ERROR(LOG_APP,
+                   "[Screen] RegisterDisplayChangeListener failed ret=%{public}d",
+                   static_cast<int>(ret));
     }
   }
 
@@ -103,6 +108,7 @@ class DesktopScreenHarmony : public display::Screen {
   }
 
   gfx::Point GetCursorScreenPoint() override {
+    // HarmonyOS has no desktop cursor concept; return the display origin.
     return gfx::Point(0, 0);
   }
 
@@ -156,8 +162,8 @@ class DesktopScreenHarmony : public display::Screen {
     NativeDisplayManager_ErrorCode ret =
         OH_NativeDisplayManager_CreatePrimaryDisplay(&info);
     if (ret != DISPLAY_MANAGER_OK || !info) {
-      LOG(WARNING) << "[LynxtronScreen] CreatePrimaryDisplay failed ret="
-                   << static_cast<int>(ret);
+      OH_LOG_ERROR(LOG_APP, "[Screen] CreatePrimaryDisplay failed ret=%{public}d",
+                   static_cast<int>(ret));
       return display::Display::GetDefaultDisplay();
     }
     // Mark primary as internal only when its source mode is MAIN.
@@ -185,13 +191,12 @@ class DesktopScreenHarmony : public display::Screen {
     NativeDisplayManager_ErrorCode ret =
         OH_NativeDisplayManager_CreateAllDisplays(&info);
     if (ret != DISPLAY_MANAGER_OK || !info) {
-      LOG(WARNING) << "[LynxtronScreen] CreateAllDisplays failed ret="
-                   << static_cast<int>(ret);
+      OH_LOG_ERROR(LOG_APP, "[Screen] CreateAllDisplays failed ret=%{public}d",
+                   static_cast<int>(ret));
       return;
     }
 
     uint32_t count = info->displaysLength;
-    LOG(INFO) << "[LynxtronScreen] CreateAllDisplays count=" << count;
 
     displays_.clear();
     displays_.reserve(count);
@@ -202,8 +207,6 @@ class DesktopScreenHarmony : public display::Screen {
       // Only displays in MAIN source mode are internal.
       if (di->isAlive && IsInternalDisplay(di->id)) {
         internal_ids.insert(static_cast<int64_t>(di->id));
-        LOG(INFO) << "[LynxtronScreen] display id=" << di->id
-                  << " name=" << di->name << " internal=true";
       }
     }
     if (!internal_ids.empty()) {

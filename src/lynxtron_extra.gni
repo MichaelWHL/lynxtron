@@ -1,4 +1,12 @@
 declare_args() {
+  # Compile the lynxtron_hello NAPI smoke-test module into lynxtron_lib.
+  # Default off: this is test-only code and normally stays out of the shipped
+  # library.  It registers into the napi module table at load, needed only for
+  # the API demo / regression pages that call
+  # lynx.getModuleLoader().load('lynxtron_hello').  Turn it on for a demo or
+  # test build, never for a production release.
+  lynxtron_build_hello_native_test = false
+
   # A list of extra dependencies to add to the root target. This allows a
   # checkout to add additional targets without explicitly changing any checked-
   # in files.

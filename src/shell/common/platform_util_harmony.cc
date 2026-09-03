@@ -5,13 +5,13 @@
 #include "shell/common/platform_util.h"
 
 #include <cstring>
+#include <hilog/log.h>
 #include <string>
 #include <sys/stat.h>
 #include <utility>
 
 #include "base/files/file_path.h"
 #include "base/functional/callback.h"
-#include "base/logging.h"
 #include "shell/common/platform_util_internal.h"
 #include "url/gurl.h"
 
@@ -45,6 +45,8 @@ void OpenExternal(const GURL& url,
                   const OpenExternalOptions& /*options*/,
                   OpenCallback callback) {
   if (!g_open_external_handler) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[PlatformUtil] OpenExternal: handler not registered");
     std::move(callback).Run(
         "platform_util::OpenExternal: handler not registered");
     return;
@@ -57,7 +59,7 @@ void OpenExternal(const GURL& url,
 // ---------------------------------------------------------------------------
 // OpenPath handler (injected by lynxtron_napi_bridge via dlsym)
 //
-// Electron reference: FileAdapter::OpenPath() dispatches to two ArkTS methods:
+// The ArkTS bridge routes by type:
 //   directory -> openLink('filemanager://openDirectory')
 //   file     -> Want { viewData, uri }
 // ---------------------------------------------------------------------------
@@ -73,6 +75,8 @@ LynxtronSetOpenPathHandler(OpenPathHandlerFn fn) {
 
 void OpenPath(const base::FilePath& full_path, OpenCallback callback) {
   if (!g_open_path_handler) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[PlatformUtil] OpenPath: handler not registered");
     std::move(callback).Run(
         "platform_util::OpenPath: handler not registered");
     return;
@@ -87,21 +91,35 @@ void OpenPath(const base::FilePath& full_path, OpenCallback callback) {
 }
 
 // ---------------------------------------------------------------------------
-// Remaining stubs
+// Unsupported platform capabilities.
+//
+// These symbols are required by the shared shell bindings (api_shell.cc), but
+// HarmonyOS offers no matching system feature.  Every call is logged as an
+// error so the limitation is visible on device; trashItem additionally
+// reports the failure through its error out-parameter, which the JS shell
+// binding surfaces as a rejected promise.
 // ---------------------------------------------------------------------------
 
 void ShowItemInFolder(const base::FilePath& full_path) {
-  // Not yet implemented.
+  // There is no HarmonyOS API that reveals an item in its containing folder.
+  OH_LOG_ERROR(LOG_APP,
+               "[PlatformUtil] shell.showItemInFolder is not supported on "
+               "HarmonyOS");
 }
 
 void Beep() {
-  // No console bell.
+  // HarmonyOS has no terminal or system bell to ring.
+  OH_LOG_ERROR(LOG_APP,
+               "[PlatformUtil] shell.beep is not supported on HarmonyOS");
 }
 
 namespace internal {
 
 bool PlatformTrashItem(const base::FilePath& path, std::string* error) {
-  *error = "PlatformTrashItem is not implemented on HarmonyOS";
+  OH_LOG_ERROR(LOG_APP,
+               "[PlatformUtil] shell.trashItem is not supported on "
+               "HarmonyOS");
+  *error = "shell.trashItem is not supported on HarmonyOS";
   return false;
 }
 

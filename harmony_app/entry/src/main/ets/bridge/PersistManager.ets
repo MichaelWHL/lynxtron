@@ -4,13 +4,12 @@
 
 // =============================================================================
 // -----------------------------------------------------------------------------
-// 作用:
-//   1. saveUris():  选文件持久化成功后, 把 URI 清单存进 preferences(本地)。
-//   2. initPermissions(): 应用启动时, 读取之前存的 URI 清单,
-//                        对每个 URI 调 fileShare.activatePermission() 重新激活,
-//                        使"重启后仍可访问"生效(官方: Persist 存档 + Activate 激活)。
-// 对应 Electron: ohos_hap .../adapter/PermissionManagerAdapter.ets
-//   (saveUris / getUris / initPermissions / activateFileAccessPersist)
+// What it does:
+//   1. saveUris(): stores the URI list into local preferences after the
+//      system picker grants access.
+//   2. initPermissions(): on app start, reads the stored URI list and calls
+//      fileShare.activatePermission() for every URI, restoring the grants
+//      that would otherwise be lost when the process restarts.
 // =============================================================================
 import common from '@ohos.app.ability.common';
 import { fileShare } from '@kit.CoreFileKit';
@@ -25,13 +24,13 @@ const PREF_NAME = 'lynxtron_persist_store';
 const PREF_KEY = 'persisted_uris';
 
 /**
- * 持久化文件访问管理(单例)。
+ * Persistent file-access manager (singleton).
  */
 export class PersistManager {
   private static instance: PersistManager | null = null;
   private ctx: common.UIAbilityContext;
 
-  /** 获取单例(需先 register)。 */
+  /** Returns the singleton; call register() first. */
   static getInstance(): PersistManager {
     if (!PersistManager.instance) {
       throw new Error('PersistManager not registered yet');
@@ -44,35 +43,34 @@ export class PersistManager {
   }
 
   /**
-   * 注册(由 BridgeRegistry.registerAll 调用)。注册时即做"启动激活"。
+   * Registers the manager (invoked by BridgeRegistry.registerAll) and
+   * immediately performs the startup activation.
    */
   static register(context: common.UIAbilityContext): void {
     if (PersistManager.instance) {
-      hilog.info(DOMAIN, TAG, 'Already registered, skipping');
       return;
     }
     PersistManager.instance = new PersistManager(context);
-    // 启动时激活历史持久化的 URI (重启后权限恢复的关键一步)
+    // Activate URIs persisted in earlier runs so that file access
+    // survives app restarts.
     PersistManager.instance.initPermissions();
   }
 
   /**
-   * 启动激活: 读之前存的 URI 清单, 逐个 activatePermission。
-   * 官方: 重启后无需再 Persist, 直接 Activate 即可恢复访问。
+   * Startup activation: read the stored URI list and activate each URI.
+   * OHOS requires calling activatePermission once per process run; the
+   * persisted grant alone does not survive a restart.
    */
   initPermissions(): void {
     const uris = this.getUris();
-    hilog.info(DOMAIN, TAG, '[PERSIST] initPermissions: uris=%{public}s',
-      JSON.stringify(uris));
     if (uris.length === 0) {
-      hilog.info(DOMAIN, TAG, '[PERSIST] no persisted uris to activate');
       return;
     }
     this.activateFileAccessPersist(uris);
   }
 
   /**
-   * 把 URI 清单存进 preferences(供重启后激活用)。
+   * Stores the URI list into preferences for the next startup activation.
    */
   saveUris(uris: string[]): void {
     if (uris.length === 0) {
@@ -85,9 +83,6 @@ export class PersistManager {
         if (err) {
           hilog.error(DOMAIN, TAG, '[PERSIST] saveUris flush failed: %{public}s',
             JSON.stringify(err));
-        } else {
-          hilog.info(DOMAIN, TAG, '[PERSIST] saveUris OK: %{public}s',
-            JSON.stringify(uris));
         }
       });
     } catch (e) {
@@ -96,7 +91,7 @@ export class PersistManager {
   }
 
   /**
-   * 读回之前存的 URI 清单。
+   * Reads back the URI list stored by saveUris().
    */
   private getUris(): string[] {
     try {
@@ -111,7 +106,7 @@ export class PersistManager {
   }
 
   /**
-   * 对一批 URI 调 fileShare.activatePermission(激活生效)。
+   * Re-activates file access for the given URIs via fileShare.activatePermission.
    */
   private activateFileAccessPersist(uris: string[]): void {
     const policies: fileShare.PolicyInfo[] = [];
@@ -123,11 +118,8 @@ export class PersistManager {
       };
       policies.push(policy);
     }
-    hilog.info(DOMAIN, TAG, '[PERSIST] activatePermission begin, uris=%{public}d',
-      uris.length);
     fileShare.activatePermission(policies).then(() => {
-      hilog.info(DOMAIN, TAG, '[PERSIST] activatePermission OK, uris=%{public}d',
-        uris.length);
+      // Success: grants are active until the next process exit.
     }).catch((err: BusinessError<Array<fileShare.PolicyErrorResult>>) => {
       hilog.error(DOMAIN, TAG, '[PERSIST] activatePermission FAILED: %{public}s',
         JSON.stringify(err));

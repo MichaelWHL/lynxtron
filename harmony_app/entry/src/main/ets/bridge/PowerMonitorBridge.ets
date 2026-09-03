@@ -35,11 +35,9 @@ export class PowerMonitorBridge {
       }
       if (data.event === commonEventManager.Support.COMMON_EVENT_SCREEN_LOCKED) {
         lynxtron.notifyPowerMonitorLockScreen();
-        hilog.info(DOMAIN, TAG, 'lock-screen dispatched');
       } else if (data.event ===
         commonEventManager.Support.COMMON_EVENT_SCREEN_UNLOCKED) {
         lynxtron.notifyPowerMonitorUnlockScreen();
-        hilog.info(DOMAIN, TAG, 'unlock-screen dispatched');
       }
     });
   }

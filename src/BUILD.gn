@@ -480,7 +480,6 @@ source_set("lynxtron_lib") {
     "shell/api/lynx_view/module/lynx_module_utils.h",
     "shell/api/lynx_view/module/lynx_native_module.cc",
     "shell/api/lynx_view/module/lynx_native_module.h",
-    "shell/api/lynx_view/module/lynxtron_hello_native.cc",
     "shell/api/lynx_view/module/lynx_node_module.cc",
     "shell/api/lynx_view/module/lynx_node_module.h",
     "shell/api/lynx_view_state_observer.h",
@@ -584,6 +583,16 @@ source_set("lynxtron_lib") {
 
   # sources += ui_sources
   sources += gin_converters_sources
+
+  if (lynxtron_build_hello_native_test) {
+    # Test-only NAPI smoke module (lynxtron_hello).  It must be written into the
+    # same library that runs the napi code (loading registers it into the napi
+    # module table), which is why this source_set member is gated instead of
+    # being a separate dlopen-able module: lynx.getModuleLoader().load() only
+    # does an in-process name table lookup (see napi_env.cc LoadModule).
+    # Default off; enable only for the API demo / regression build.
+    sources += [ "shell/api/lynx_view/module/lynxtron_hello_native.cc" ]
+  }
 
   if (is_posix) {
     sources += [

@@ -15,11 +15,12 @@
 
 #include "shell/api/api_clipboard.h"
 
+#include <hilog/log.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
 #include "shell/api/clipboard_ohos_wrap.h"
 
 namespace lynxtron::api::clipboard {
@@ -32,13 +33,15 @@ namespace {
 int LogIfError(int ret, const char* what) {
   if (ret > 0) {
     if (ret == 201) {
-      LOG(WARNING) << "clipboard: " << what
-                   << " requires ohos.permission.READ_PASTEBOARD";
+      OH_LOG_ERROR(LOG_APP, "[Clipboard] %{public}s requires "
+                            "ohos.permission.READ_PASTEBOARD", what);
     } else {
-      LOG(ERROR) << "clipboard: " << what << " failed, code=" << ret;
+      OH_LOG_ERROR(LOG_APP, "[Clipboard] %{public}s failed, code=%{public}d",
+                   what, ret);
     }
   } else if (ret < 0) {
-    LOG(ERROR) << "clipboard: " << what << " failed (internal error)";
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] %{public}s failed (internal error)",
+                 what);
   }
   return ret;
 }
@@ -79,7 +82,10 @@ std::string ReadHTML() {
 }
 
 gfx::Image ReadImage() {
-  // M2: OH_UdsPixelMap → gfx::Image conversion
+  // The pasteboard NDK exposes image payloads as OH_UdsPixelMap and no
+  // conversion to gfx::Image exists on this platform.  Report the
+  // limitation instead of returning a silently empty image.
+  OH_LOG_ERROR(LOG_APP, "[Clipboard] ReadImage is not supported on HarmonyOS");
   return {};
 }
 
@@ -113,7 +119,9 @@ void WriteHTML(const std::string& markup) {
 }
 
 void WriteImage(const gfx::Image&) {
-  // M2
+  // The wrap layer has no UDMF image writer yet.  Log the unsupported call
+  // so callers do not mistake the dropped write for success.
+  OH_LOG_ERROR(LOG_APP, "[Clipboard] WriteImage is not supported on HarmonyOS");
 }
 
 void WriteText(const std::string& text) {

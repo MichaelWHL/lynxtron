@@ -642,7 +642,6 @@ napi_value GetWindowId(napi_env env, napi_callback_info info) {
 // a static C handler, and creates a TSFN so that calls from arbitrary
 // lynxtron threads reach the ETS (ArkTS) thread safely.
 //
-// Electron equivalent: FileAdapter -> AKI GetJSFunction -> ArkTS.
 // Lynxtron uses dlsym + TSFN instead of AKI.
 // ---------------------------------------------------------------------------
 
@@ -680,16 +679,13 @@ void OpenExternalCallJs(napi_env env, napi_value js_callback,
   s = napi_call_function(env, nullptr, js_callback, 1, args, nullptr);
   if (s != napi_ok) {
     OH_LOG_ERROR(LOG_APP, "[OpenExternal] napi_call_function failed: %{public}d", (int)s);
-  } else {
-    OH_LOG_INFO(LOG_APP, "[OpenExternal] dispatched url=%{public}s", d->url);
   }
   delete d;
 }
 
 // Static C handler injected into liblynxtron.so via LynxtronSetOpenExternalHandler.
 // Called from arbitrary lynxtron thread — dispatches via TSFN to ETS thread.
-// Returns nullptr (success) immediately; actual result is fire-and-forget
-// (matches Electron's out => undefined behavior).
+// Returns nullptr (success) immediately; actual result is fire-and-forget.
 const char* OpenExternalBridgeHandler(const char* url) {
   if (!g_open_external_tsfn || !url) {
     return "openExternal: handler not registered";
@@ -714,7 +710,6 @@ const char* OpenExternalBridgeHandler(const char* url) {
 // ETS calls this at startup to register the URL handler callback.
 // The handler receives a URL string and opens it via Want/startAbility.
 napi_value RegisterOpenExternal(napi_env env, napi_callback_info info) {
-  OH_LOG_INFO(LOG_APP, "[OpenExternal] registerOpenExternal() called from ETS");
 
   size_t argc = 1;
   napi_value args[1];
@@ -760,8 +755,6 @@ napi_value RegisterOpenExternal(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
-  OH_LOG_INFO(LOG_APP, "[OpenExternal] TSFN created, handler registered");
-
   // Inject the static handler into liblynxtron.so.
   if (!EnsureLynxtronLoaded()) {
     napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
@@ -779,7 +772,6 @@ napi_value RegisterOpenExternal(napi_env env, napi_callback_info info) {
   }
 
   setter(OpenExternalBridgeHandler);
-  OH_LOG_INFO(LOG_APP, "[OpenExternal] handler injected into liblynxtron.so");
 
   napi_value result;
   napi_get_undefined(env, &result);
@@ -791,9 +783,9 @@ napi_value RegisterOpenExternal(napi_env env, napi_callback_info info) {
 // ---------------------------------------------------------------------------
 // OpenPath handler — bridges platform_util::OpenPath -> ArkTS via TSFN
 //
-// Electron reference: FileAdapter::OpenPath() dispatches to two ArkTS methods:
-//   directory → FileManagerAdapter.OpenItemInFolder (openLink filemanager)
-//   file     → FileManagerAdapter.OpenVerifiedItem (Want viewData + permissions)
+// The ArkTS bridge routes by type:
+//   directory → openItemInFolder (openLink filemanager)
+//   file     → openVerifiedItem (Want viewData + permissions)
 //
 // Lynxtron: TSFN dispatches (path, isDirectory) to ArkTS.  Fire-and-forget
 // like openExternal — the ArkTS calls (openLink / startAbility) return
@@ -826,9 +818,6 @@ void OpenPathCallJs(napi_env env, napi_value js_callback,
   napi_status s = napi_call_function(env, nullptr, js_callback, 2, args, nullptr);
   if (s != napi_ok) {
     OH_LOG_ERROR(LOG_APP, "[OpenPath] napi_call_function failed: %{public}d", (int)s);
-  } else {
-    OH_LOG_INFO(LOG_APP, "[OpenPath] dispatched path=%{public}s isDir=%{public}d",
-                d->path, d->is_directory);
   }
   delete d;
 }
@@ -854,7 +843,6 @@ const char* OpenPathBridgeHandler(const char* path, int is_directory) {
 }
 
 napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
-  OH_LOG_INFO(LOG_APP, "[OpenPath] registerOpenPath() called from ETS");
 
   size_t argc = 1;
   napi_value args[1];
@@ -895,8 +883,6 @@ napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
-  OH_LOG_INFO(LOG_APP, "[OpenPath] TSFN created, injecting handler...");
-
   if (!EnsureLynxtronLoaded()) {
     napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
     return nullptr;
@@ -913,7 +899,6 @@ napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
   }
 
   setter(OpenPathBridgeHandler);
-  OH_LOG_INFO(LOG_APP, "[OpenPath] handler injected into liblynxtron.so");
 
   napi_value result;
   napi_get_undefined(env, &result);
@@ -924,10 +909,6 @@ napi_value RegisterOpenPath(napi_env env, napi_callback_info info) {
 
 // ---------------------------------------------------------------------------
 // ShowOpenDialog handler — bridges file_dialog::ShowOpenDialog -> ArkTS
-//
-// Electron reference: DialogAdapter::ShowOpenDialog() runs a std::thread +
-// std::promise/future, invokes the ArkTS DocumentViewPicker via AKI, and
-// blocks until the ArkTS callback resolves the promise.
 //
 // Lynxtron: file_dialog_harmony.cc holds a promise/future and calls the
 // injected handler below.  The handler allocates a request id, dispatches

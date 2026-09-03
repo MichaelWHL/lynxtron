@@ -5,6 +5,7 @@
 #include "shell/api/ui/file_dialog.h"
 
 #include <filemanagement/fileshare/oh_file_share.h>
+#include <hilog/log.h>
 
 #include <future>
 #include <mutex>
@@ -14,7 +15,6 @@
 
 #include "base/functional/callback.h"
 #include "base/json/json_writer.h"
-#include "base/logging.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "shell/common/gin_helper/dictionary.h"
@@ -25,7 +25,7 @@ namespace file_dialog {
 
 // HarmonyOS implementation of the file_dialog free functions.
 //
-// Flow (mirrors Electron OHOS shell/browser/ui/file_dialog_ohos.cc):
+// Flow:
 //   ShowOpenDialog (JS thread)
 //     -> ThreadPool PostTaskAndReplyWithResult
 //     -> ShowOpenDialogAdapter (background thread)
@@ -44,8 +44,8 @@ namespace file_dialog {
 // (__wrap_malloc / partition_alloc), which crashes inside FileUri::GetRealPath
 // (SIGSEGV, device-verified on both the thread pool and the ETS thread).
 // URI -> path conversion therefore happens on the ArkTS side with
-// `new fileUri.FileUri(uri).path` (same as Electron's FilePickerAdapter
-// dirFilter).  ArkTS passes REAL PATHS to resolveShowOpenDialog.
+// `new fileUri.FileUri(uri).path`.  ArkTS passes REAL PATHS to
+// resolveShowOpenDialog.
 //
 // The handler is a plain C function-pointer pair so it can cross the
 // liblynxtron.so / liblynxtron_napi.so boundary without C++ ABI coupling.
@@ -78,8 +78,8 @@ struct OpenDialogResult {
 };
 
 // Persist file access for the picked URIs so the app can keep reading them
-// after a restart.  Mirrors Electron's DialogAdapter::FileAccessPersist
-// (oh_file_share.h).  Runs on the ETS thread (inside the resolve callback).
+// after a restart (OH_FileShare_PersistPermission).  Runs on the ETS thread
+// (inside the resolve callback).
 void FileAccessPersist(const std::vector<std::string>& uris) {
   if (uris.empty()) {
     return;
@@ -100,8 +100,10 @@ void FileAccessPersist(const std::vector<std::string>& uris) {
       policies.data(), static_cast<unsigned int>(policies.size()), &result,
       &result_num);
   if (ret != FileManagement_ErrCode::ERR_OK) {
-    LOG(ERROR) << __func__ << " OH_FileShare_PersistPermission failed, ret="
-               << ret;
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] %{public}s PersistPermission failed "
+                 "ret=%{public}d",
+                 __func__, static_cast<int>(ret));
   }
   OH_FileShare_ReleasePolicyErrorResult(result, result_num);
 }
@@ -119,6 +121,11 @@ void OnOpenDialogResult(void* user_data, const char* const* uris,
                         size_t path_count, bool canceled) {
   auto* promise = static_cast<std::promise<OpenDialogResult>*>(user_data);
   if (!promise) {
+    // The adapter always passes a valid promise; a null here means the C
+    // bridge handed over bad user_data.  Log so the missing future signal
+    // is not silently swallowed.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] OnOpenDialogResult: null user_data");
     return;
   }
   OpenDialogResult result;
@@ -154,11 +161,11 @@ void ConvertFilters(const Filters& filters, base::Value::List& filters_list) {
 }
 
 // Serializes DialogSettings into the JSON shape the ArkTS FileDialogBridge
-// expects.  Field names match Electron OHOS exactly; default_path is passed
-// through verbatim and resolved on the ArkTS side (no OHOS NDK dependency).
+// expects.  default_path is passed through verbatim and resolved on the
+// ArkTS side (no OHOS NDK dependency).
 std::string SettingsConvertToJsonStr(const DialogSettings& settings) {
   // Lynxtron does not forward a parent window to the OHOS picker yet;
-  // keep parent_id for API-shape parity with Electron.
+  // keep parent_id in the payload for API-shape parity.
   const int parent_id = -1;
 
   base::Value::List filters;
@@ -190,6 +197,10 @@ std::string SettingsConvertToJsonStr(const DialogSettings& settings) {
 OpenDialogResult ShowOpenDialogAdapter(const DialogSettings& settings) {
   OpenDialogResult result;  // canceled = true by default
   if (!g_show_open_dialog_handler) {
+    // No ArkTS bridge registered: surface the failure instead of returning
+    // a silent "canceled" result to JS.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] showOpenDialog handler not registered");
     return result;
   }
 
@@ -215,6 +226,9 @@ void OnSaveDialogResult(void* user_data, const char* uri, const char* path,
                         bool canceled) {
   auto* promise = static_cast<std::promise<SaveDialogResult>*>(user_data);
   if (!promise) {
+    // See OnOpenDialogResult: a null promise must not be swallowed silently.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] OnSaveDialogResult: null user_data");
     return;
   }
   SaveDialogResult result;
@@ -231,6 +245,10 @@ void OnSaveDialogResult(void* user_data, const char* uri, const char* path,
 SaveDialogResult ShowSaveDialogAdapter(const DialogSettings& settings) {
   SaveDialogResult result;  // canceled = true by default
   if (!g_show_save_dialog_handler) {
+    // See ShowOpenDialogAdapter: log instead of returning a silent
+    // "canceled" result.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] showSaveDialog handler not registered");
     return result;
   }
 
@@ -260,8 +278,11 @@ DialogSettings::~DialogSettings() = default;
 
 bool ShowOpenDialogSync(const DialogSettings& settings,
                         std::vector<base::FilePath>* paths) {
-  // Not implemented on HarmonyOS: the DocumentViewPicker is async-only and a
-  // sync variant would block the JS thread.  Return false (canceled).
+  // The OHOS DocumentViewPicker is async-only; a synchronous variant would
+  // block the JS thread.  Keep the symbol for the cross-platform binding but
+  // report the limitation instead of pretending the dialog ran.
+  OH_LOG_ERROR(LOG_APP,
+               "[FileDialog] showOpenDialogSync is not supported on HarmonyOS");
   return false;
 }
 
@@ -277,16 +298,24 @@ void ShowOpenDialog(const DialogSettings& settings,
     promise.Resolve(dict);
   };
 
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(&ShowOpenDialogAdapter, settings),
-      base::BindOnce(done, std::move(promise)));
+  if (!base::ThreadPool::PostTaskAndReplyWithResult(
+          FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+          base::BindOnce(&ShowOpenDialogAdapter, settings),
+          base::BindOnce(done, std::move(promise)))) {
+    // Posting failed (thread pool shutting down).  The reply callback above
+    // already owns the JS promise, so nothing further can be resolved here;
+    // log the failure for diagnosis.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] ShowOpenDialog: failed to post task");
+  }
 }
 
 std::optional<base::FilePath> ShowSaveDialogSync(
     const DialogSettings& settings) {
-  // Not implemented on HarmonyOS: the DocumentViewPicker is async-only and a
-  // sync variant would block the JS thread.  Return nullopt (canceled).
+  // See ShowOpenDialogSync: the picker is async-only, so the symbol stays
+  // for linkage but always reports the unsupported limitation.
+  OH_LOG_ERROR(LOG_APP,
+               "[FileDialog] showSaveDialogSync is not supported on HarmonyOS");
   return std::nullopt;
 }
 
@@ -302,10 +331,14 @@ void ShowSaveDialog(const DialogSettings& settings,
     promise.Resolve(dict);
   };
 
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(&ShowSaveDialogAdapter, settings),
-      base::BindOnce(done, std::move(promise)));
+  if (!base::ThreadPool::PostTaskAndReplyWithResult(
+          FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+          base::BindOnce(&ShowSaveDialogAdapter, settings),
+          base::BindOnce(done, std::move(promise)))) {
+    // See ShowOpenDialog: log the posting failure for diagnosis.
+    OH_LOG_ERROR(LOG_APP,
+                 "[FileDialog] ShowSaveDialog: failed to post task");
+  }
 }
 
 }  // namespace file_dialog

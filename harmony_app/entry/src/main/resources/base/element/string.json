@@ -23,6 +23,10 @@
     {
       "name": "reason_jit",
       "value": "V8 JavaScript engine requires writable+executable memory for JIT compilation"
+    },
+    {
+      "name": "upload_all_file_description",
+      "value": "all file(*.*)"
     }
   ]
 }

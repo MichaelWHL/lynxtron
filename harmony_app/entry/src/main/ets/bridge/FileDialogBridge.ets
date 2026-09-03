@@ -12,13 +12,9 @@ const TAG = 'FileDialogBridge';
 /**
  * Bridges file_dialog::ShowOpenDialog (C++) to the OHOS system file picker.
  *
- * Electron reference: DialogAdapter.ets (showOpenDialog) + FilePickerAdapter
- * dirFilter + PermissionManagerAdapter fileAccessPersist.
- *
  * Division of labor:
  *   ArkTS: opens DocumentViewPicker, converts URI -> real path with
- *          `new fileUri.FileUri(uri).path` (same as Electron's
- *          FilePickerAdapter.dirFilter), passes PATHS to C++.
+ *          `new fileUri.FileUri(uri).path`, passes PATHS to C++.
  *   C++:   FileAccessPersist (OH_FileShare_PersistPermission) persists file
  *          access on the ETS thread.
  *
@@ -31,6 +27,8 @@ export class FileDialogBridge {
   private static MAX_SELECT_NUMBER: number = 500;
   private static DEFAULT_DIR: string = 'file://docs/storage/Users/currentUser';
   private ctx: common.UIAbilityContext;
+  /** Resource id of the localized "all files" picker filter label. */
+  private allFileDescriptionId: number = $r('app.string.upload_all_file_description').id;
 
   private constructor(ctx: common.UIAbilityContext) {
     this.ctx = ctx;
@@ -55,13 +53,17 @@ export class FileDialogBridge {
       bridge.handleShowSaveDialog(id, settings);
     });
 
-    hilog.info(DOMAIN, TAG, 'Registered showOpenDialog/showSaveDialog handlers');
   }
 
   private handleShowOpenDialog(id: number, settingsJson: string): void {
-    hilog.info(DOMAIN, TAG, 'handleShowOpenDialog id=%{public}d settings=%{public}s',
-      id, settingsJson);
-    let dialogSettings: IOpenDialogSettings = JSON.parse(settingsJson);
+    let dialogSettings: IOpenDialogSettings;
+    try {
+      dialogSettings = JSON.parse(settingsJson) as IOpenDialogSettings;
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'handleShowOpenDialog: invalid settings json: %{public}s', String(e));
+      lynxtron.resolveShowOpenDialog(id, [], [], true);
+      return;
+    }
     let options = new picker.DocumentSelectOptions();
 
     if (dialogSettings.properties_open_directory) {
@@ -74,7 +76,7 @@ export class FileDialogBridge {
       options.maxSelectNumber = FileDialogBridge.MAX_SELECT_NUMBER;
     }
 
-    let allFileDescription = '所有文件';
+    let allFileDescription = this.ctx.resourceManager.getStringSync(this.allFileDescriptionId);
     if (dialogSettings.filters.length > 0) {
       options.fileSuffixFilters = this.getFilterArray(dialogSettings.filters);
     } else {
@@ -86,8 +88,6 @@ export class FileDialogBridge {
 
     let documentPicker = new picker.DocumentViewPicker();
     documentPicker.select(options).then((uris: Array<string>) => {
-      hilog.info(DOMAIN, TAG, 'select OK, uris=%{public}s',
-        JSON.stringify(uris));
       if (uris.length === 0) {
         lynxtron.resolveShowOpenDialog(id, [], [], true);
         return;
@@ -95,9 +95,8 @@ export class FileDialogBridge {
       // Pass BOTH: uris for C++ FileAccessPersist (must be file://docs URIs,
       // not paths), and paths for the JS-visible filePaths result.
       let paths: string[] = uris.map((uri) => new fileUri.FileUri(uri).path);
-      hilog.info(DOMAIN, TAG, 'converted paths=%{public}s', JSON.stringify(paths));
       lynxtron.resolveShowOpenDialog(id, uris, paths, false);
-      // [PERSIST] 选文件成功后, 把 URI 清单存起来, 供重启后激活(方案B)
+      // Keep the picked URIs for re-activation on the next app start (see PersistManager).
       PersistManager.getInstance().saveUris(uris);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'select failed: %{public}s', JSON.stringify(err));
@@ -107,25 +106,28 @@ export class FileDialogBridge {
 
   /**
    * Save dialog (showSaveDialog): DocumentSaveOptions + DocumentViewPicker.save().
-   * Mirrors Electron DialogAdapter.ets showSaveDialog; URI->path conversion
-   * happens here (C++ must not call OH_FileUri_GetPathFromUri — allocator shim
-   * crash).  Passes raw URI (for persist) + converted path to C++.
+   * URI->path conversion happens here (C++ must not call
+   * OH_FileUri_GetPathFromUri — allocator shim crash).  Passes raw URI (for
+   * persist) + converted path to C++.
    */
   private handleShowSaveDialog(id: number, settingsJson: string): void {
-    hilog.info(DOMAIN, TAG, 'handleShowSaveDialog id=%{public}d settings=%{public}s',
-      id, settingsJson);
-    let dialogSettings: IOpenDialogSettings = JSON.parse(settingsJson);
+    let dialogSettings: IOpenDialogSettings;
+    try {
+      dialogSettings = JSON.parse(settingsJson) as IOpenDialogSettings;
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'handleShowSaveDialog: invalid settings json: %{public}s', String(e));
+      lynxtron.resolveShowSaveDialog(id, '', '', true);
+      return;
+    }
     let options = new picker.DocumentSaveOptions();
 
     let dirAndFile: string[] = this.handleDefaultPath(dialogSettings.default_path);
-    hilog.info(DOMAIN, TAG, 'saveDialog dirAndFile=%{public}s|%{public}s',
-      dirAndFile[0], dirAndFile[1]);
     options.defaultFilePathUri = dirAndFile[0];
     if (dirAndFile[1].length > 0) {
       options.newFileNames = [dirAndFile[1]];
     }
 
-    let allFileDescription = '所有文件';
+    let allFileDescription = this.ctx.resourceManager.getStringSync(this.allFileDescriptionId);
     if (dialogSettings.filters.length > 0) {
       options.fileSuffixChoices = this.getFilterArray(dialogSettings.filters);
     } else {
@@ -134,15 +136,12 @@ export class FileDialogBridge {
 
     let documentPicker = new picker.DocumentViewPicker();
     documentPicker.save(options).then((saveResult: Array<string>) => {
-      hilog.info(DOMAIN, TAG, 'save OK, result=%{public}s',
-        JSON.stringify(saveResult));
       if (saveResult.length === 0) {
         lynxtron.resolveShowSaveDialog(id, '', '', true);
         return;
       }
       let uri = saveResult[0];
       let path = new fileUri.FileUri(uri).path;
-      hilog.info(DOMAIN, TAG, 'saved uri=%{public}s path=%{public}s', uri, path);
       lynxtron.resolveShowSaveDialog(id, uri, path, false);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'save failed: %{public}s', JSON.stringify(err));
@@ -159,8 +158,9 @@ export class FileDialogBridge {
       const protocolPrefix = isFileUri ? prefix : '';
       let pathWithoutProtocol = isFileUri ? path.substring(prefix.length) : path;
       let displayPath = decodeURIComponent(pathWithoutProtocol);
-      // fs 需要绝对路径：URI 去掉 file://docs/ 后缺前导斜杠，补上
-      // (Electron 原版用相对路径 accessSync，非空 defaultPath 时必然失败——bug 修复)
+      // fs needs an absolute path; stripping the file://docs/ prefix removes
+      // the leading slash, so restore it before accessSync (a relative path
+      // would always fail for a non-empty defaultPath).
       let fsPath = displayPath.startsWith('/') ? displayPath : '/' + displayPath;
       let exist = fs.accessSync(fsPath);
       if (exist) {
@@ -176,8 +176,9 @@ export class FileDialogBridge {
           dirAndFile[1] = targetPartUri;
         }
       } else {
-        // save 场景: defaultPath 是"将要创建的文件", 文件本身不存在,
-        // 但父目录应该存在 —— 拆出文件名, 用父目录作为 defaultFilePathUri
+        // Save scenario: defaultPath names the file to be created, which
+        // does not exist yet, but its parent directory should.  Split off
+        // the file name and pass the parent directory as defaultFilePathUri.
         const lastSlashIdx = fsPath.lastIndexOf('/');
         if (lastSlashIdx > 0) {
           const parentFs = fsPath.substring(0, lastSlashIdx);

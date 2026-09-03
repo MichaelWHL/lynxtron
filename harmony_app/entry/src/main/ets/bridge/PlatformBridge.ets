@@ -10,8 +10,6 @@ const TAG = 'PlatformBridge';
 /**
  * Bridges platform_util calls (C++) to OHOS platform APIs.
  *
- * Electron reference: FileManagerAdapter in chromium-electron-release.
- *
  * openExternal: HTTP → want { entities: ['entity.system.browsable'] }
  *               Other → want { uri } (system routes by scheme)
  * openPath:     dir  → openLink('filemanager://openDirectory')
@@ -45,13 +43,11 @@ export class PlatformBridge {
       bridge.handlePath(path, isDirectory !== 0);
     });
 
-    hilog.info(DOMAIN, TAG, 'Registered openExternal + openPath handlers');
   }
 
   // ===== openExternal =====
 
   private handleUrl(url: string): void {
-    hilog.info(DOMAIN, TAG, 'handleUrl: %{public}s', url);
     if (!url) return;
     if (url.startsWith('http://') || url.startsWith('https://')) {
       this.openUrlInBrowser(url);
@@ -68,7 +64,6 @@ export class PlatformBridge {
     };
     try {
       this.ctx.startAbility(want);
-      hilog.info(DOMAIN, TAG, 'openUrlInBrowser OK: %{public}s', url);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'openUrlInBrowser failed: %{public}s', JSON.stringify(e));
     }
@@ -81,7 +76,6 @@ export class PlatformBridge {
     };
     try {
       this.ctx.startAbility(want);
-      hilog.info(DOMAIN, TAG, 'openExternal OK: %{public}s', url);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'openExternal failed: %{public}s', JSON.stringify(e));
     }
@@ -90,7 +84,6 @@ export class PlatformBridge {
   // ===== openPath =====
 
   private handlePath(path: string, isDirectory: boolean): void {
-    hilog.info(DOMAIN, TAG, 'handlePath: %{public}s isDir=%{public}s', path, String(isDirectory));
     if (!path) return;
     if (isDirectory) {
       this.openItemInFolder(path);
@@ -101,7 +94,6 @@ export class PlatformBridge {
 
   /**
    * Open a directory in the system file manager.
-   * Electron: FileManagerAdapter.openItemInFolder
    */
   private openItemInFolder(filePath: string): void {
     const uri = fileUri.getUriFromPath(filePath);
@@ -114,7 +106,6 @@ export class PlatformBridge {
     };
     try {
       this.ctx.openLink(link, openLinkOptions);
-      hilog.info(DOMAIN, TAG, 'openItemInFolder OK: %{public}s', filePath);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'openItemInFolder failed: %{public}s', JSON.stringify(e));
     }
@@ -122,7 +113,6 @@ export class PlatformBridge {
 
   /**
    * Open a file with the system default handler.
-   * Electron: FileManagerAdapter.openVerifiedItem
    */
   private openVerifiedItem(filePath: string): void {
     const uri = fileUri.getUriFromPath(filePath);
@@ -134,7 +124,6 @@ export class PlatformBridge {
     };
     try {
       this.ctx.startAbility(want);
-      hilog.info(DOMAIN, TAG, 'openVerifiedItem OK: %{public}s', filePath);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'openVerifiedItem failed: %{public}s', JSON.stringify(e));
     }

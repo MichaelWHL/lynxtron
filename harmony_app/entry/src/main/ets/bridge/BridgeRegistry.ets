@@ -28,7 +28,6 @@ export class BridgeRegistry {
     for (const registrar of BridgeRegistry.registrars) {
       try {
         registrar(context);
-        hilog.info(DOMAIN, TAG, 'bridge registered');
       } catch (e) {
         hilog.error(DOMAIN, TAG, 'bridge register failed: %{public}s',
           JSON.stringify(e));
