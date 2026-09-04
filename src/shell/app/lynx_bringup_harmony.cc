@@ -87,6 +87,8 @@ void DoBringup(void* window, int width, int height) {
 
 }  // namespace
 
+// Starts the standalone Lynx bring-up exactly once: waits for Lynxtron's UI
+// thread, builds the LynxView and loads the bundled main.lynx bundle onto it.
 void LynxtronStartLynxBringup(void* window, int width, int height) {
   static std::once_flag once;
   std::call_once(once, [window, width, height] {
@@ -110,10 +112,14 @@ void LynxtronStartLynxBringup(void* window, int width, int height) {
   });
 }
 
+// Sets the LynxView that receives HarmonyOS input routing; called when a
+// window gains (non-null) or loses (null) focus.
 void SetHarmonyActiveLynxView(LynxView* view) {
   ActiveView() = view;
 }
 
+// Delivers a tap on the XComponent surface to the active LynxView as a Lynx
+// touch event.
 void DispatchHarmonyLynxTouch(int phase, double x, double y, int32_t id) {
   LynxView* view = ActiveView();
   if (!view) {

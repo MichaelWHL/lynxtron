@@ -47,6 +47,7 @@ function resetTestStats() {
   passedTests = 0;
   failedTests = 0;
 }
+// Record one test outcome: update the counters and log a PASS/FAIL line.
 function recordTestResult(step: string, pass: boolean, details?: string) {
   totalTests++;
   if (pass) {
@@ -57,11 +58,13 @@ function recordTestResult(step: string, pass: boolean, details?: string) {
   const detailText = details ? ` (${details})` : '';
   console.warn(`[WindowManagerTest] ${step} result: ${pass ? 'PASS' : 'FAIL'}${detailText}`);
 }
+// Log the aggregated pass/fail counters for the whole run.
 function logTestSummary() {
   const percentage = totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : '0.00';
-  console.warn(`[WindowManagerTest] Ran ${totalTests} tests，${passedTests} Passed，${failedTests} Failed，Pass Percentage：${percentage}%`);
+  console.warn(`[WindowManagerTest] Ran ${totalTests} tests, ${passedTests} Passed, ${failedTests} Failed, Pass Percentage: ${percentage}%`);
 }
 
+// Batch 3: verify constructor options are applied and loadFile returned true.
 async function runBatch3Tests() {
   console.log('[WindowManagerTest] === Batch 3 Window Creation & Resource Load Test Start ===');
 
@@ -95,6 +98,7 @@ async function runBatch3Tests() {
   }
 }
 
+// Batch 6: verify updateMetaData / setGlobalProps injection before and after load.
 async function runBatch6Tests() {
   console.log('[WindowManagerTest] === Batch 6 Global Props Injection Test Start ===');
 
@@ -154,6 +158,7 @@ async function runBatch6Tests() {
   }
 }
 
+// Batch 7: exercise new window creation options (fullscreen, size limits, OS-level parent, modal).
 async function runBatch7Tests() {
   console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test Start ===');
 
@@ -265,6 +270,7 @@ async function runBatch7Tests() {
   console.log('[WindowManagerTest] === Batch 7 New Window Creation Interface Test End ===');
 }
 
+// Batch 8: exercise cross-layer window property ops (hide/show) on a dedicated window.
 async function runBatch8Tests() {
   console.log('[WindowManagerTest] === Batch 8 Cross-Layer Window Property Ops Test Start ===');
 
@@ -304,6 +310,7 @@ async function runBatch8Tests() {
   console.log('[WindowManagerTest] === Batch 8 Cross-Layer Window Property Ops Test End ===');
 }
 
+// Batch 1 main flow: run all window-manager state tests (show/minimize/maximize/focus/close).
 async function runTests() {
   console.log('[WindowManagerTest] === Batch 1 Window Manager Test Start ===');
 
@@ -419,7 +426,7 @@ async function runTests() {
   }
 }
 
-/** 独立触发 WindowManager 测试：创建专用测试窗口并执行全部用例 */
+/** Entry point for manually triggered WindowManager tests: create the dedicated test window (if needed), load the app bundle, and run all test batches. */
 export async function runSphTests(appPath: string | undefined) {
   if (mainWindow) {
     console.log('[SphTest] test window already exists, skipping CreateWindow');
@@ -436,6 +443,7 @@ export async function runSphTests(appPath: string | undefined) {
   }
 }
 
+// Create the dedicated test window and exercise the pre-load setGlobalProps/updateMetaData caching path.
 async function createWindow() {
   app.setName("LYNXTRON-ZLL")
   await app.whenReady().then(()=>{
@@ -484,6 +492,7 @@ async function createWindow() {
   return mainWindow;
 }
 
+// Safely stringify any value for logging, never throwing on circular structures.
 function safeStringify(v: unknown): string {
   if (typeof v === 'string') return v;
   if (v === undefined) return 'undefined';
@@ -496,13 +505,13 @@ function safeStringify(v: unknown): string {
   }
 }
 
-// devtool 式日志转发: 把主进程 console 输出实时推送到 Lynx UI 的 LogPanel
+// Devtools-style log forwarding: push main-process console output to the Lynx UI LogPanel in real time.
 const sendLog = (level: 'log' | 'warn' | 'error', ...args: unknown[]) => {
   const text = args.map(safeStringify).join(' ');
   try {
     mainWindow?.sendGlobalEvent('bridge-log', { level, text, from: 'main' });
   } catch {
-    // 窗口尚未就绪时忽略
+    // ignore send errors while the window is not ready
   }
 };
 console.log = (...args: unknown[]) => {

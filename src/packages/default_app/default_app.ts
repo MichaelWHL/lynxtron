@@ -4,19 +4,19 @@
 
 import { app, clipboard, LynxWindow } from "lynxtron";
 import { BridgeEventCallback, ensureTestFns, safeStringify } from './testModules/zf/utils.js';
-import { runSphTests } from './testModules/sph/index.js';
+import { runSphTests } from './testModules/sph/WindowTestIndex.js';
 
 let mainWindow: LynxWindow | null = null;
 
 // The currently loaded app path; passed to runSphTests by runWindowManagerTests.
 let currentAppPath: string | null = null;
-// 日志通道就绪标志: 渲染层 LogPanel 注册完 bridge-log 监听并上报后置 true。
+// Log channel ready flag: set to true after the renderer LogPanel registers the bridge-log listener and reports ready.
 let logChannelReady = false;
 
-// 待发送日志队列: 按产生顺序缓存 mainWindow 就绪前的日志。
+// Pending log queue: caches logs produced before mainWindow is ready, in enqueue order.
 const pendingLogs: Array<{ level: 'log' | 'info' | 'warn' | 'error'; text: string }> = [];
 
-// 把缓存的日志按入队顺序统一发送到渲染进程 LogPanel。
+// Flush the cached logs to the renderer LogPanel in enqueue order.
 function flushPendingLogs(): void {
   if (!mainWindow || !logChannelReady) return;
   const logs = pendingLogs.splice(0);
@@ -24,29 +24,29 @@ function flushPendingLogs(): void {
     try {
       mainWindow.sendGlobalEvent('bridge-log', { level: l.level, text: l.text, from: 'main' });
     } catch {
-      // 忽略发送异常
+      // ignore send errors
     }
   }
 }
 
-// 公共发送日志事件: mainWindow 未初始化时先缓存, 初始化完成后按序发送。
+// Shared log sender: cache logs while mainWindow is not initialized, send them in order once ready.
 function sendLog(level: 'log' | 'info' | 'warn' | 'error', ...args: unknown[]): void {
   const text = args.map(safeStringify).join(' ');
   if (mainWindow && logChannelReady) {
     try {
       mainWindow.sendGlobalEvent('bridge-log', { level, text, from: 'main' });
     } catch {
-      // 忽略发送异常
+      // ignore send errors
     }
   } else {
     pendingLogs.push({ level, text });
   }
 }
 
-// 窗口初始化完成后, 把主进程 console.log/warn/error 一并转发到渲染层 LogPanel,
-// 使 testDemo.ts 等主进程模块里的 console 输出也能在页面 LogPanel 看到。
-// 注意: 仅在 loadFile(窗口就绪)之后才重写 —— 初始化阶段主进程底层依赖
-// console 输出, 若提前重写会影响窗口初始化。
+// After window initialization, forward the main process console.log/warn/error to the renderer LogPanel,
+// so console output from main-process modules like testDemo.ts is also visible in the page LogPanel.
+// Note: only rewrite after loadFile (window ready) — the window initialization phase depends on
+// console output at the lower layers; rewriting earlier would break window initialization.
 let consoleForwardInstalled = false;
 function installConsoleForward(): void {
   if (consoleForwardInstalled) return;
@@ -56,6 +56,9 @@ function installConsoleForward(): void {
     warn: console.warn.bind(console),
     error: console.error.bind(console),
   };
+  // NOTE: these Chinese keywords intentionally match the summary lines emitted by the
+  // zf test modules (e.g. testModules/zf/testDemo.ts); they must stay in Chinese and in
+  // sync with those modules' output, otherwise the [PASS]/[FAIL] summary detection below breaks.
   const SUMMARY_KEYS = ['完成:', '加载成功', '写入成功', '返回有效', '编码均正常', '监听器注册/注销流程完成', '位图往返', '测试通过', '测试失败:', '结论:'];
   console.log = (...args: unknown[]) => {
     const text = args.map(safeStringify).join(' ');
@@ -77,7 +80,7 @@ function installConsoleForward(): void {
   };
 }
 
-// app.getPath() 枚举的全部路径名(与 Electron app.getPath 对齐)
+// All path names enumerated by app.getPath() (aligned with Electron app.getPath).
 const APP_PATH_NAMES = [
   'home',
   'appData',
@@ -97,7 +100,7 @@ const APP_PATH_NAMES = [
   'crashDumps',
 ] as const;
 
-/** 安全读取 app.getPath(name), 失败返回 error 文本 */
+/** Safely read app.getPath(name), returning an error text on failure. */
 function safeGetPath(name: string): string {
   try {
     return app.getPath(name as never);
@@ -106,25 +109,25 @@ function safeGetPath(name: string): string {
   }
 }
 
-/** app.getPath() OHOS 路径枚举测试, 日志格式与 [APP][setName] 对齐 */
+/** app.getPath() OHOS path enumeration test, log format aligned with [APP][setName]. */
 function testAppGetPath(): void {
-  sendLog('log', '═══════ app.getPath() OHOS 测试 ═══════');
-  // 获取来源: 以 appData 为基准来源路径
+  sendLog('log', '═══════ app.getPath() OHOS test ═══════');
+  // Source: use appData as the baseline source path.
   sendLog('log', `[APP][getPath] appData(source) -> ${safeGetPath('appData')}`);
   for (const name of APP_PATH_NAMES) {
     sendLog('log', `[APP][getPath] ${name.padEnd(12)} -> ${safeGetPath(name)}`);
   }
-  // 派生关系验证
-  sendLog('log', '[APP][getPath] ═══ 完成 ═══');
+  // Derived-path verification.
+  sendLog('log', '[APP][getPath] ═══ done ═══');
 }
 
-// 已注册的 app 事件监听器名, 防止按钮重复点击造成重复监听
+// Names of registered app event listeners, to avoid duplicate listeners from repeated button clicks.
 const registeredAppEvents = new Set<string>();
 
-// ── 帧率监控 (win.on('frame-timings') / win.setFrameTimingsEnabled) ──
+// -- Frame timing monitor (win.on('frame-timings') / win.setFrameTimingsEnabled) --
 let frameTimingsRegistered = false;
 
-/** 处理 win 的 frame-timings 事件, 统计后推送到 UI 实时 FPS 看板 */
+/** Handle the win frame-timings event, aggregate stats, and push them to the UI live FPS board. */
 const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void => {
   if (!timings || timings.length === 0) return;
   let totalNs = 0;
@@ -135,7 +138,7 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
     if (durNs > maxNs) maxNs = durNs;
   }
   const stats = {
-    fps: timings.length, // 采样周期内的帧数 ≈ FPS
+    fps: timings.length, // frame count within the sampling period ≈ FPS
     avgMs: Number((totalNs / timings.length / 1e6).toFixed(2)),
     maxMs: Number((maxNs / 1e6).toFixed(2)),
     frames: timings.length,
@@ -143,13 +146,14 @@ const onFrameTimings = (_event: Event, timings: Array<[number, number]>): void =
   try {
     mainWindow?.sendGlobalEvent('fps-stats', stats);
   } catch {
-    // 忽略发送异常
+    // ignore send errors
   }
 };
 
-// ── 窗口事件监听测试 (win.on('blur'|'focus'|...) ) ──
-// 最近一次提交「窗口事件」新增了 ArkTS→C++→JS 的窗口状态事件管线。这里在主进程
-// 注册监听, 每次触发时推送到渲染层 GlobalEventEmitter('win-event') 供页面计数。
+// -- Window event listener test (win.on('blur'|'focus'|...) ) --
+// The recent "window events" work added an ArkTS→C++→JS window state event pipeline. Here we
+// register listeners in the main process and push each trigger to the renderer
+// GlobalEventEmitter('win-event') for the page counters.
 const WIN_EVENTS = [
   'blur', 'focus', 'show', 'hide', 'closed',
   'minimize', 'restore', 'maximize', 'unmaximize',
@@ -159,6 +163,7 @@ const WIN_EVENTS = [
 
 const wiredWinEvents = new WeakSet<LynxWindow>();
 
+// Register listeners for all WIN_EVENTS on the given window once; returns the number of listeners added.
 function registerWinEventListeners(win: LynxWindow | null): number {
   if (!win || wiredWinEvents.has(win)) {
     return 0;
@@ -173,19 +178,19 @@ function registerWinEventListeners(win: LynxWindow | null): number {
       try {
         win.sendGlobalEvent('win-event', { event: name, detail, ts: Date.now() });
       } catch {
-        // 忽略发送异常
+        // ignore send errors
       }
     });
   }
-  sendLog('log', `[WIN][events] 注册 ${newly} 个窗口事件监听`);
+  sendLog('log', `[WIN][events] registered ${newly} window event listeners`);
   return newly;
 }
 
-/** App module 接口测试函数: 由 AppModulePage 按钮经 bridge 主动触发 */
+/** App module API test functions: triggered from AppModulePage buttons via bridge. */
 const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | Promise<void>> = {
-  // ── 主动调用类 ──
+  // -- proactive calls --
   testAppSetName() {
-    app.setName('醒图接口测试_runtime_1');
+    app.setName('Xingtu API test_runtime_1');
     sendLog('log', '[APP][setName] setName success');
     sendLog('log', '[APP][getName]', app.getName());
   },
@@ -195,39 +200,39 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
   testAppGetPath() {
     testAppGetPath();
   },
-  // 去掉 OHOS 原生边框: 等价于 setWindowDecorVisible(false) + setWindowTitleButtonVisible(false,false,false)
+  // Remove the OHOS native window frame: equivalent to setWindowDecorVisible(false) + setWindowTitleButtonVisible(false,false,false)
   testAppFrameless() {
     const win = mainWindow;
     if (!win) {
-      sendLog('warn', '[APP][frameless] mainWindow 未就绪');
+      sendLog('warn', '[APP][frameless] mainWindow not ready');
       return;
     }
     win.setWindowButtonVisibility(false);
-    sendLog('log', '[APP][frameless] 已隐藏 OHOS 原生装饰(主窗口)');
+    sendLog('log', '[APP][frameless] OHOS native decorations hidden (main window)');
   },
   testAppQuit() {
     sendLog('log', '[APP][quit] app.quit() called');
     app.quit();
   },
-  // 新增一个内容与主窗口一致的新窗口
+  // Create a new window with the same content as the main window
   testNewWindow(data) {
     const opts = (data ?? {}) as { width?: number; height?: number };
     const width = opts.width ?? 800;
     const height = opts.height ?? 600;
     const win = new LynxWindow({ fullscreen: true, show: true, width: width, height: height });
-    // 与主窗口加载同一份 app bundle
+    // Load the same app bundle as the main window
     if (currentAppPath) {
       win.loadFile(currentAppPath);
     }
     win.show();
-    // 给新窗口接上与主窗口相同的桥接与窗口事件监听
+    // Wire the same bridge and window event listeners as the main window
     setupWindowBridge(win);
     registerWinEventListeners(win);
     const id = String((win as unknown as { id?: number }).id ?? '?');
-    sendLog('log', `[APP][newWindow] 已新增窗口 ${width}x${height} id=${id} (内容同主窗口)`);
+    sendLog('log', `[APP][newWindow] new window created ${width}x${height} id=${id} (same content as main window)`);
   },
 
-  // ── 事件/回调类 ──
+  // -- events/callbacks --
   testAppWhenReady() {
     app.whenReady().then(() => {
       sendLog('log', '[APP][whenReady] ready, app name:', app.getName());
@@ -239,9 +244,9 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
       app.on('open-url', (_event, url) => {
         sendLog('log', `[APP][open-url] open-url event fired, url: "${url}"`);
       });
-      sendLog('log', '[APP][open-url] 已注册 open-url 监听');
+      sendLog('log', '[APP][open-url] open-url listener registered');
     } else {
-      sendLog('log', '[APP][open-url] open-url 监听已存在');
+      sendLog('log', '[APP][open-url] open-url listener already exists');
     }
   },
   testAppBeforeQuit() {
@@ -250,29 +255,29 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
       app.on('before-quit', () => {
         sendLog('log', '[APP][before-quit] before-quit event fired');
       });
-      sendLog('log', '[APP][before-quit] 已注册 before-quit 监听');
+      sendLog('log', '[APP][before-quit] before-quit listener registered');
     } else {
-      sendLog('log', '[APP][before-quit] before-quit 监听已存在');
+      sendLog('log', '[APP][before-quit] before-quit listener already exists');
     }
   },
   testAppWindowAllClosed() {
     if (!registeredAppEvents.has('window-all-closed')) {
       registeredAppEvents.add('window-all-closed');
       app.on('window-all-closed', () => {
-        sendLog('log', '[APP][window-all-closed] window-all-closed event fired, 调用 app.quit()');
+        sendLog('log', '[APP][window-all-closed] window-all-closed event fired, calling app.quit()');
         app.quit();
       });
-      sendLog('log', '[APP][window-all-closed] 已注册 window-all-closed 监听(全部关闭时 app.quit())');
+      sendLog('log', '[APP][window-all-closed] window-all-closed listener registered (app.quit() when all closed)');
     } else {
-      sendLog('log', '[APP][window-all-closed] window-all-closed 监听已存在');
+      sendLog('log', '[APP][window-all-closed] window-all-closed listener already exists');
     }
   },
 
-  // 帧率监控开关: data = { enabled: boolean }, 结果经 'fps-stats' 事件推送到 UI 看板
+  // Frame timing monitor switch: data = { enabled: boolean }, stats pushed to the UI board via the 'fps-stats' event
   testFrameTimings(data) {
     const win = mainWindow;
     if (!win) {
-      sendLog('warn', '[APP][frame-timings] mainWindow 未就绪');
+      sendLog('warn', '[APP][frame-timings] mainWindow not ready');
       return;
     }
     const enabled = Boolean((data as { enabled?: unknown } | undefined)?.enabled);
@@ -282,53 +287,53 @@ const APP_TEST_FNS: Record<string, (data?: unknown, win?: LynxWindow) => void | 
         win.on('frame-timings', onFrameTimings);
       }
       win.setFrameTimingsEnabled(true, 1000);
-      sendLog('log', '[APP][frame-timings] 已开启帧率监控(win.on("frame-timings"))');
+      sendLog('log', '[APP][frame-timings] frame timing monitor enabled (win.on("frame-timings"))');
     } else {
       win.setFrameTimingsEnabled(false);
-      sendLog('log', '[APP][frame-timings] 已停止帧率监控');
+      sendLog('log', '[APP][frame-timings] frame timing monitor stopped');
     }
   },
 
-  // ── bridge 接口测试 ──
-  // win.sendGlobalEvent: 主进程主动向渲染层推送自定义全局事件
+  // -- bridge API tests --
+  // win.sendGlobalEvent: main process actively pushes a custom global event to the renderer
   testSendGlobalEvent(data, win) {
     const msg = (data as { msg?: unknown } | undefined)?.msg ?? 'hello-from-main';
     const target = win ?? mainWindow;
     target?.sendGlobalEvent('yb-bridge-test', { type: 'sendGlobalEvent', detail: String(msg), ts: Date.now() });
-    sendLog('log', '[BRIDGE][sendGlobalEvent] 已调用 win.sendGlobalEvent("yb-bridge-test")');
+    sendLog('log', '[BRIDGE][sendGlobalEvent] win.sendGlobalEvent("yb-bridge-test") called');
   },
-  // win.on("-lynx-invoke"): bridge.call 正是通过该事件送达, 能执行到这里即说明监听生效
+  // win.on("-lynx-invoke"): bridge.call is delivered through exactly this event; reaching here means the listener works
   testLynxInvoke(data, win) {
     const msg = (data as { msg?: unknown } | undefined)?.msg ?? '(empty)';
-    sendLog('log', `[BRIDGE][lynx-invoke] 收到 bridge.call, msg=${safeStringify(msg)}`);
+    sendLog('log', `[BRIDGE][lynx-invoke] bridge.call received, msg=${safeStringify(msg)}`);
     const target = win ?? mainWindow;
     target?.sendGlobalEvent('yb-bridge-test', { type: 'lynx-invoke', detail: safeStringify(msg), ts: Date.now() });
   },
 
-  // Window 管理测试: 由 SPH WindowPage 按钮触发，委托给 testModules/sph/index.ts
+  // Window management tests: triggered by the SPH WindowPage button, delegated to testModules/sph/index.ts
   async runWindowManagerTests() {
-    sendLog('log', '[APP][runWindowManagerTests] 触发 SPH WindowManager 测试');
+    sendLog('log', '[APP][runWindowManagerTests] SPH WindowManager tests triggered');
     await runSphTests(currentAppPath ?? undefined);
   },
 };
 
 /**
- * 给指定窗口接上渲染层 bridge 事件的桥接:
- *  - '-lynx-invoke': bridge.call(channel, data, cb) 分发到 APP_TEST_FNS
- *  - '-lynx-message': bridge.send(channel, data) 转发回该窗口的渲染层
+ * Wire the renderer bridge events for the given window:
+ *  - '-lynx-invoke': bridge.call(channel, data, cb) dispatched to APP_TEST_FNS
+ *  - '-lynx-message': bridge.send(channel, data) forwarded back to this window's renderer
  */
 function setupWindowBridge(win: LynxWindow): void {
-  // @ts-ignore -lynx-invoke 为 Lynxtron 内部事件名
+  // @ts-ignore -lynx-invoke is a Lynxtron internal event name
   win.on(
     '-lynx-invoke',
     async (callback: BridgeEventCallback, name: string, data: unknown) => {
       sendLog('log', '[default_app] bridge call:', name, data);
-      // update 相关接口 (checkAppUpdate / showUpdateDialog / loadProduct) 由
-      // lynx-window.ts 的每窗口 _init 处理, 这里跳过以免重复 sendReply。
+      // The update-related APIs (checkAppUpdate / showUpdateDialog / loadProduct) are handled
+      // by the per-window _init in lynx-window.ts; skip them here to avoid duplicate sendReply.
       if (name === 'checkAppUpdate' || name === 'showUpdateDialog' || name === 'loadProduct') {
         return;
       }
-      // 剪贴板写操作: 由 LogPanel 的复制按钮调用
+      // Clipboard write: invoked by the LogPanel copy button
       if (name === 'writeClipboard') {
         const d = (data ?? {}) as { text?: unknown };
         if (typeof d.text !== 'string' || !d.text) {
@@ -344,14 +349,14 @@ function setupWindowBridge(win: LynxWindow): void {
         }
         return;
       }
-      // 渲染层 LogPanel 已注册 bridge-log 监听并上报就绪, 此时补发初始化前的缓存日志
+      // The renderer LogPanel has registered the bridge-log listener and reported ready; flush the cached pre-initialization logs now
       if (name === 'logChannelReady') {
         logChannelReady = true;
         flushPendingLogs();
         callback.sendReply({ ok: true });
         return;
       }
-      // App module 接口测试(由 AppModulePage 按钮触发, 日志格式 [APP][xxx])
+      // App module API tests (triggered by AppModulePage buttons, log format [APP][xxx])
       const appFn = APP_TEST_FNS[name];
       if (appFn) {
         try {
@@ -380,7 +385,7 @@ function setupWindowBridge(win: LynxWindow): void {
     }
   );
 
-  // bridge.send(channel, data) 触发 -lynx-message, 转发回该窗口的渲染层
+  // bridge.send(channel, data) triggers -lynx-message, forwarded back to this window's renderer
   (win as any).on('-lynx-message', (channel: string, data: unknown) => {
     sendLog('log', `[BRIDGE][lynx-message] channel="${channel}" data=${safeStringify(data)}`);
     try {
@@ -391,13 +396,14 @@ function setupWindowBridge(win: LynxWindow): void {
         ts: Date.now(),
       });
     } catch {
-      // 忽略发送异常
+      // ignore send errors
     }
   });
 }
 
+// Create the main window: set the app name, run app API smoke tests, and construct the LynxWindow.
 async function createWindow() {
-  app.setName("醒图接口测试_dev");
+  app.setName("Xingtu API test_dev");
   await app.whenReady().then(() => {
     sendLog('log', '[APP][whenReady] ready, app name:', app.getName());
   });
@@ -416,29 +422,31 @@ async function createWindow() {
   return mainWindow;
 }
 
+// Entry point for the host: create and show the main window and load the app bundle from appPath.
 export const loadFile = async (appPath: string) => {
   currentAppPath = appPath;
   mainWindow = await createWindow();
   mainWindow.loadFile(appPath);
   mainWindow.show();
 
-  // 日志通道真正就绪的时机以渲染层上报为准(见下方 logChannelReady 处理):
-  // 此刻 LynxView 尚未加载完 bundle, bridge-log 监听还没注册, 提前 flush 会被丢弃,
-  // 因此这里不再置 logChannelReady, 初始化前的日志继续缓存在 pendingLogs 中。
+  // The log channel is truly ready only when the renderer reports so (see the logChannelReady handling below):
+  // at this point the LynxView has not finished loading the bundle and the bridge-log listener is not
+  // registered yet, so flushing now would be dropped. Therefore logChannelReady is not set here;
+  // pre-initialization logs keep waiting in pendingLogs.
 
-  // 窗口已就绪: 重定向 console 输出到渲染层 LogPanel, 主进程 console 日志可见
+  // Window ready: redirect console output to the renderer LogPanel so main-process console logs are visible
   installConsoleForward();
 
-  // 窗口事件监听: 延迟 2 秒注册(等待窗口与渲染层完全就绪), 之后只监听用户对
-  // 窗口的操作(最小化/最大化/全屏/拖拽缩放/失焦/显隐等), 触发后经 sendGlobalEvent
-  // 推送给页面做显示。
+  // Window event listeners: register after a 2s delay (wait for the window and renderer to be fully
+  // ready), then only listen for user window operations (minimize/maximize/fullscreen/drag-resize/
+  // focus loss/show-hide etc.) and push them to the page via sendGlobalEvent for display.
   setTimeout(() => {
     registerWinEventListeners(mainWindow);
   }, 2000);
 
-  // ── app 生命周期/事件监听测试 (日志格式与 [APP][setName] 对齐) ──
-  // 说明: 事件监听改为由 AppModulePage 按钮触发注册(app.on), 避免重复监听。
+  // -- app lifecycle / event listener tests (log format aligned with [APP][setName]) --
+  // Note: event listeners are now registered from AppModulePage buttons (app.on) to avoid duplicates.
 
-  // 给主窗口接上 bridge 桥接(-lynx-invoke 分发 + -lynx-message 转发)
+  // Wire the bridge for the main window (-lynx-invoke dispatch + -lynx-message forwarding)
   setupWindowBridge(mainWindow);
 };

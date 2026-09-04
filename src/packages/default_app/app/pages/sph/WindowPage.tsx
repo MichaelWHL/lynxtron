@@ -5,14 +5,15 @@
 import { useEffect } from '@lynx-js/react';
 import { logInfo } from '../../utils/log';
 
-/** Window 管理测试占位页(对应 testModules/sph) */
+/** Window management test placeholder page (corresponds to testModules/sph). */
 export default function WindowPage() {
   useEffect(() => {
-    logInfo('[SPH] Window 测试页面已加载');
+    logInfo('[SPH] Window test page loaded');
   }, []);
 
+  // Trigger the SPH WindowManager test suite in the main process via bridge.
   const handleRunTests = () => {
-    logInfo('[SPH] 触发 WindowManager 测试');
+    logInfo('[SPH] WindowManager tests triggered');
     NativeModules.bridge.call(
       'runWindowManagerTests',
       {},
@@ -24,18 +25,18 @@ export default function WindowPage() {
     <view className="pageStack">
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
-        <text className="pageSectionTitle">Window 测试</text>
+        <text className="pageSectionTitle">Window Tests</text>
       </view>
       <text className="pageDesc">
-        窗口管理用例(testModules/sph)当前以主进程脚本形式运行, 结果通过 bridge 推送到底部 Console。
+        Window management cases (testModules/sph) currently run as main-process scripts; results are pushed to the bottom Console via bridge.
       </text>
       <view className="testCard">
         <view className="testButton" bindtap={handleRunTests}>
           <view className="testButtonDot" />
-          <text className="testButtonText">运行 Window 测试</text>
+          <text className="testButtonText">Run Window Tests</text>
           <text className="testButtonArrow">›</text>
         </view>
-        <text className="testCardDesc">点击左侧菜单切换路由验证页面切换</text>
+        <text className="testCardDesc">Tap the left menu to switch routes and verify page navigation</text>
       </view>
     </view>
   );

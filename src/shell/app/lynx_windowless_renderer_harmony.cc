@@ -257,6 +257,8 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
     g_text_input_focus_callback(harmony_window_id_, visible, x, y, w, h);
   }
 
+  // IME state setters: cache the latest value and notify the NAPI bridge so
+  // the candidate window follows the caret.
   void ShowTextInput(bool show) override {
     {
       std::lock_guard<std::mutex> lock(input_mutex_);
@@ -692,6 +694,8 @@ bool GetHarmonySurfaceSizeForWindow(int32_t harmony_window_id, int* w, int* h) {
   return true;
 }
 
+// Legacy single-window fallback: returns the most recent XComponent surface
+// size (physical px) into *w,*h.
 bool GetCurrentHarmonySurfaceSize(int* w, int* h) {
   std::lock_guard<std::mutex> lock(g_mutex);
   if (g_last_harmony_window_id > 0) {
@@ -875,6 +879,7 @@ void PostToLynxUi(base::OnceClosure task) {
   }
 }
 
+// Builds a Lynx pointer event and dispatches it to the given window's renderer.
 void SendPointerOnLynxUi(int32_t harmony_window_id,
                          int phase, double x, double y, int64_t buttons,
                          int32_t device, int kind, size_t timestamp) {
@@ -934,6 +939,7 @@ void SendScrollOnLynxUi(int32_t harmony_window_id, double x, double y,
   r->SendPointerEvent(&ev);
 }
 
+// Builds a Lynx key event and dispatches it to the given window's renderer.
 void SendKeyOnLynxUi(int32_t harmony_window_id,
                      int type, uint64_t logical, uint64_t physical,
                      double timestamp) {
@@ -951,6 +957,8 @@ void SendKeyOnLynxUi(int32_t harmony_window_id,
   r->SendKeyEvent(&ev);
 }
 
+// Builds a Lynx key event carrying IME text (composing or committed) and
+// dispatches it to the given window's renderer.
 void SendTextOnLynxUi(int32_t harmony_window_id,
                       std::string text, double timestamp, bool composing) {
   auto r = harmony_window_id > 0

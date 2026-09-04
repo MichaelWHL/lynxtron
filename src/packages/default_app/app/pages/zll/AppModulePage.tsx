@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from '@lynx-js/react';
 import { log, logError, logInfo, logPass, logFail, subscribeLogs } from '../../utils/log';
 
-// ── 主动调用类 App 接口 ──
+// -- 主动调用类 App 接口 --
 const ACTIVE_APIS: Array<{ name: string; label: string; desc: string }> = [
   { name: 'testAppSetName', label: 'app.setName', desc: '设置应用名称, 结果 [APP][setName]' },
   { name: 'testAppGetName', label: 'app.getName()', desc: '读取应用名称, 结果 [APP][getName]' },
@@ -14,7 +14,7 @@ const ACTIVE_APIS: Array<{ name: string; label: string; desc: string }> = [
   { name: 'testAppQuit', label: 'app.quit()', desc: '退出应用(慎点)' },
 ];
 
-// ── 事件/回调类 App 接口 ──
+// -- 事件/回调类 App 接口 --
 const EVENT_APIS: Array<{ name: string; label: string; desc: string }> = [
   { name: 'testAppWhenReady', label: 'app.whenReady()', desc: '应用就绪回调, 结果 [APP][whenReady]' },
   { name: 'testAppOpenUrl', label: 'app.on(open-url)', desc: '注册 open-url 深链监听' },
@@ -23,7 +23,7 @@ const EVENT_APIS: Array<{ name: string; label: string; desc: string }> = [
   { name: 'testFrameTimings', label: 'win.on(frame-timings)', desc: '帧率监控开关(结果在上方看板)' },
 ];
 
-// ── 一键启动测试: 依次运行全部 App 接口 ──
+// -- 一键启动测试: 依次运行全部 App 接口 --
 // testAppQuit 会直接退出应用, 不能放进批量测试
 // log: 每个接口主进程会打印的日志标记, 以此为通过判据(见 APP_TEST_FNS 内 sendLog 格式)
 const BATCH_TESTS: Array<{ name: string; label: string; log: string }> = [
@@ -199,7 +199,7 @@ export default function AppModulePage() {
 
   return (
     <view className="pageStack">
-      {/* ── 帧率看板 ── */}
+      {/* -- 帧率看板 -- */}
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
         <text className="pageSectionTitle">App module · 帧率看板</text>
@@ -237,7 +237,7 @@ export default function AppModulePage() {
         </view>
       </view>
 
-      {/* ── 主动调用类 ── */}
+      {/* -- 主动调用类 -- */}
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
         <text className="pageSectionTitle">App module · 主动调用</text>
@@ -255,7 +255,7 @@ export default function AppModulePage() {
         ))}
       </view>
 
-      {/* ── 事件/回调类 ── */}
+      {/* -- 事件/回调类 -- */}
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
         <text className="pageSectionTitle">App module · 事件/回调</text>
@@ -273,7 +273,7 @@ export default function AppModulePage() {
         ))}
       </view>
 
-      {/* ── 一键启动测试 ── */}
+      {/* -- 一键启动测试 -- */}
       <view className="pageSectionHeader">
         <view className="pageSectionBar" />
         <text className="pageSectionTitle">App module · 一键测试</text>

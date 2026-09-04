@@ -15,13 +15,13 @@ import YbModulePage from '../pages/yb/AppModulePage';
 /**
  * react-router v6 (MemoryRouter) 嵌套路由表:
  *   /             AppLayout(左菜单 + 右侧 Outlet + 底部常驻日志)
- *   ├─ index      首页
- *   ├─ zll        App Module API
- *   ├─ zf         → 重定向到 /zf/shell(一级导航即模块)
- *   ├─ zf/:moduleId   ZF 模块页(shell/dialog/.../lynx, 由左侧菜单驱动)
- *   ├─ sph        Window 测试
- *   ├─ yb         yb API
- *   └─ *          404
+ *   ├- index      首页
+ *   ├- zll        App Module API
+ *   ├- zf         → 重定向到 /zf/shell(一级导航即模块)
+ *   ├- zf/:moduleId   ZF 模块页(shell/dialog/.../lynx, 由左侧菜单驱动)
+ *   ├- sph        Window 测试
+ *   ├- yb         yb API
+ *   └- *          404
  */
 export default function AppRouter() {
   return (

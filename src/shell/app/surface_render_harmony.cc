@@ -45,6 +45,7 @@ EGLSurface g_surface = EGL_NO_SURFACE;
 EGLContext g_context = EGL_NO_CONTEXT;
 sk_sp<GrDirectContext> g_gr_context;
 
+// Creates the EGL display/config/surface/context on the calling thread.
 bool SetupEgl(void* window) {
   g_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (g_display == EGL_NO_DISPLAY) {
@@ -93,6 +94,8 @@ bool SetupEgl(void* window) {
   return true;
 }
 
+// Draws one Skia demo frame (light background, centered card, accent bar)
+// onto the EGL window surface and presents it.
 void DrawFrame(int width, int height) {
   if (!g_gr_context) {
     auto interface = GrGLMakeAssembledGLESInterface(

@@ -9,6 +9,8 @@ const TAG = 'StatusBarManager';
 export class StatusBarManager {
   private static isInitialized = false;
 
+  // Idempotently builds the status-bar icons and attaches the status-bar item
+  // that hosts the app in the system status bar.
   static init(context: common.UIAbilityContext): Promise<void> {
     if (StatusBarManager.isInitialized) {
       return Promise.resolve();

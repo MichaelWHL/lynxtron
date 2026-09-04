@@ -102,6 +102,8 @@ LynxViewBuilder& LynxViewBuilder::SetNativeViewCreator(
   return *this;
 }
 
+// Creates the LynxView from the accumulated builder options (ICU path,
+// resource fetcher, parent surface, native views, ...).
 std::unique_ptr<LynxView> LynxViewBuilder::Build() {
   base::FilePath icu_data_path;
   base::FilePath dir_path;

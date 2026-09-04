@@ -60,13 +60,15 @@ static std::string g_harmony_window_title;
 // thread through a thread-safe function and invokes the matching OHOS
 // window.Window verb there. Keep in sync with the bridge switch.
 enum HarmonyWindowCommand {
-  kWinCmdShowDecor = 1,  // window.setWindowDecorVisible(true) + 三键显示
-  kWinCmdHideDecor = 2,  // window.setWindowDecorVisible(false) + 三键隐藏
+  kWinCmdShowDecor = 1,  // window.setWindowDecorVisible(true) + show the three-button bar
+  kWinCmdHideDecor = 2,  // window.setWindowDecorVisible(false) + hide the three-button bar
 };
 
 using WindowCommandHandler = void (*)(int);
 static WindowCommandHandler g_window_command_handler = nullptr;
 
+// Routes a window-decor command to the NAPI bridge handler registered via
+// LynxtronSetWindowCommandHandler.
 static void DispatchWindowCommand(int cmd) {
   if (g_window_command_handler) {
     g_window_command_handler(cmd);
@@ -95,6 +97,8 @@ static std::mutex g_window_map_mutex;
 // NativeWindowHarmony consume it.
 static std::optional<int32_t> g_pending_legacy_window_id;
 
+// Invokes the ArkTS window-op callback registered for window_id with the given
+// verb (e.g. "minimize") and optional string argument.
 void InvokeWindowOp(int32_t window_id, const char* op, const char* args = nullptr) {
   if (!op) return;
   OH_LOG_INFO(LOG_APP, "[LynxtronWindow] InvokeWindowOp %{public}s args=%{public}s id=%{public}d",
@@ -478,7 +482,7 @@ class NativeWindowHarmony : public NativeWindow {
   // Updates the cached window rect (windowRect) reported by ArkTS. This is the
   // actual OS window size including decorations/avoidance areas, which differs
   // from bounds_ (the drawable/content rect).
-  void SetWindowBoundsFromArkTS(const gfx::Rect& rect) { window_bounds_ = rect; }
+  void UpdateWindowBounds(const gfx::Rect& rect) { window_bounds_ = rect; }
 
   // --- size constraints ---
   void SetSizeConstraints(const SizeConstraints& window_constraints) override {
@@ -807,6 +811,8 @@ extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurface
   LynxtronSetHarmonySurfaceSizeForWindow(-1, width, height);
 }
 
+// Per-window surface-size update: routes the new XComponent size to the native
+// window bound to the given harmony id (single-window fallback when unknown).
 extern "C" __attribute__((visibility("default"))) void LynxtronSetHarmonySurfaceSizeForWindow(
     int32_t harmony_window_id,
     int width,
@@ -953,6 +959,8 @@ gfx::ResizeEdge ToResizeEdge(int32_t edge) {
   }
 }
 
+// Maps an ArkTS-reported window state string ("foreground", "resize", ...) to
+// the matching window observer notification for the bound native window.
 void DispatchHarmonyWindowState(
     int32_t harmony_window_id,
     const std::string& state,
@@ -1029,8 +1037,10 @@ void DispatchHarmonyWindowState(
   }
 }
 
-void DispatchHarmonyWindowRect(int32_t harmony_window_id,
-                               const gfx::Rect& rect) {
+// Updates the cached OS window rect (decorations included) reported by ArkTS
+// for the native window bound to the given harmony id.
+void UpdateHarmonyWindowRect(int32_t harmony_window_id,
+                             const gfx::Rect& rect) {
   NativeWindowHarmony* window = nullptr;
   {
     std::lock_guard<std::mutex> lock(g_window_map_mutex);
@@ -1041,22 +1051,24 @@ void DispatchHarmonyWindowRect(int32_t harmony_window_id,
   }
   if (!window) {
     OH_LOG_WARN(LOG_APP,
-                "[LynxtronWindow] dispatch rect: no native window for "
+                "[LynxtronWindow] update rect: no native window for "
                 "harmony_id=%{public}d",
                 harmony_window_id);
     return;
   }
 
   OH_LOG_INFO(LOG_APP,
-              "[LynxtronWindow] dispatch rect harmony_id=%{public}d "
+              "[LynxtronWindow] update rect harmony_id=%{public}d "
               "rect=%{public}d,%{public}d,%{public}dx%{public}d",
               harmony_window_id, rect.x(), rect.y(), rect.width(),
               rect.height());
-  window->SetWindowBoundsFromArkTS(rect);
+  window->UpdateWindowBounds(rect);
 }
 
 }  // namespace
 
+// Per-window XComponent size update: posts OnSurfaceSizeChanged for the bound
+// native window on the UI thread (single-window fallback when the id is unknown).
 void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
                                             int width,
                                             int height) {
@@ -1105,6 +1117,8 @@ void UpdateHarmonyNativeWindowSizeForWindow(int32_t harmony_window_id,
           std::move(weak_window), width, height));
 }
 
+// Legacy single-window XComponent size update routed to the most recent native
+// window.
 void UpdateHarmonyNativeWindowSize(int width, int height) {
   base::WeakPtr<NativeWindowHarmony> window;
   {
@@ -1131,6 +1145,8 @@ void UpdateHarmonyNativeWindowSize(int width, int height) {
           std::move(window), width, height));
 }
 
+// Entry point for ArkTS window-state reports: validates the args and posts the
+// state dispatch to the UI thread (see DispatchHarmonyWindowState).
 extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState(
     int32_t harmony_window_id,
     const char* state,
@@ -1175,6 +1191,8 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowState
           harmony_window_id, std::string(state), resize_edge));
 }
 
+// Entry point for ArkTS window-rect reports: validates the args and posts the
+// rect update to the UI thread (see UpdateHarmonyWindowRect).
 extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
     int32_t harmony_window_id,
     int32_t x,
@@ -1206,11 +1224,12 @@ extern "C" __attribute__((visibility("default"))) void LynxtronNotifyWindowRect(
       FROM_HERE,
       base::BindOnce(
           [](int32_t id, int32_t rx, int32_t ry, int32_t rw, int32_t rh) {
-            DispatchHarmonyWindowRect(id, gfx::Rect(rx, ry, rw, rh));
+            UpdateHarmonyWindowRect(id, gfx::Rect(rx, ry, rw, rh));
           },
           harmony_window_id, x, y, width, height));
 }
 
+// NativeWindow factory: instantiates the HarmonyOS concrete implementation.
 // static
 NativeWindow* NativeWindow::Create(const gin_helper::Dictionary& options,
                                    NativeWindow* parent) {
@@ -1219,6 +1238,8 @@ NativeWindow* NativeWindow::Create(const gin_helper::Dictionary& options,
 
 }  // namespace lynxtron
 
+// Returns the title of the most recently titled native window; consumed by the
+// NAPI bridge to sync the ability mission label.
 extern "C" __attribute__((visibility("default")))
 const char* LynxtronGetWindowTitle() {
   return lynxtron::g_harmony_window_title.c_str();

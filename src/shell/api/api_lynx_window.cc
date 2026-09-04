@@ -348,6 +348,7 @@ void LynxWindow::OnWindowFocus() {
 
 void LynxWindow::OnWindowIsKeyChanged(bool is_key) {}
 
+// Keeps the LynxView viewport in sync with the native window's client size.
 void LynxWindow::OnWindowResize() {
   if (IsMinimized()) {
     return;
@@ -514,6 +515,7 @@ void LynxWindow::CloseImmediately() {
   // window_unresponsive_closure_.Cancel();
 }
 
+// Focuses the window and makes its LynxView the active HarmonyOS input target.
 void LynxWindow::Focus() {
   if (lynx_view_) {
     lynx_view_->Focus();
@@ -651,11 +653,14 @@ void LynxWindow::OnWindowShow() {
   BaseWindow::OnWindowShow();
 }
 
+// Hides the window; rendering pauses when the view becomes inactive.
 void LynxWindow::OnWindowHide() {
   SyncRenderActiveState();
   BaseWindow::OnWindowHide();
 }
 
+// Loads a local .lynx bundle (or asar entry) with optional data/globalProps;
+// on HarmonyOS defers until the XComponent surface is ready.
 bool LynxWindow::LoadFile(const std::string& path, gin::Arguments* args) {
   base::FilePath local_path =
       ResolveBundlePath(base::FilePath::FromUTF8Unsafe(path.data()));
@@ -710,6 +715,8 @@ bool LynxWindow::LoadFile(const std::string& path, gin::Arguments* args) {
   return true;
 }
 
+// Loads a template from a URL with optional data/globalProps; on HarmonyOS
+// defers until the XComponent surface is ready.
 bool LynxWindow::LoadUrl(const std::string& url, gin::Arguments* args) {
   gin_helper::Dictionary data;
   gin_helper::Dictionary global_props;
@@ -745,6 +752,8 @@ bool LynxWindow::LoadUrl(const std::string& url, gin::Arguments* args) {
   return true;
 }
 
+// Loads an in-memory LynxTemplateBundle with optional data/globalProps; on
+// HarmonyOS defers until the XComponent surface is ready.
 bool LynxWindow::LoadBundle(gin::Arguments* args) {
   v8::Isolate* isolate = args->isolate();
   v8::HandleScope handle_scope(isolate);
@@ -1079,6 +1088,7 @@ gin_helper::WrappableBase* LynxWindow::New(gin_helper::ErrorThrower thrower,
   return new LynxWindow(args, options);
 }
 
+// Binds the JS-visible LynxWindow methods onto the V8 prototype template.
 // static
 void LynxWindow::BuildPrototype(v8::Isolate* isolate,
                                 v8::Local<v8::FunctionTemplate> prototype) {

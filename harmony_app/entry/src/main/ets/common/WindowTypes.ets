@@ -1,3 +1,4 @@
+// Window geometry in px, relative to the display origin.
 export interface WindowBounds {
   left: number;
   top: number;
@@ -9,6 +10,7 @@ export interface WindowBounds {
 // Mirrors lynxtron::HarmonyWindowCreationOptions in C++.
 export type WindowType = 'main' | 'sub' | 'float' | 'panel' | 'dialog';
 
+// Creation parameters for one C++-driven window request.
 export interface CreateWindowOptions {
   windowId: number;
   type: WindowType;

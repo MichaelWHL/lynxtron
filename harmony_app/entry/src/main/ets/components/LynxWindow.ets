@@ -9,6 +9,7 @@ const TAG = 'LynxWindow';
 
 const LYNXTRON_STARTED_KEY = 'lynxtron_started';
 
+// Formats an unknown error object into a compact diagnostic string.
 function describeError(e: Object): string {
   const err = e as Record<string, Object>;
   const parts: string[] = [];
@@ -23,6 +24,7 @@ function describeError(e: Object): string {
   return parts.join(' | ');
 }
 
+// Dumps the lynxtron module's type and exported keys for diagnostics.
 function inspectModule(): string {
   if (typeof lynxtron === 'undefined' || lynxtron === null) {
     return 'UNDEFINED/NULL';
@@ -129,12 +131,15 @@ export struct LynxWindow {
     setInterval(() => this.syncImeState(), 50);
   }
 
+  // Ticks the native IME bridge so it can attach/detach/move the candidate
+  // window from the ArkUI thread.
   private syncImeState(): void {
     const mod = lynxtron as Record<string, Object>;
     if (!mod || typeof mod.syncIme !== 'function') return;
     lynxtron.syncIme();
   }
 
+  // Invokes the one-shot native lynxtron.start() with module diagnostics.
   private startLynxtron(): void {
     if (typeof lynxtron === 'undefined' || lynxtron === null) {
       hilog.error(DOMAIN, TAG, 'lynxtron module is undefined/null');

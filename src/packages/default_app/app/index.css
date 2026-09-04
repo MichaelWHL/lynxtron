@@ -13,7 +13,7 @@
   background: linear-gradient(180deg, #14141c 0%, #0a0a0f 100%);
 }
 
-/* ── 页头 ── */
+/* -- Page header -- */
 .pageHeader {
   display: flex;
   flex-direction: row;
@@ -48,7 +48,7 @@
   line-height: 24px;
 }
 
-/* ── Console 开关 ── */
+/* -- Console toggle -- */
 .logToggle {
   display: flex;
   flex-direction: row;
@@ -89,7 +89,7 @@
   line-height: 28px;
 }
 
-/* ── 测试区域 ── */
+/* -- Test area -- */
 .testArea {
   display: flex;
   flex-direction: column;
@@ -247,7 +247,7 @@
   font-weight: 700;
 }
 
-/* ── 应用主体: 左菜单 + 右内容 ── */
+/* -- App body: left menu + right content -- */
 .appBody {
   display: flex;
   flex-direction: row;
@@ -256,7 +256,7 @@
   grid-column-gap: 18px;
 }
 
-/* 左侧菜单 */
+/* Left sidebar menu */
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -329,7 +329,7 @@
   color: #ffffff;
 }
 
-/* 右侧内容区 */
+/* Right content area */
 .contentArea {
   display: flex;
   flex-direction: column;
@@ -394,7 +394,7 @@
   color: #8ab4ff;
 }
 
-/* 首页卡片 */
+/* Home page cards */
 .homeCardGrid {
   display: flex;
   flex-direction: column;
@@ -437,7 +437,7 @@
   line-height: 20px;
 }
 
-/* 选择器 / 字体测试目标行 */
+/* Selector / font test target rows */
 .sqTargetRow {
   display: flex;
   flex-direction: row;
@@ -447,9 +447,9 @@
   background: #0e0e14;
 }
 
-/* ZF 模块页: 一级菜单即模块导航, 页面仅渲染当前模块内容
-   注意: 内容位于 contentArea(scroll-view) 内, 不能设 flex:1,
-   否则高度被限制为视口导致卡片溢出被裁剪; 应让内容自然撑开由 scroll-view 滚动 */
+/* ZF module page: the first-level menu is the module navigation, and the page renders only the current module's content.
+   Note: the content lives inside contentArea (scroll-view) and must not set flex:1,
+   otherwise its height is capped to the viewport and overflowing cards get clipped; let the content grow naturally and scroll within the scroll-view. */
 .testModuleContent {
   display: flex;
   flex-direction: column;
@@ -457,7 +457,7 @@
   grid-row-gap: 14px;
 }
 
-/* ── 帧率看板 ── */
+/* -- Frame timing (FPS) board -- */
 .fpsPanel {
   display: flex;
   flex-direction: column;
@@ -559,7 +559,7 @@
   font-weight: 700;
 }
 
-/* ZF 嵌套路由二级 Tab */
+/* ZF nested-route second-level tabs */
 .zfTabs {
   display: flex;
   flex-direction: row;
@@ -613,14 +613,14 @@
   line-height: 20px;
 }
 
-/* lynx 模块: SelectorQuery / AddFont 测试目标节点区 */
+/* lynx module: SelectorQuery / AddFont test target node area */
 .lynxTargetArea {
   display: flex;
   flex-direction: column;
   grid-row-gap: 10px;
 }
 
-/* ── Console 面板(常驻底部) ── */
+/* -- Console panel (pinned to the bottom) -- */
 .logPanel {
   display: flex;
   flex-direction: column;

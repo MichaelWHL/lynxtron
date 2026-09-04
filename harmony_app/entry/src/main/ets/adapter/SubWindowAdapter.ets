@@ -68,6 +68,7 @@ class SubWindowProxy implements LynxWindowProxy {
   }
 }
 
+// Centers the given bounds within the parent window's current rect.
 function centerBounds(bounds: WindowBounds, parentWindow: window.Window): WindowBounds {
   try {
     const parentRect = parentWindow.getWindowProperties().windowRect;
@@ -88,6 +89,9 @@ function centerBounds(bounds: WindowBounds, parentWindow: window.Window): Window
 }
 
 export class SubWindowAdapter {
+  // Creates a decorated OS subwindow under the parent's window stage, applies
+  // its options (title, bounds, limits, ...), registers the proxy and loads
+  // pages/Index into it.
   static createSubWindow(parentProxy: LynxWindowProxy, options: CreateWindowOptions): void {
     const parentStage = parentProxy.getWindowStage();
     const parentContext = parentProxy.getWindowContext();
@@ -226,6 +230,7 @@ export class SubWindowAdapter {
       });
   }
 
+  // Shows the subwindow identified by its C++ window id.
   static showSubWindow(cppWindowId: number): void {
     const proxy = AbilityManager.getByCppWindowId(cppWindowId);
     if (proxy) {
@@ -235,6 +240,7 @@ export class SubWindowAdapter {
     }
   }
 
+  // Hides the subwindow by minimizing it (subwindows have no separate hide API).
   static hideSubWindow(cppWindowId: number): void {
     const proxy = AbilityManager.getByCppWindowId(cppWindowId);
     if (proxy) {
@@ -244,6 +250,7 @@ export class SubWindowAdapter {
     }
   }
 
+  // Closes the subwindow by destroying its OS window.
   static cancelSubWindow(cppWindowId: number): void {
     const proxy = AbilityManager.getByCppWindowId(cppWindowId);
     if (proxy) {
@@ -253,6 +260,7 @@ export class SubWindowAdapter {
     }
   }
 
+  // Moves and resizes the subwindow to the given bounds.
   static setSubWindowBounds(cppWindowId: number, bounds: WindowBounds): void {
     const proxy = AbilityManager.getByCppWindowId(cppWindowId);
     if (proxy) {

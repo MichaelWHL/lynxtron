@@ -8,7 +8,7 @@ export const TEST_FN_NAMES = [
     'testCreateFromBitmap',
     'testOnlock',
     'testFetchJson',
-    // ── poll() 替代 select() 回归测试 (node_bindings_harmony.cc PollEvents) ──
+    // -- poll() 替代 select() 回归测试 (node_bindings_harmony.cc PollEvents) --
     'testPollHttpBasic',
     'testPollHttpConcurrent',
     'testPollTimerPrecision',
