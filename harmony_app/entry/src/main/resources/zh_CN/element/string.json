@@ -3,6 +3,26 @@
     {
       "name": "upload_all_file_description",
       "value": "所有文件(*.*)"
+    },
+    {
+      "name": "access_pasteboard",
+      "value": "读取剪贴板内容"
+    },
+    {
+      "name": "pasteboard_dialog_title",
+      "value": "需要剪贴板访问权限"
+    },
+    {
+      "name": "pasteboard_dialog_content",
+      "value": "读取剪贴板已被阻止。请前往系统设置开启剪贴板访问权限。"
+    },
+    {
+      "name": "pasteboard_dialog_confirm",
+      "value": "去设置"
+    },
+    {
+      "name": "pasteboard_dialog_cancel",
+      "value": "取消"
     }
   ]
 }

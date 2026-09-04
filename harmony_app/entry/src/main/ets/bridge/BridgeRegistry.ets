@@ -4,6 +4,7 @@ import { PlatformBridge } from './PlatformBridge';
 import { FileDialogBridge } from './FileDialogBridge';
 import { PowerMonitorBridge } from './PowerMonitorBridge';
 import { PersistManager } from './PersistManager';
+import { ClipboardBridge } from './ClipboardBridge';
 
 const DOMAIN = 0x0000;
 const TAG = 'BridgeRegistry';
@@ -21,7 +22,8 @@ export class BridgeRegistry {
     (ctx) => PlatformBridge.register(ctx),
     (ctx) => FileDialogBridge.register(ctx),
     (ctx) => PowerMonitorBridge.register(ctx),
-    (ctx) => PersistManager.register(ctx)
+    (ctx) => PersistManager.register(ctx),
+    (ctx) => ClipboardBridge.register(ctx)
   ];
 
   static registerAll(context: common.UIAbilityContext): void {

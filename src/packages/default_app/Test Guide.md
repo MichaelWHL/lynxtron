@@ -205,7 +205,7 @@
 | shell | OpenExternal | `shell.openExternal(url)` | 多协议打开外部链接，共 10 个用例（HTTP/HTTPS 3 个、mailto 3 个、tel 1 个、sms 带正文 1 个、file 本地沙箱文件 1 个、ftp 1 个） | 每协议 `[PASS]/[FAIL]`，末尾 `[shell.openExternal] [PASS] 完成: X 通过, Y 失败` |
 | shell | OpenPath | `shell.openPath(path)` | 打开鸿蒙应用沙箱/存储路径，共 8 个用例（el1/el2 沙箱 4 个、外部存储与 Download 2 个、不存在路径与空字符串 2 个） | 每路径 `[PASS]/[FAIL]`，末尾 `[shell.openPath] [PASS] 完成: X 通过, Y 失败` |
 | screen | GetPrimaryDisplay | `screen.getPrimaryDisplay()` | 获取主屏幕信息 | `[screen] [PASS] getPrimaryDisplay 返回有效` |
-| clipboard | ClipboardWriteText | `clipboard.writeText(text)` | 剪贴板写入（readText 需申请权限，尚未适配，仅验证写入） | `[clipboard] [PASS] 写入成功` |
+| clipboard | ClipboardWriteText | `clipboard.writeText(text)` + `clipboard.readText()` | 剪贴板写入并回读校验（readText 自动申请 READ_PASTEBOARD 权限，读回一致才 PASS） | `[clipboard] [PASS] 写入成功, 回读一致: "..."` |
 | lynx | JSModule | `lynx.getJSModule/registerModule` | 渲染层 4 个用例 | `[JM] [PASS]/[FAIL] 用例1..4`，末尾 `[JM] [PASS] 测试通过 (4/4)` |
 | lynx | ModuleLoader | `getModuleLoader().load()` | 加载 lynxtron_hello 6 个用例 | `[ML] [PASS]/[FAIL] ...` |
 | lynx | SelectorQuery | `lynx.createSelectorQuery` | 6 个用例，目标 #lxp-target 与 .lxp-item | `[SQ] [PASS]/[FAIL] 用例1..6` |

@@ -2910,6 +2910,214 @@ napi_value GetWindowTitle(napi_env env, napi_callback_info) {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Clipboard bridge (readText / writeText)
+//
+// api_clipboard_harmony.cc blocks on a future and calls the injected handler
+// with (op, payload).  This side allocates a request id, dispatches
+// (id, op, payload) to ArkTS through a TSFN, and returns immediately;
+// liblynxtron.so keeps blocking on its future.  ArkTS later calls
+// resolveClipboard(id, result), which looks up the request and fires the
+// stored callback — unblocking the C++ side.
+// ---------------------------------------------------------------------------
+
+using ClipboardResultCallback = void (*)(void* user_data, const char* result);
+using ClipboardBridgeHandlerFn = void (*)(const char* op, const char* payload,
+                                          ClipboardResultCallback callback,
+                                          void* user_data);
+
+napi_ref g_clipboard_js_handler = nullptr;
+napi_threadsafe_function g_clipboard_tsfn = nullptr;
+
+struct ClipboardRequest {
+  ClipboardResultCallback callback;
+  void* user_data;
+};
+
+struct ClipboardTsfnData {
+  int id;
+  std::string op;
+  std::string payload;
+};
+
+std::mutex g_clipboard_mutex;
+std::unordered_map<int, ClipboardRequest> g_clipboard_requests;
+int g_next_clipboard_id = 1;
+
+// Called on the ETS main thread by the TSFN: delivers (id, op, payload) to
+// the ArkTS ClipboardBridge handler.
+void ClipboardCallJs(napi_env env, napi_value js_callback, void* context,
+                     void* data) {
+  auto* d = static_cast<ClipboardTsfnData*>(data);
+  if (!d || !js_callback) {
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] TSFN callback: null data or callback");
+    delete d;
+    return;
+  }
+
+  napi_value args[3];
+  napi_create_int32(env, d->id, &args[0]);
+  napi_create_string_utf8(env, d->op.c_str(), NAPI_AUTO_LENGTH, &args[1]);
+  napi_create_string_utf8(env, d->payload.c_str(), NAPI_AUTO_LENGTH, &args[2]);
+
+  napi_status s = napi_call_function(env, nullptr, js_callback, 3, args,
+                                     nullptr);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] napi_call_function failed: %{public}d",
+                 (int)s);
+  }
+  delete d;
+}
+
+// Static C handler injected into liblynxtron.so via LynxtronSetClipboardHandler.
+// Called on the JS (Node) thread where ReadText/WriteText block on a future;
+// we only dispatch to ArkTS and return, the future is resolved later by
+// ResolveClipboard.
+void ClipboardBridgeHandler(const char* op, const char* payload,
+                            ClipboardResultCallback callback, void* user_data) {
+  if (!g_clipboard_tsfn || !callback) {
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] handler: tsfn or callback missing");
+    if (callback) callback(user_data, "");
+    return;
+  }
+
+  int id;
+  {
+    std::lock_guard<std::mutex> lock(g_clipboard_mutex);
+    id = g_next_clipboard_id++;
+    g_clipboard_requests[id] = {callback, user_data};
+  }
+
+  auto* data = new ClipboardTsfnData();
+  data->id = id;
+  if (op) data->op = op;
+  if (payload) data->payload = payload;
+
+  napi_status s =
+      napi_call_threadsafe_function(g_clipboard_tsfn, data, napi_tsfn_blocking);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] TSFN dispatch failed: %{public}d",
+                 (int)s);
+    {
+      std::lock_guard<std::mutex> lock(g_clipboard_mutex);
+      g_clipboard_requests.erase(id);
+    }
+    delete data;
+    callback(user_data, "");
+  }
+}
+
+// NAPI export: resolveClipboard(id, result)
+// Called from ArkTS on the ETS main thread after a clipboard operation
+// finishes; result is the resolved text (readText) or a status code
+// (writeText).  Looks up the request and fires the stored callback.
+napi_value ResolveClipboard(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 2) {
+    napi_throw_error(env, nullptr, "resolveClipboard requires (id, result)");
+    return nullptr;
+  }
+
+  int32_t id = -1;
+  napi_get_value_int32(env, args[0], &id);
+
+  size_t slen = 0;
+  napi_get_value_string_utf8(env, args[1], nullptr, 0, &slen);
+  std::string result(slen + 1, '\0');
+  napi_get_value_string_utf8(env, args[1], result.data(), result.size(), &slen);
+  result.resize(slen);
+
+  ClipboardRequest req;
+  {
+    std::lock_guard<std::mutex> lock(g_clipboard_mutex);
+    auto it = g_clipboard_requests.find(id);
+    if (it == g_clipboard_requests.end()) {
+      OH_LOG_ERROR(LOG_APP, "[Clipboard] resolve: unknown id=%{public}d", id);
+      napi_value out;
+      napi_get_undefined(env, &out);
+      return out;
+    }
+    req = it->second;
+    g_clipboard_requests.erase(it);
+  }
+
+  if (req.callback) {
+    req.callback(req.user_data, result.c_str());
+  }
+
+  napi_value out;
+  napi_get_undefined(env, &out);
+  return out;
+}
+
+// NAPI export: registerClipboardHandler(handler)
+// ETS calls this at startup to register the (id, op, payload) handler and
+// inject ClipboardBridgeHandler into liblynxtron.so.
+napi_value RegisterClipboardHandler(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "registerClipboardHandler requires a callback");
+    return nullptr;
+  }
+
+  napi_valuetype type;
+  napi_typeof(env, args[0], &type);
+  if (type != napi_function) {
+    napi_throw_error(env, nullptr,
+                     "registerClipboardHandler: arg must be a function");
+    return nullptr;
+  }
+
+  if (g_clipboard_js_handler) {
+    napi_delete_reference(env, g_clipboard_js_handler);
+  }
+  napi_create_reference(env, args[0], 1, &g_clipboard_js_handler);
+
+  if (g_clipboard_tsfn) {
+    napi_release_threadsafe_function(g_clipboard_tsfn, napi_tsfn_release);
+  }
+
+  napi_value resource_name;
+  napi_create_string_utf8(env, "ClipboardTSFN", NAPI_AUTO_LENGTH,
+                          &resource_name);
+  napi_status s = napi_create_threadsafe_function(
+      env, args[0], nullptr, resource_name, 0, 1, nullptr, nullptr, nullptr,
+      ClipboardCallJs, &g_clipboard_tsfn);
+  if (s != napi_ok) {
+    OH_LOG_ERROR(LOG_APP, "[Clipboard] TSFN create failed: %{public}d",
+                 (int)s);
+    napi_throw_error(env, nullptr, "Failed to create Clipboard TSFN");
+    return nullptr;
+  }
+
+  if (!EnsureLynxtronLoaded()) {
+    napi_throw_error(env, nullptr, "liblynxtron.so not loaded");
+    return nullptr;
+  }
+
+  using SetClipboardHandlerFn = void (*)(ClipboardBridgeHandlerFn);
+  auto setter = reinterpret_cast<SetClipboardHandlerFn>(
+      dlsym(g_lynxtron_handle, "LynxtronSetClipboardHandler"));
+  if (!setter) {
+    OH_LOG_ERROR(LOG_APP,
+                 "[Clipboard] dlsym LynxtronSetClipboardHandler FAILED: "
+                 "%{public}s",
+                 dlerror());
+    napi_throw_error(env, nullptr, "LynxtronSetClipboardHandler not found");
+    return nullptr;
+  }
+
+  setter(ClipboardBridgeHandler);
+
+  napi_value out;
+  napi_get_undefined(env, &out);
+  return out;
+}
+
 // NAPI module init: exports the bridge methods and registers the XComponent
 // surface and input callbacks.
 napi_value Init(napi_env env, napi_value exports) {
@@ -2924,6 +3132,8 @@ napi_value Init(napi_env env, napi_value exports) {
       {"resolveShowOpenDialog", nullptr, ResolveShowOpenDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"registerShowSaveDialog", nullptr, RegisterShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"resolveShowSaveDialog", nullptr, ResolveShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"registerClipboardHandler", nullptr, RegisterClipboardHandler, nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveClipboard", nullptr, ResolveClipboard, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"quit", nullptr, Quit, nullptr, nullptr, nullptr, napi_default,
        nullptr},
       {"sendText", nullptr, SendText, nullptr, nullptr, nullptr, napi_default,

@@ -27,6 +27,26 @@
     {
       "name": "upload_all_file_description",
       "value": "all file(*.*)"
+    },
+    {
+      "name": "access_pasteboard",
+      "value": "Read clipboard content"
+    },
+    {
+      "name": "pasteboard_dialog_title",
+      "value": "Clipboard access required"
+    },
+    {
+      "name": "pasteboard_dialog_content",
+      "value": "Clipboard reading is blocked. Allow clipboard access in system settings to continue."
+    },
+    {
+      "name": "pasteboard_dialog_confirm",
+      "value": "Go to settings"
+    },
+    {
+      "name": "pasteboard_dialog_cancel",
+      "value": "Cancel"
     }
   ]
 }

@@ -567,14 +567,21 @@ export function testGetPrimaryDisplay() {
     console.error('[screen] [FAIL] 返回异常: ' + JSON.stringify(res));
   }
 }
-// 注意: clipboard.readText()需要申请权限 尚未适配, 此处只验证写入成功
+// 写入后回读校验: readText 会自动申请 READ_PASTEBOARD 权限, 以读回一致作为通过标准
 export function testClipboardWriteText() {
   console.log('[clipboard] 测试开始');
   const text = 'hello world';
   try {
     clipboard.writeText(text);
-    console.log('[clipboard] [PASS] 写入成功');
+    const got = clipboard.readText();
+    if (got === text) {
+      console.log(`[clipboard] [PASS] 写入成功, 回读一致: ${JSON.stringify(got)}`);
+    } else {
+      console.error(
+        `[clipboard] [FAIL] 写入后回读不一致: expect=${JSON.stringify(text)} got=${JSON.stringify(got)}`
+      );
+    }
   } catch (e) {
-    console.error(`[clipboard] [FAIL] 写入异常: ${e}`);
+    console.error(`[clipboard] [FAIL] 写入/回读异常: ${e}`);
   }
 }
