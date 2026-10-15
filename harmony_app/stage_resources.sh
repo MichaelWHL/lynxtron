@@ -52,6 +52,14 @@ else
   echo "[stage] (skip) ${GN_OUT_DIR}/resources/default_app.asar not found — build src:default_app_asar first."
 fi
 
+if [ -f "${GN_OUT_DIR}/lynx_core.js" ]; then
+  cp "${GN_OUT_DIR}/lynx_core.js" "${RESFILE_DIR}/resources/lynx_core.js"
+  echo "[stage] resfile/resources/lynx_core.js ($(stat -c%s "${RESFILE_DIR}/resources/lynx_core.js" 2>/dev/null || stat -f%z "${RESFILE_DIR}/resources/lynx_core.js") bytes)"
+else
+  echo "[stage] ERROR: ${GN_OUT_DIR}/lynx_core.js not found — build shell/lynx:lynx_core first."
+  exit 1
+fi
+
 echo ""
 echo "=== Step 3: stage Lynx demo bundle ==="
 LYNX_DEMO=${1:-view}

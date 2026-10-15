@@ -23,6 +23,9 @@
 #include "base/debug/asan_service.h"
 #endif
 #include "lynx/platform/embedder/public/capi/lynx_env_capi.h"
+#if BUILDFLAG(IS_HARMONY)
+#include "lynx/platform/embedder/resource/core_js_loader_manager.h"
+#endif
 #include "shell/app/main_runner.h"
 #include "shell/app/relauncher.h"
 #include "shell/common/fuses.h"
@@ -78,6 +81,21 @@ const char kProcessType[] = "type";
 namespace {
 
 constexpr char kRunAsNodeEnv[] = "LYNXTRON_RUN_AS_NODE";
+
+#if BUILDFLAG(IS_HARMONY)
+class HarmonyCoreJsLoader final : public lynx::ICoreJsLoader {
+ public:
+  explicit HarmonyCoreJsLoader(base::FilePath core_js_path)
+      : core_js_path_(core_js_path.AsUTF8Unsafe()) {}
+
+  const char* GetCoreJs() override { return core_js_path_.c_str(); }
+  bool JsCoreUpdated() override { return false; }
+  void CheckUpdate() override {}
+
+ private:
+  const std::string core_js_path_;
+};
+#endif
 
 bool IsRunAsNode() {
   auto env = base::Environment::Create();
@@ -207,6 +225,16 @@ int LynxtronMain(int argc, char* argv[]) {
         !base::PathService::Override(base::DIR_ASSETS, assets)) {
       LOG(ERROR) << "Could not locate the HAP resfile directory; ICU and the "
                     "Node.js bootstrap will fail to load their data files.";
+    } else {
+      base::FilePath core_js_path =
+          assets.AppendASCII("resources").AppendASCII("lynx_core.js");
+      lynx::CoreJsLoaderManager::GetInstance()->SetLoader(
+          std::make_unique<HarmonyCoreJsLoader>(core_js_path));
+      if (base::PathExists(core_js_path)) {
+        LOG(INFO) << "Registered Harmony Lynx core JS: " << core_js_path;
+      } else {
+        LOG(ERROR) << "Harmony Lynx core JS is missing: " << core_js_path;
+      }
     }
   }
 #endif  // BUILDFLAG(IS_HARMONY)

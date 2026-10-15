@@ -110,6 +110,12 @@ if (is_mac) {
       deps = [ "//lynx/devtool/lynx_devtool:devtool_assets" ]
     }
   }
+} else if (is_harmony) {
+  build_kernel_js("lynx_core") {
+    script = "//lynx/tools/js_tools/build.py"
+    platform = "android"
+    output_path = "$root_build_dir"
+  }
 }
 
 group("lynx_lib") {
@@ -129,6 +135,8 @@ group("lynx_lib") {
       ":lynx_core",
       "//lynx/platform/linux:lynx_linux_group",
     ]
+  } else if (is_harmony) {
+    deps += [ ":lynx_core" ]
   }
   public_configs = [ "//lynx/platform/embedder:public_api" ]
 }

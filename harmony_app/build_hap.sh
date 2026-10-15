@@ -123,7 +123,7 @@ cd "${SCRIPT_DIR}"
 # A target-level clean removes these runtime files without necessarily making
 # `lynxtron_app` rebuild them.  Regenerate them before staging, rather than
 # silently packaging stale copies left in entry/src/main/resources/resfile.
-ninja -C "${GN_OUT_DIR}" icudtl.dat snapshot_blob.bin default_app_asar
+ninja -C "${GN_OUT_DIR}" icudtl.dat snapshot_blob.bin default_app_asar lynx_core
 
 # Stage both .so files:
 #   liblynxtron.so       — big main library (chromium + V8 + Node + Lynx)
@@ -165,22 +165,9 @@ else
   echo "[build_hap] (skip) ${GN_OUT_DIR}/resources/default_app.asar not found — build src:default_app_asar first."
 fi
 
-# Lynx JS core runtime. BTSRuntime::ReadCoreJS asks for it as
-# `assets://lynx_core.js`, which lynx-resource-fetcher.ts resolves against
-# resourcesPath. Without it the background JS runtime never defines `loadCard`,
-# App::LoadApp fails with kAppLoadFailed, and every JS event -- bindtap, input,
-# all of it -- is dropped even though lepus still renders the first screen.
-# Build it with:
-#   lynx/tools/js_tools/build.py --platform android   (harmony uses the android
-#   flavor, same as lynx/explorer/harmony/script/build.py does)
-LYNX_CORE_JS=${LYNX_CORE_JS_OVERRIDE:-${LYNXTRON_ROOT}/lynx/js_libraries/lynx-core/output/lynx_core.js}
-if [ ! -f "${LYNX_CORE_JS}" ]; then
-  echo "[build_hap] lynx_core.js is absent; building the Android-compatible runtime."
-  (
-    cd "${LYNXTRON_ROOT}/lynx"
-    python3 tools/js_tools/build.py --platform android
-  )
-fi
+# Lynx JS core runtime. The native Harmony CoreJsLoader maps
+# `assets://lynx_core.js` directly to this generated file.
+LYNX_CORE_JS=${LYNX_CORE_JS_OVERRIDE:-${GN_OUT_DIR}/lynx_core.js}
 if [ -f "${LYNX_CORE_JS}" ]; then
   cp "${LYNX_CORE_JS}" "${RESFILE_DIR}/resources/lynx_core.js"
   echo "[build_hap] staged resfile/resources/lynx_core.js ($(file_size "${RESFILE_DIR}/resources/lynx_core.js") bytes)"
