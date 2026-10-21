@@ -18,6 +18,12 @@ namespace lynxtron {
 
 class NativeWindow;
 
+// Thread-safe density lookup, also used to convert logical IME caret geometry
+// to physical coordinates. Unknown/unbound windows fall back to 1x.
+float GetHarmonyWindowDevicePixelRatio(int32_t harmony_window_id);
+extern "C" void LynxtronNotifyWindowPixelRatio(int32_t harmony_window_id,
+                                               double pixel_ratio);
+
 // Returns the windowless renderer that draws `window`'s content into its
 // XComponent surface.  HarmonyOS has no desktop windowing, so every window
 // renders this way rather than through a native parent handle.  When the

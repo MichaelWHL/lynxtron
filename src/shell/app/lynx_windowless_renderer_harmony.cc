@@ -24,6 +24,7 @@
 #include "lynx/platform/embedder/windowless/lynx_windowless_renderer_priv.h"
 #include "shell/common/global_thread.h"
 #include "shell/app/application.h"
+#include "shell/app/native_window_harmony.h"
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -245,15 +246,7 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
       return;
     }
     float x = 0, y = 0, w = 1, h = 1;
-    bool visible = false;
-    {
-      std::lock_guard<std::mutex> lock(input_mutex_);
-      visible = text_input_visible_;
-      x = marked_rect_[0] * editable_transform_[0] + editable_transform_[12];
-      y = marked_rect_[1] * editable_transform_[5] + editable_transform_[13];
-      w = marked_rect_[2];
-      h = marked_rect_[3];
-    }
+    const bool visible = GetTextInputState(&x, &y, &w, &h);
     g_text_input_focus_callback(harmony_window_id_, visible, x, y, w, h);
   }
 
@@ -303,13 +296,26 @@ class EglWindowlessRenderer : public lynx::pub::LynxWindowlessRenderer {
 
   bool GetTextInputState(float* x, float* y, float* width, float* height) {
     std::lock_guard<std::mutex> lock(input_mutex_);
-    // The Lynx callback uses view-local logical pixels. Apply the commonly
-    // used scale/translate subset once, leaving ArkUI to add the XComponent's
-    // own offset when it lays out the TextInput.
-    if (x) *x = marked_rect_[0] * editable_transform_[0] + editable_transform_[12];
-    if (y) *y = marked_rect_[1] * editable_transform_[5] + editable_transform_[13];
-    if (width) *width = marked_rect_[2];
-    if (height) *height = marked_rect_[3];
+    // Clay reports a view-local logical caret. The native IME expects physical
+    // pixels, unlike an ArkUI TextInput whose geometry would be expressed in
+    // vp.
+    const float ratio = GetHarmonyWindowDevicePixelRatio(harmony_window_id_);
+    if (x) {
+      *x =
+          (marked_rect_[0] * editable_transform_[0] + editable_transform_[12]) *
+          ratio;
+    }
+    if (y) {
+      *y =
+          (marked_rect_[1] * editable_transform_[5] + editable_transform_[13]) *
+          ratio;
+    }
+    if (width) {
+      *width = marked_rect_[2] * ratio;
+    }
+    if (height) {
+      *height = marked_rect_[3] * ratio;
+    }
     return text_input_visible_;
   }
 

@@ -7,6 +7,7 @@ import { AbilityManager } from '../common/AbilityManager';
 import { LynxWindowProxy } from '../common/LynxWindowProxy';
 import { CreateWindowOptions, WindowBounds } from '../common/WindowTypes';
 import { WindowOpAdapter } from './WindowOpAdapter';
+import { trackWindowPixelRatio } from '../utils/WindowUtils';
 
 const DOMAIN = 0x0000;
 const TAG = 'SubWindowAdapter';
@@ -109,6 +110,7 @@ export class SubWindowAdapter {
     parentStage.createSubWindowWithOptions(name, subWindowOptions)
       .then((subWindow) => {
         const originWindowId = subWindow.getWindowProperties().id;
+        trackWindowPixelRatio(originWindowId, subWindow);
         const proxy = new SubWindowProxy(subWindow, parentContext, parentStage, originWindowId, options.windowId);
         AbilityManager.addProxy(proxy);
 

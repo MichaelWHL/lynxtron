@@ -6,5 +6,6 @@ module.exports = {
     'react-lazy': './src/react-lazy/index.tsx',
     'lynx-node-bts-await': './src/lynx-node-bts-await/index.tsx',
     'metadata-update': './src/metadata-update/index.tsx',
+    'harmony-dpi': './src/harmony-dpi/index.tsx',
   },
 };

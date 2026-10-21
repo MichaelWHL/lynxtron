@@ -13,7 +13,7 @@ import { AbilityManager } from '../common/AbilityManager';
 import { LynxWindowProxy } from '../common/LynxWindowProxy';
 import { CreateWindowOptions, WindowType } from '../common/WindowTypes';
 import { AppWindowAdapter } from '../adapter/AppWindowAdapter';
-import { reportWindowRect } from '../utils/WindowUtils';
+import { reportWindowRect, trackWindowPixelRatio } from '../utils/WindowUtils';
 
 // Matches gfx::ResizeEdge in shell/ui/gfx/geometry/resize_utils.h and the
 // plain-C enum duplicated in lynxtron_napi_bridge.cc / native_window_harmony.cc.
@@ -44,6 +44,8 @@ export default abstract class BaseWindowAbility extends UIAbility implements Lyn
       hilog.warn(DOMAIN, TAG, 'registerWindowLifecycleListeners: invalid windowId');
       return;
     }
+
+    trackWindowPixelRatio(windowId, win);
 
     // Keep C++ window-state cache and JS events in sync with manual
     // minimize/maximize/fullscreen/restore.

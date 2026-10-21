@@ -77,7 +77,10 @@ declare namespace lynxtron {
     resizeEdge?: number,
   ): void;
 
-  /** Publishes the OS window rectangle to the native window observer. */
+  /** Publishes this window's display density (physical pixels per vp). */
+  function notifyWindowPixelRatio(windowId: number, pixelRatio: number): void;
+
+  /** Publishes the physical OS window rectangle to the native observer. */
   function notifyWindowRect(
     windowId: number,
     left: number,

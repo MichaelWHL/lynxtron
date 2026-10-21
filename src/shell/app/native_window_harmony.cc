@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "shell/app/native_window_harmony.h"
+#include "shell/app/harmony_window_metrics.h"
 #include "shell/app/lynx_windowless_renderer_harmony.h"
 #include "shell/app/window_creation_bridge_harmony.h"
 #include "shell/app/window_list.h"
@@ -91,6 +92,7 @@ static std::atomic<int32_t> g_next_window_id{1};
 static std::unordered_map<int32_t, NativeWindowHarmony*> g_id_to_window;
 static std::unordered_map<int32_t, NativeWindowHarmony*> g_harmony_id_to_window;
 static std::mutex g_window_map_mutex;
+HarmonyWindowMetrics g_window_metrics;
 
 // Legacy path: the first EntryAbility window calls LynxtronSetWindowId before
 // NativeWindowHarmony is constructed. Cache the id here and let the first
@@ -337,6 +339,7 @@ class NativeWindowHarmony : public NativeWindow {
       g_id_to_window.erase(window_id_);
       if (harmony_window_id_ > 0) {
         g_harmony_id_to_window.erase(harmony_window_id_);
+        g_window_metrics.Remove(harmony_window_id_);
       }
     }
     // Drop the ArkTS callback as well; the Ability may already be gone.
@@ -474,7 +477,9 @@ class NativeWindowHarmony : public NativeWindow {
   void SetPosition(const gfx::Point& position, bool animate) override {}
   void SetSize(const gfx::Size& size, bool animate) override {}
   gfx::Rect GetBounds() const override { return bounds_; }
-  float GetDevicePixelRatio() const override { return device_pixel_ratio_; }
+  float GetDevicePixelRatio() const override {
+    return GetHarmonyWindowDevicePixelRatio(harmony_window_id_);
+  }
   gfx::Rect GetNormalBounds() const override { return bounds_; }
   gfx::Rect GetWindowBounds() const { return window_bounds_; }
   gfx::Size GetWindowSize() const { return window_bounds_.size(); }
@@ -704,10 +709,47 @@ class NativeWindowHarmony : public NativeWindow {
   bool has_shadow_ = true;
   bool is_window_buttons_visible_ = true;
   double opacity_ = 1.0;
-  float device_pixel_ratio_ = 1.0f;
   ui::ZOrderLevel z_order_ = ui::ZOrderLevel::kNormal;
   base::WeakPtrFactory<NativeWindowHarmony> weak_factory_{this};
 };
+
+float GetHarmonyWindowDevicePixelRatio(int32_t harmony_window_id) {
+  return g_window_metrics.GetPixelRatio(harmony_window_id);
+}
+
+extern "C" __attribute__((visibility("default"))) void
+LynxtronNotifyWindowPixelRatio(int32_t harmony_window_id, double pixel_ratio) {
+  if (!g_window_metrics.SetPixelRatio(harmony_window_id, pixel_ratio)) {
+    return;
+  }
+  OH_LOG_INFO(LOG_APP, "[DPI] window=%{public}d pixelRatio=%{public}f",
+              harmony_window_id, pixel_ratio);
+  // Preserve early reports: the getter will consume the cached ratio when the
+  // window is bound. Never dereference NativeWindow on an ArkUI callback
+  // thread.
+  if (!GlobalThread::IsThreadInitialized(GlobalThread::UI)) {
+    return;
+  }
+  GlobalThread::GetUIThreadTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](int32_t id) {
+                       NativeWindowHarmony* window = nullptr;
+                       {
+                         std::lock_guard<std::mutex> lock(g_window_map_mutex);
+                         auto it = g_harmony_id_to_window.find(id);
+                         if (it != g_harmony_id_to_window.end()) {
+                           window = it->second;
+                         }
+                       }
+                       if (window) {
+                         // Resize synchronizes both the frame and screen
+                         // metrics, without OnWindowResized's Focus() side
+                         // effect on other windows.
+                         window->NotifyWindowResize();
+                       }
+                     },
+                     harmony_window_id));
+}
 
 std::shared_ptr<lynx::pub::LynxWindowlessRenderer>
 GetHarmonyWindowlessRendererFor(NativeWindow* window) {

@@ -17,6 +17,7 @@
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <arkui/ui_input_event.h>
 #include <dlfcn.h>
+#include <cmath>
 #include <hilog/log.h>
 
 #include "shell/app/lynx_windowless_renderer_harmony.h"
@@ -1969,6 +1970,38 @@ napi_value NotifyWindowState(napi_env env, napi_callback_info info) {
   return result;
 }
 
+static napi_value NotifyWindowPixelRatio(napi_env env,
+                                         napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2] = {nullptr, nullptr};
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  int32_t id = -1;
+  double ratio = 0;
+  if (argc != 2 || napi_get_value_int32(env, args[0], &id) != napi_ok ||
+      napi_get_value_double(env, args[1], &ratio) != napi_ok || id <= 0 ||
+      !std::isfinite(ratio) || ratio <= 0) {
+    napi_throw_error(env, nullptr,
+                     "notifyWindowPixelRatio requires a window id and positive "
+                     "finite ratio");
+    return nullptr;
+  }
+  if (EnsureLynxtronLoaded()) {
+    using NotifyRatioFn = void (*)(int32_t, double);
+    auto fn = reinterpret_cast<NotifyRatioFn>(
+        dlsym(g_lynxtron_handle, "LynxtronNotifyWindowPixelRatio"));
+    if (fn) {
+      fn(id, ratio);
+    } else {
+      napi_throw_error(env, nullptr,
+                       "LynxtronNotifyWindowPixelRatio unavailable");
+      return nullptr;
+    }
+  }
+  napi_value result = nullptr;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 static napi_value NotifyWindowRect(napi_env env, napi_callback_info info) {
   size_t argc = 5;
   napi_value args[5] = {nullptr};
@@ -2937,14 +2970,19 @@ napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
       {"start", nullptr, Start, nullptr, nullptr, nullptr, napi_default,
        nullptr},
-      {"registerOpenExternal", nullptr, RegisterOpenExternal, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"registerOpenPath", nullptr, RegisterOpenPath, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"registerShowOpenDialog", nullptr, RegisterShowOpenDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"resolveShowOpenDialog", nullptr, ResolveShowOpenDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"registerShowSaveDialog", nullptr, RegisterShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"resolveShowSaveDialog", nullptr, ResolveShowSaveDialog, nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"quit", nullptr, Quit, nullptr, nullptr, nullptr, napi_default,
-       nullptr},
+      {"registerOpenExternal", nullptr, RegisterOpenExternal, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"registerOpenPath", nullptr, RegisterOpenPath, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
+      {"registerShowOpenDialog", nullptr, RegisterShowOpenDialog, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowOpenDialog", nullptr, ResolveShowOpenDialog, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"registerShowSaveDialog", nullptr, RegisterShowSaveDialog, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowSaveDialog", nullptr, ResolveShowSaveDialog, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"quit", nullptr, Quit, nullptr, nullptr, nullptr, napi_default, nullptr},
       {"sendText", nullptr, SendText, nullptr, nullptr, nullptr, napi_default,
        nullptr},
       {"getTextInputState", nullptr, GetTextInputState, nullptr, nullptr,
@@ -2966,7 +3004,8 @@ napi_value Init(napi_env env, napi_value exports) {
       {"notifyPowerMonitorLockScreen", nullptr, NotifyPowerMonitorLockScreen,
        nullptr, nullptr, nullptr, napi_default, nullptr},
       {"notifyPowerMonitorUnlockScreen", nullptr,
-       NotifyPowerMonitorUnlockScreen, nullptr, nullptr, nullptr, napi_default, nullptr},
+       NotifyPowerMonitorUnlockScreen, nullptr, nullptr, nullptr, napi_default,
+       nullptr},
       {"setWindowObject", nullptr, SetWindowObject, nullptr, nullptr, nullptr,
        napi_default, nullptr},
       {"getWindowTitle", nullptr, GetWindowTitle, nullptr, nullptr, nullptr,
@@ -2977,18 +3016,20 @@ napi_value Init(napi_env env, napi_value exports) {
        nullptr},
       {"openPath", nullptr, OpenPath, nullptr, nullptr, nullptr, napi_default,
        nullptr},
-      {"resolveCheckAppUpdate", nullptr, ResolveCheckAppUpdate,
-       nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"resolveShowUpdateDialog", nullptr, ResolveShowUpdateDialog,
-       nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"resolveLoadProduct", nullptr, ResolveLoadProduct,
-       nullptr, nullptr, nullptr, napi_default, nullptr},
-	   {"registerUpdateTSFN", nullptr, RegisterUpdateTSFN,
-       nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"resolveCheckAppUpdate", nullptr, ResolveCheckAppUpdate, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"resolveShowUpdateDialog", nullptr, ResolveShowUpdateDialog, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
+      {"resolveLoadProduct", nullptr, ResolveLoadProduct, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
+      {"registerUpdateTSFN", nullptr, RegisterUpdateTSFN, nullptr, nullptr,
+       nullptr, napi_default, nullptr},
       {"notifyWindowState", nullptr, NotifyWindowState, nullptr, nullptr,
        nullptr, napi_default, nullptr},
-      {"notifyWindowRect", nullptr, NotifyWindowRect, nullptr, nullptr,
-       nullptr, napi_default, nullptr},
+      {"notifyWindowRect", nullptr, NotifyWindowRect, nullptr, nullptr, nullptr,
+       napi_default, nullptr},
+      {"notifyWindowPixelRatio", nullptr, NotifyWindowPixelRatio, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
   };
   napi_status status = napi_define_properties(
       env, exports, sizeof(desc) / sizeof(desc[0]), desc);

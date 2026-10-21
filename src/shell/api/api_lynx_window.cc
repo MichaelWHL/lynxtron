@@ -34,6 +34,7 @@
 #include "shell/app/native_window_windowless.h"
 #endif
 #if BUILDFLAG(IS_HARMONY)
+#include "shell/app/harmony_window_metrics.h"
 #include "shell/app/native_window_harmony.h"
 #endif
 #include "shell/app/window_list.h"
@@ -223,6 +224,14 @@ LynxContentMetrics GetLynxContentMetrics(NativeWindow* window) {
           device_pixel_ratio;
   height = static_cast<float>(client_rect.bottom - client_rect.top) /
            device_pixel_ratio;
+#endif
+#if BUILDFLAG(IS_HARMONY)
+  // Harmony bounds cache XComponent physical pixels; Lynx frame dimensions
+  // are logical and the renderer multiplies them by DPR exactly once.
+  if (!window->IsWindowless()) {
+    width = HarmonyLogicalPixels(width, device_pixel_ratio);
+    height = HarmonyLogicalPixels(height, device_pixel_ratio);
+  }
 #endif
   return {.width = width,
           .height = height,

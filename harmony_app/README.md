@@ -243,6 +243,56 @@ Resource-loading regression coverage is in
 `src/spec/lynx-resource-fetcher-spec.ts` (core asset, file URL, invalid asset
 paths, missing file and unavailable resources directory).
 
+### Window density / high-DPI regression
+
+Harmony window density is reported per OS window id, using the display hosting
+that window. Initial reports are cached even before the native window/UI runner
+exists. Display changes and system-density changes refresh the ratio; moves and
+resizes also re-query it as a fallback. Failed display queries preserve the last
+valid value rather than replacing it with 1.
+
+XComponent surface sizes and pointer/scroll events remain physical pixels.
+Only the frame and screen dimensions passed to Lynx are divided by DPR; Clay
+then performs its own physical-to-logical input conversion. Native IME caret
+rectangles are converted from logical to physical pixels separately. Existing
+native window bounds continue to cache physical sizes.
+
+Run the SDK-independent cache/coordinate regression on the host:
+
+```sh
+c++ -std=c++17 -pthread -Isrc \
+  src/shell/app/harmony_window_metrics_test.cc \
+  -o /tmp/harmony-window-metrics-test
+/tmp/harmony-window-metrics-test
+```
+
+The `harmony-dpi` test card displays DPR, logical viewport size, a 200x80 logical
+box, an effect timer, click count, text input and a scrolling list. Build it with
+the spec card tooling (`LYNX_CARD=harmony-dpi npm run build` under
+`src/spec/case/lynx-card`). For device testing with the current default app,
+temporarily import this card's `App` in `src/packages/default_app/app/index.tsx`
+and render it instead of `DefaultApp`. Rebuild the default app bundle and
+`default_app_static default_app_asar`, then package/sign the HAP as above.
+Restore the default entry and rebuild/package again after testing.
+`LYNX_DEMO` alone only stages a resource; the current default app does not
+automatically load it.
+On a display with ratio `r`, the test box should occupy `200*r` by `80*r`
+physical pixels, while its queried logical size stays 200x80. Check clicks,
+scrolling, input/IME and resizing, and verify density-only changes without
+changing the surface size. Physical cross-display testing still requires
+displays with different densities.
+
+Device regression (2026-10-21): the connected HarmonyOS PC reported DPR 1.9.
+With a 1200x730 physical surface, the card reported a logical viewport of
+approximately 631.579x384.211 and a 200x80 logical box (380 physical pixels
+wide). Effect ticks, tapping, text input, scrolling and interactive resizing
+worked. A temporary app-only density override changed DPR to 2.375 without
+resizing the surface: the viewport became 505.263x307.368, the box stayed
+200x80 logically, and tapping/text input still worked. Restoring DPR 1.9
+restored the original viewport. The override was removed after testing;
+system density was never changed. Cross-display OS notification delivery
+and IME candidate-window placement still need separate hardware/manual checks.
+
 ## Sign the HAP
 
 The configured application bundle name is `com.huawei.electron`. The signing

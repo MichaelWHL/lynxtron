@@ -759,6 +759,7 @@ source_set("lynxtron_lib") {
       "shell/app/lynx_napi_v8_bridge_harmony.cc",
       "shell/app/lynx_windowless_renderer_harmony.cc",
       "shell/app/native_window_harmony.cc",
+      "shell/app/harmony_window_metrics.h",
       "shell/app/relauncher_harmony.cc",
       "shell/app/surface_render_harmony.cc",
       "shell/app/window_creation_bridge_harmony.cc",
